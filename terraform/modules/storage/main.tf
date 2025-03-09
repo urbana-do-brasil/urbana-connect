@@ -44,16 +44,6 @@ resource "google_storage_bucket" "main" {
   force_destroy = var.environment == "prod" ? false : true
 }
 
-# IAM para o bucket
-resource "google_storage_bucket_iam_binding" "viewers" {
-  bucket = google_storage_bucket.main.name
-  role   = "roles/storage.objectViewer"
-  
-  members = [
-    "allUsers",  # Público - remova em produção se não for necessário
-  ]
-}
-
 # Pasta para uploads
 resource "google_storage_bucket_object" "uploads_folder" {
   name    = "uploads/"

@@ -1,4 +1,4 @@
-project_id = "urbana-connect-prod"
+project_id = "extreme-mix-447320-i4"
 region     = "us-central1"
 zone       = "us-central1-a"
 environment = "prod"

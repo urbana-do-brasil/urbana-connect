@@ -46,7 +46,6 @@ resource "google_sql_database_instance" "instance" {
     # Configurações de IP
     ip_configuration {
       ipv4_enabled    = true
-      private_network = var.network_id
       
       # Autorizar acesso apenas da rede VPC
       authorized_networks {

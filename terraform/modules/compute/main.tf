@@ -115,4 +115,14 @@ resource "google_container_node_pool" "primary_nodes" {
     # Adicionar tags de rede
     tags = ["gke-node", "urbana-connect-${var.environment}"]
   }
+  
+  # Ignorar mudanças em certos atributos para evitar problemas de atualização
+  lifecycle {
+    ignore_changes = [
+      node_config[0].resource_labels,
+      node_config[0].kubelet_config,
+      node_config[0].labels,
+      timeouts
+    ]
+  }
 } 
