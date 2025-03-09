@@ -1,0 +1,53 @@
+# Arquivos de estado local do Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Arquivos de variáveis que podem conter informações sensíveis
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Arquivos de configuração CLI
+.terraformrc
+terraform.rc
+
+# Arquivos de plano de execução
+*tfplan*
+
+# Arquivos de chaves e credenciais
+*.json
+*.pem
+*.key
+
+# Diretórios e arquivos específicos do sistema
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Diretórios e arquivos específicos do Cursor
+.cursor/
+
+# Logs
+*.log
+
+# Diretórios de dependências
+node_modules/
+vendor/
+
+# Arquivos de ambiente
+.env
+.env.*
+
+# Exceções para arquivos que devem ser versionados mesmo sendo de tipos ignorados
+!terraform.tfvars.example
+!terraform/environments/dev/terraform.tfvars
+!terraform/environments/staging/terraform.tfvars
+!terraform/environments/prod/terraform.tfvars 
