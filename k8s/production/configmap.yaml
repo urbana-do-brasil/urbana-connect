@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: production
+data:
+  SPRING_PROFILES_ACTIVE: "production"
+  DATABASE_URL: "jdbc:postgresql://postgres-production:5432/app_db"
+  JAVA_OPTS: "-Xms512m -Xmx1024m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError"
+  LOGGING_LEVEL_ROOT: "WARN"
+  LOGGING_LEVEL_COM_SEUDOMINIO: "INFO"
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,prometheus"
+  SPRING_CACHE_TYPE: "caffeine"
+  SPRING_CACHE_CAFFEINE_SPEC: "maximumSize=500,expireAfterAccess=600s" 

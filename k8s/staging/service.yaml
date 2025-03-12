@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-name
+  namespace: staging
+spec:
+  selector:
+    app: app-name
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: ClusterIP 

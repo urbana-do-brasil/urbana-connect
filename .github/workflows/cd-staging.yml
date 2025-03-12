@@ -1,0 +1,115 @@
+name: Deploy para Homologação
+
+on:
+  workflow_run:
+    workflows: ["Integração Contínua"]
+    types:
+      - completed
+    branches: [develop]
+
+jobs:
+  deploy-staging:
+    name: Deploy para Homologação
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v3
+
+      - name: Configurar JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Configurar credenciais do Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configurar Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configurar kubectl
+        uses: google-github-actions/get-gke-credentials@v1
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
+          location: ${{ secrets.GKE_CLUSTER_ZONE }}
+
+      - name: Obter imagem Docker mais recente
+        id: get-latest-image
+        run: |
+          echo "IMAGE_TAG=$(gcloud container images list-tags ${{ secrets.DOCKERHUB_USERNAME }}/app-name --limit=1 --format='get(tags[0])')" >> $GITHUB_ENV
+
+      - name: Atualizar manifesto Kubernetes
+        run: |
+          sed -i "s|image: .*|image: ${{ secrets.DOCKERHUB_USERNAME }}/app-name:${{ env.IMAGE_TAG }}|g" k8s/staging/deployment.yaml
+
+      - name: Deploy para Kubernetes
+        run: |
+          kubectl apply -f k8s/staging/namespace.yaml
+          kubectl apply -f k8s/staging/configmap.yaml
+          kubectl apply -f k8s/staging/secret.yaml
+          kubectl apply -f k8s/staging/deployment.yaml
+          kubectl apply -f k8s/staging/service.yaml
+          kubectl apply -f k8s/staging/ingress.yaml
+
+      - name: Verificar status do deployment
+        run: |
+          kubectl rollout status deployment/app-name -n staging
+
+  integration-tests:
+    name: Testes de Integração
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v3
+
+      - name: Configurar JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
+
+      - name: Executar testes de integração
+        run: mvn verify -Pintegration-test
+        env:
+          API_URL: https://staging-api.seudominio.com.br
+
+      - name: Publicar relatório de testes
+        uses: actions/upload-artifact@v3
+        with:
+          name: integration-test-report
+          path: target/failsafe-reports/
+
+  notify:
+    name: Notificar Deploy
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, integration-tests]
+    if: always()
+    steps:
+      - name: Verificar status do deploy
+        id: check-status
+        run: |
+          if [[ "${{ needs.deploy-staging.result }}" == "success" && "${{ needs.integration-tests.result }}" == "success" ]]; then
+            echo "STATUS=success" >> $GITHUB_ENV
+            echo "MESSAGE=✅ Deploy para homologação concluído com sucesso!" >> $GITHUB_ENV
+          else
+            echo "STATUS=failure" >> $GITHUB_ENV
+            echo "MESSAGE=❌ Falha no deploy para homologação. Verifique os logs." >> $GITHUB_ENV
+          fi
+
+      - name: Enviar notificação para Slack
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_CHANNEL: "deployments"
+          SLACK_COLOR: ${{ env.STATUS == 'success' && 'good' || 'danger' }}
+          SLACK_TITLE: Deploy para Homologação
+          SLACK_MESSAGE: ${{ env.MESSAGE }}
+          SLACK_FOOTER: GitHub Actions 
