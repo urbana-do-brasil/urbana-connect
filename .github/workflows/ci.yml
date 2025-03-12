@@ -73,9 +73,16 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: java
+          # Não especificamos build-mode para usar o modo manual
+
+      # Compilação manual para o CodeQL
+      - name: Compilar com Maven para análise CodeQL
+        run: mvn compile -DskipTests
 
       - name: Executar análise de segurança (SAST)
         uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:java"
 
       - name: Verificar dependências com OWASP
         run: mvn org.owasp:dependency-check-maven:check
