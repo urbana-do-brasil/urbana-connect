@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Adicionar permissões explícitas para o GITHUB_TOKEN
+permissions:
+  actions: read
+  contents: read
+  security-events: write # Necessário para upload de resultados do CodeQL
+
 jobs:
   lint:
     name: Verificação de Código
@@ -61,6 +67,9 @@ jobs:
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
+        with:
+          # Garantir que o histórico completo seja clonado para o CodeQL
+          fetch-depth: 0
 
       - name: Configurar JDK
         uses: actions/setup-java@v4
@@ -83,6 +92,7 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:java"
+          upload: true # Garantir que os resultados sejam enviados
 
       - name: Verificar dependências com OWASP
         run: mvn org.owasp:dependency-check-maven:check
