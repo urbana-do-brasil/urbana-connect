@@ -15,7 +15,7 @@ Este repositório contém a infraestrutura e documentação para o Urbana Connec
 urbana-connect/
 ├── docs/                    # Documentação do projeto
 │   └── arquitetura/         # Especificações da arquitetura
-├── urbana-connect-infra/    # Código de infraestrutura
+├── infra/                   # Código de infraestrutura
 │   └── terraform/           # Configuração do Terraform para DOKS
 ```
 
