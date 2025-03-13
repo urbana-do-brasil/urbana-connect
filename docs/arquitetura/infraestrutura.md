@@ -1,69 +1,62 @@
 # Infraestrutura - Urbana Connect
 
-Este documento descreve a infraestrutura proposta para o sistema Urbana Connect, incluindo ambiente de desenvolvimento, staging e produção.
+Este documento descreve a infraestrutura implementada para o sistema Urbana Connect, com foco inicial em otimização de custos e implementação gradual.
 
-## Visão Geral da Infraestrutura
+## Visão Geral da Infraestrutura Atual
 
 ```mermaid
 graph TD
-    subgraph "Infraestrutura de Produção"
-        LB[Load Balancer] --> API1[API Gateway 1]
-        LB --> API2[API Gateway 2]
+    subgraph "Infraestrutura Inicial (Otimizada para Custos)"
+        DOKS[Digital Ocean Kubernetes]
+        NODE1[Node: s-2vcpu-2gb]
+        AUTO[Auto-scaling: 1-3 nodes]
         
-        API1 --> MSQ1[Message Queue 1]
-        API2 --> MSQ1
-        API1 --> MSQ2[Message Queue 2]
-        API2 --> MSQ2
+        DOKS --> NODE1
+        DOKS --> AUTO
         
-        MSQ1 --> PROC1[Message Processor 1]
-        MSQ1 --> PROC2[Message Processor 2]
-        MSQ2 --> PROC1
-        MSQ2 --> PROC2
-        
-        PROC1 --> CONV1[Conversation Manager 1]
-        PROC2 --> CONV1
-        PROC1 --> CONV2[Conversation Manager 2]
-        PROC2 --> CONV2
-        
-        CONV1 --> AI1[AI Service 1]
-        CONV2 --> AI1
-        CONV1 --> AI2[AI Service 2]
-        CONV2 --> AI2
-        
-        CONV1 --> HH[Human Handoff Service]
-        CONV2 --> HH
-        
-        subgraph "Data Storage"
-            MONGO[(MongoDB Cluster)]
-            REDIS[(Redis Cluster)]
-            ES[(Elasticsearch)]
+        subgraph "Recursos Planejados (Fase Posterior)"
+            API[API Gateway]
+            PROC[Message Processor]
+            CONV[Conversation Manager]
+            AI[AI Service]
+            DB[(MongoDB)]
+            CACHE[(Redis)]
         end
-        
-        CONV1 --> MONGO
-        CONV2 --> MONGO
-        AI1 --> REDIS
-        AI2 --> REDIS
-        
-        subgraph "Monitoring"
-            PROM[Prometheus]
-            GRAF[Grafana]
-            LOG[Logstash]
-        end
-        
-        API1 --> LOG
-        API2 --> LOG
-        PROC1 --> LOG
-        PROC2 --> LOG
-        CONV1 --> LOG
-        CONV2 --> LOG
-        AI1 --> LOG
-        AI2 --> LOG
-        
-        LOG --> ES
-        ES --> GRAF
-        PROM --> GRAF
     end
 ```
+
+## Implementação Atual
+
+Atualmente, o Urbana Connect está na fase inicial de sua infraestrutura, com foco na criação e configuração do cluster Kubernetes. Esta abordagem gradual permite iniciar com custos mínimos e escalar conforme a demanda do negócio cresce.
+
+### Cluster Kubernetes na Digital Ocean (DOKS)
+
+O serviço foi implantado utilizando um cluster Kubernetes gerenciado na Digital Ocean com as seguintes características:
+
+- **Região**: NYC1 (Nova York)
+- **Versão do Kubernetes**: 1.32.2-do.0 (última versão estável)
+- **Configuração de Nós**:
+  - Tipo: s-2vcpu-2gb (2 vCPUs, 2GB RAM)
+  - Quantidade inicial: 1 nó
+  - Auto-scaling: Habilitado (min: 1, max: 3)
+- **Custos estimados**: $18/mês (valor inicial com 1 nó)
+
+### Infraestrutura como Código
+
+Toda a infraestrutura é gerenciada através do Terraform, permitindo:
+
+- Versionamento de configurações
+- Reprodutibilidade dos ambientes
+- Fácil atualização e expansão
+- Documentação viva da infraestrutura
+
+### Arquivo Terraform principais:
+
+- `main.tf`: Definição do cluster DOKS
+- `variables.tf`: Variáveis configuráveis
+- `outputs.tf`: Saídas relevantes do cluster
+- `providers.tf`: Configuração dos provedores
+- `terraform.tfvars`: Valores das variáveis (não versionados)
 
 ## Ambiente de Desenvolvimento
 
