@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <property name="LOGS" value="./logs" />
+
+    <appender name="Console" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>conversationId</includeMdcKeyName>
+            <includeMdcKeyName>customerId</includeMdcKeyName>
+            <includeMdcKeyName>messageId</includeMdcKeyName>
+            <includeMdcKeyName>requestId</includeMdcKeyName>
+        </encoder>
+    </appender>
+
+    <appender name="RollingFile" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOGS}/urbana-connect.log</file>
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder"/>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOGS}/archived/urbana-connect-%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- Configuração específica para ambiente de produção -->
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="Console" />
+            <appender-ref ref="RollingFile" />
+        </root>
+    </springProfile>
+
+    <!-- Configuração específica para ambiente de desenvolvimento -->
+    <springProfile name="!prod">
+        <root level="INFO">
+            <appender-ref ref="Console" />
+        </root>
+    </springProfile>
+
+    <!-- Configurações específicas para pacotes -->
+    <logger name="br.com.urbana.connect" level="DEBUG" />
+    <logger name="org.springframework" level="INFO" />
+    <logger name="org.springframework.data.mongodb" level="INFO" />
+    <logger name="org.mongodb" level="WARN" />
+</configuration> 

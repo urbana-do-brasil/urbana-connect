@@ -1,0 +1,74 @@
+spring:
+  application:
+    name: urbana-connect
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/urbana-connect}
+      auto-index-creation: true
+  cache:
+    type: caffeine
+    cache-names: gpt-responses,customer-data
+    caffeine:
+      spec: maximumSize=500,expireAfterWrite=30m
+  security:
+    user:
+      name: ${ADMIN_USER:admin}
+      password: ${ADMIN_PASSWORD:admin}
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    date-format: yyyy-MM-dd'T'HH:mm:ss.SSSZ
+
+server:
+  port: ${PORT:8080}
+  servlet:
+    context-path: /
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# Configurações da API OpenAI
+openai:
+  api-key: ${OPENAI_API_KEY:}
+  model: ${OPENAI_MODEL:gpt-3.5-turbo}
+  max-tokens: ${OPENAI_MAX_TOKENS:500}
+  temperature: ${OPENAI_TEMPERATURE:0.7}
+
+# Configurações do WhatsApp
+whatsapp:
+  api-url: ${WHATSAPP_API_URL:https://graph.facebook.com/v17.0}
+  phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
+  access-token: ${WHATSAPP_ACCESS_TOKEN:}
+  verify-token: ${WHATSAPP_VERIFY_TOKEN:urbana-connect-webhook-token}
+
+logging:
+  level:
+    root: INFO
+    br.com.urbana.connect: DEBUG
+    org.springframework.data.mongodb.core.MongoTemplate: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+
+# Configuração de timeout para conexões HTTP
+http:
+  connection:
+    timeout: 10000
+  socket:
+    timeout: 30000 
