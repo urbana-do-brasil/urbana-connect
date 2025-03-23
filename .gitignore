@@ -75,6 +75,7 @@ out/
 /data/
 .env
 .env.*
+.env.dev
 !.env.example
 
 # Terraform
