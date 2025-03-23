@@ -16,7 +16,7 @@ import org.springframework.stereotype.Service;
 public class WebhookService implements WebhookUseCase {
     
     private final WhatsappServicePort whatsappServicePort;
-    
+    private final MessageService messageService;
     @Override
     public boolean processWebhookNotification(String payload) {
         log.debug("Processando notificação de webhook: {}", payload);
@@ -31,6 +31,15 @@ public class WebhookService implements WebhookUseCase {
             }
             
             log.info("Mensagem processada com sucesso. ID: {}", message.getId());
+            
+            // Processar a mensagem
+            Message processedMessage = messageService.processInboundMessage(message);
+
+            log.info("Mensagem processada com sucesso. Content: {}", processedMessage.getContent());
+            
+            // Enviar a resposta para o cliente
+            //whatsappServicePort.sendMessage(message.getFrom(), processedMessage.getContent());
+
             return true;
         } catch (Exception e) {
             log.error("Erro ao processar notificação do webhook: {}", e.getMessage(), e);

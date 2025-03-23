@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.*;
  * e verificar tokens para validação.
  */
 @RestController
-@RequestMapping("/api/webhook/whatsapp")
+@RequestMapping("/api/webhook")
 @RequiredArgsConstructor
 @Slf4j
 public class WhatsappWebhookController {
