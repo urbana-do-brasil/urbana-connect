@@ -33,7 +33,11 @@ public class WhatsappApiService implements WhatsappServicePort {
     private final String phoneNumberId;
     private final String accessToken;
     private final String verifyToken;
+    private final WebhookPayloadProcessor webhookPayloadProcessor;
     
+    /**
+     * Construtor com injeção de dependências.
+     */
     public WhatsappApiService(
             @Value("${whatsapp.api-url}") String apiUrl,
             @Value("${whatsapp.phone-number-id}") String phoneNumberId,
@@ -48,6 +52,7 @@ public class WhatsappApiService implements WhatsappServicePort {
         this.verifyToken = verifyToken;
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.webhookPayloadProcessor = new WebhookPayloadProcessor(objectMapper);
         
         log.info("Inicializando serviço WhatsApp para o número: {}", phoneNumberId);
     }
@@ -155,74 +160,7 @@ public class WhatsappApiService implements WhatsappServicePort {
     @Override
     public Message processWebhookNotification(String payload) {
         log.debug("Processando notificação do webhook: {}", payload);
-        
-        try {
-            JsonNode root = objectMapper.readTree(payload);
-            
-            // Verificar se é uma mensagem
-            if (!root.has("entry") || !root.path("entry").isArray() || root.path("entry").size() == 0) {
-                log.warn("Payload não contém entradas válidas");
-                return null;
-            }
-            
-            JsonNode entry = root.path("entry").path(0);
-            
-            if (!entry.has("changes") || !entry.path("changes").isArray() || entry.path("changes").size() == 0) {
-                log.warn("Entry não contém changes válidos");
-                return null;
-            }
-            
-            JsonNode change = entry.path("changes").path(0);
-            
-            if (!change.has("value") || !change.path("value").has("messages") || 
-                    !change.path("value").path("messages").isArray() || 
-                    change.path("value").path("messages").size() == 0) {
-                log.warn("Change não contém mensagens válidas");
-                return null;
-            }
-            
-            JsonNode messageNode = change.path("value").path("messages").path(0);
-            
-            // Extrair dados da mensagem
-            String messageId = messageNode.path("id").asText();
-            String from = messageNode.path("from").asText();
-            String type = messageNode.path("type").asText();
-            
-            // Extrair conteúdo dependendo do tipo
-            String content = "";
-            MessageType messageType = MessageType.TEXT; // Padrão
-            
-            if ("text".equals(type) && messageNode.has("text")) {
-                content = messageNode.path("text").path("body").asText();
-                messageType = MessageType.TEXT;
-            } else if ("image".equals(type)) {
-                messageType = MessageType.IMAGE;
-                content = "Imagem recebida"; // Simplificação para o MVP
-            } else if ("document".equals(type)) {
-                messageType = MessageType.DOCUMENT;
-                content = "Documento recebido"; // Simplificação para o MVP
-            } else {
-                content = "Conteúdo não suportado do tipo: " + type;
-            }
-            
-            // Criar objeto de mensagem
-            Message message = Message.builder()
-                    .whatsappMessageId(messageId)
-                    .customerId(from)
-                    .type(messageType)
-                    .direction(MessageDirection.INBOUND)
-                    .content(content)
-                    .timestamp(LocalDateTime.now())
-                    .build();
-            
-            log.info("Mensagem processada do webhook. ID: {}, De: {}, Tipo: {}", 
-                    messageId, from, messageType);
-            
-            return message;
-        } catch (Exception e) {
-            log.error("Erro ao processar notificação do webhook: {}", e.getMessage(), e);
-            return null;
-        }
+        return webhookPayloadProcessor.processPayload(payload);
     }
     
     /**

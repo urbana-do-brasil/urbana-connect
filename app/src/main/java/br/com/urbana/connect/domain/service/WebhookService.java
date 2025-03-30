@@ -17,6 +17,7 @@ public class WebhookService implements WebhookUseCase {
     
     private final WhatsappServicePort whatsappServicePort;
     private final MessageService messageService;
+
     @Override
     public boolean processWebhookNotification(String payload) {
         log.debug("Processando notificação de webhook: {}", payload);

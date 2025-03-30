@@ -1,7 +1,6 @@
 spring:
-  data:
-    mongodb:
-      uri: mongodb://localhost:27017/test
+  # Não precisamos mais configurar o MongoDB aqui
+  # O TestContainers vai configurar a URI dinamicamente
   cache:
     type: none
   security:
