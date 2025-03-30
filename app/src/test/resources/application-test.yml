@@ -1,0 +1,31 @@
+spring:
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/test
+  cache:
+    type: none
+  security:
+    user:
+      name: testuser
+      password: testpassword
+
+# Configurações da API OpenAI para testes
+openai:
+  api-key: test-api-key
+  model: gpt-3.5-turbo
+  max-tokens: 100
+  temperature: 0.0
+
+# Configurações do WhatsApp para testes
+whatsapp:
+  api-url: https://test-api.example.com
+  phone-number-id: test-phone-id
+  access-token: test-access-token
+  verify-token: urbana-connect-webhook-token
+
+logging:
+  level:
+    root: INFO
+    br.com.urbana.connect: DEBUG
+    org.springframework.data.mongodb.core: DEBUG
+    org.testcontainers: INFO 
