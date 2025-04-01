@@ -1,6 +1,4 @@
 spring:
-  # Não precisamos mais configurar o MongoDB aqui
-  # O TestContainers vai configurar a URI dinamicamente
   cache:
     type: none
   security:

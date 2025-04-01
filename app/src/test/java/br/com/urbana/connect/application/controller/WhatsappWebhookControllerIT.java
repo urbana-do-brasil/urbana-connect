@@ -31,6 +31,8 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -67,11 +69,19 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
     private static final String TEST_PHONE_NUMBER = "+5511999999999";
     private static final String TEST_MESSAGE_CONTENT = "Olá, gostaria de informações sobre coleta de lixo";
     private static final String GPT_RESPONSE = "Olá! Temos serviços de coleta de lixo residencial e comercial. Posso ajudar com mais informações específicas?";
+    private static final String FOLLOW_UP_MESSAGE = "Sim, quanto custa para residências?";
+    private static final String GPT_FOLLOW_UP_RESPONSE = "Para residências, o serviço de coleta de lixo básico custa R$50,00 por mês, com coletas semanais. Temos também planos premium a partir de R$80,00 com coletas duas vezes por semana.";
 
     @BeforeEach
     void setup() {
-        // Configurar mock do GPT para sempre retornar a mesma resposta
-        when(gptServicePort.generateResponse(any(), anyString(), anyString())).thenReturn(GPT_RESPONSE);
+        // Configurar mock do GPT para respostas específicas
+        when(gptServicePort.generateResponse(anyString(), eq(TEST_MESSAGE_CONTENT), anyString()))
+                .thenReturn(GPT_RESPONSE);
+                
+        // Configurações adicionais de mocks
+        when(gptServicePort.analyzeIntent(anyString())).thenReturn("DUVIDA_SERVICO");
+        when(gptServicePort.requiresHumanIntervention(anyString(), anyString())).thenReturn(false);
+        when(gptServicePort.extractEntities(anyString())).thenReturn(List.of("Tipo: coleta de lixo"));
     }
 
     @AfterEach
@@ -134,7 +144,68 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
         assertThat(outboundMessage.getConversationId()).isEqualTo(conversation.getId());
 
         // Verificar que o GPT foi chamado para gerar uma resposta
-        verify(gptServicePort, times(1)).generateResponse(any(), anyString(), anyString());
+        verify(gptServicePort, times(1)).generateResponse(anyString(), anyString(), anyString());
+        
+        // Verificar que a intenção e entidades foram extraídas
+        verify(gptServicePort, times(1)).analyzeIntent(anyString());
+        verify(gptServicePort, times(1)).extractEntities(anyString());
+    }
+    
+    @Test
+    void shouldMaintainConversationContextAcrossMultipleMessages() throws Exception {
+        // Given - Primeira mensagem e configuração de mock para seguinte
+        String firstWebhookPayload = buildWebhookPayload(TEST_PHONE_NUMBER, TEST_MESSAGE_CONTENT);
+        
+        // Configurar mock para a segunda resposta com histórico
+        when(gptServicePort.generateResponse(contains(TEST_MESSAGE_CONTENT), eq(FOLLOW_UP_MESSAGE), anyString()))
+                .thenReturn(GPT_FOLLOW_UP_RESPONSE);
+        
+        // Enviar a primeira mensagem
+        mockMvc.perform(post("/api/webhook")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(firstWebhookPayload))
+                .andExpect(status().isOk())
+                .andReturn();
+                
+        // Esperar processamento
+        await().atMost(5, TimeUnit.SECONDS).until(() -> 
+            customerRepository.findByPhoneNumber(TEST_PHONE_NUMBER).isPresent());
+        
+        // When - Enviar a segunda mensagem (follow-up)
+        String secondWebhookPayload = buildWebhookPayload(TEST_PHONE_NUMBER, FOLLOW_UP_MESSAGE);
+        mockMvc.perform(post("/api/webhook")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(secondWebhookPayload))
+                .andExpect(status().isOk())
+                .andReturn();
+        
+        // Then - Verificar que a mesma conversa foi usada
+        await().atMost(5, TimeUnit.SECONDS).until(() -> {
+            Customer customer = customerRepository.findByPhoneNumber(TEST_PHONE_NUMBER).orElseThrow();
+            Conversation conversation = conversationRepository.findByCustomerIdOrderByStartTimeDesc(customer.getId()).get(0);
+            return messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId()).size() >= 4;
+        });
+        
+        // Obter a conversa atual
+        Customer customer = customerRepository.findByPhoneNumber(TEST_PHONE_NUMBER).orElseThrow();
+        Conversation conversation = conversationRepository.findByCustomerIdOrderByStartTimeDesc(customer.getId()).get(0);
+        List<Message> messages = messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId());
+        
+        // Verificar que há 4 mensagens (2 do usuário, 2 do assistente)
+        assertThat(messages).hasSize(4);
+        
+        // Verificar que a segunda resposta usa o contexto
+        Message lastResponse = messages.get(3);
+        assertThat(lastResponse.getDirection()).isEqualTo(MessageDirection.OUTBOUND);
+        assertThat(lastResponse.getContent()).isEqualTo(GPT_FOLLOW_UP_RESPONSE);
+        
+        // Verificar que o GPT foi chamado com contexto para a segunda mensagem
+        verify(gptServicePort, times(1)).generateResponse(contains(TEST_MESSAGE_CONTENT), eq(FOLLOW_UP_MESSAGE), anyString());
+        
+        // Verificar que o contexto da conversa foi atualizado com a intenção e entidades
+        Conversation updatedConversation = conversationRepository.findById(conversation.getId()).orElseThrow();
+        assertThat(updatedConversation.getContext().getLastDetectedTopic()).isEqualTo("DUVIDA_SERVICO");
+        assertThat(updatedConversation.getContext().getIdentifiedEntities()).isNotEmpty();
     }
 
     /**

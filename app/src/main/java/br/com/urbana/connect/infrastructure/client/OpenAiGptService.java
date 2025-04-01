@@ -1,6 +1,7 @@
 package br.com.urbana.connect.infrastructure.client;
 
 import br.com.urbana.connect.domain.port.output.GptServicePort;
+import br.com.urbana.connect.domain.service.PromptBuilderService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.theokanning.openai.completion.chat.ChatCompletionRequest;
 import com.theokanning.openai.completion.chat.ChatCompletionResult;
@@ -29,46 +30,43 @@ public class OpenAiGptService implements GptServicePort {
     private final int maxTokens;
     private final double temperature;
     private final ObjectMapper objectMapper;
+    private final PromptBuilderService promptBuilderService;
     
     public OpenAiGptService(
             @Value("${openai.api-key}") String apiKey,
             @Value("${openai.model}") String model,
             @Value("${openai.max-tokens}") int maxTokens,
             @Value("${openai.temperature}") double temperature,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PromptBuilderService promptBuilderService) {
         
         this.openAiService = new OpenAiService(apiKey, Duration.ofSeconds(60));
         this.model = model;
         this.maxTokens = maxTokens;
         this.temperature = temperature;
         this.objectMapper = objectMapper;
+        this.promptBuilderService = promptBuilderService;
         
         log.info("Inicializando serviço OpenAI com modelo: {}", model);
     }
     
     @Override
-    @Cacheable(value = "gpt-responses", key = "#userMessage + #systemPrompt")
-    public String generateResponse(List<String> conversationHistory, String userMessage, String systemPrompt) {
+    public String generateResponse(String conversationHistory, String userMessage, String systemPrompt) {
         log.debug("Gerando resposta com GPT para mensagem: {}", userMessage);
         
         try {
+            // Usar o PromptBuilderService para construir o prompt completo
+            String fullPrompt = promptBuilderService.buildPrompt(userMessage, conversationHistory);
+            
             List<ChatMessage> messages = new ArrayList<>();
             
             // Adicionar prompt do sistema
-            messages.add(new ChatMessage("system", systemPrompt));
-            
-            // Adicionar histórico de conversa
-            for (String message : conversationHistory) {
-                String role = message.startsWith("Cliente: ") ? "user" : "assistant";
-                String content = message.startsWith("Cliente: ") 
-                        ? message.substring("Cliente: ".length()) 
-                        : message.substring("Assistente: ".length());
-                
-                messages.add(new ChatMessage(role, content));
+            if (systemPrompt != null && !systemPrompt.isEmpty()) {
+                messages.add(new ChatMessage("system", systemPrompt));
             }
             
-            // Adicionar mensagem atual do usuário
-            messages.add(new ChatMessage("user", userMessage));
+            // Adicionar o prompt completo como mensagem do usuário
+            messages.add(new ChatMessage("user", fullPrompt));
             
             // Criar requisição
             ChatCompletionRequest request = ChatCompletionRequest.builder()
@@ -96,9 +94,8 @@ public class OpenAiGptService implements GptServicePort {
         log.debug("Analisando intenção da mensagem: {}", message);
         
         try {
-            String prompt = "Analise a seguinte mensagem de um cliente e identifique a intenção principal em uma única palavra " +
-                    "ou frase curta. Exemplos: 'dúvida sobre coleta', 'reclamação', 'agendar serviço', 'solicitar informação', etc.\n\n" +
-                    "Mensagem: " + message + "\n\nIntenção:";
+            // Usar o PromptBuilderService para construir o prompt de análise de intenção
+            String prompt = promptBuilderService.buildIntentAnalysisPrompt(message);
             
             List<ChatMessage> messages = new ArrayList<>();
             messages.add(new ChatMessage("system", "Você é um analisador de intenções de mensagens."));
@@ -123,19 +120,12 @@ public class OpenAiGptService implements GptServicePort {
     }
     
     @Override
-    public boolean requiresHumanIntervention(String message, String conversationContext) {
+    public boolean requiresHumanIntervention(String message, String conversationHistory) {
         log.debug("Verificando se mensagem requer intervenção humana: {}", message);
         
         try {
-            String prompt = "Analise a seguinte mensagem de um cliente e determine se ela requer intervenção " +
-                    "humana. Responda apenas com 'sim' ou 'não'.\n\n" +
-                    "Considere que requer intervenção humana se:\n" +
-                    "1. O cliente explicitamente pede para falar com um atendente humano\n" +
-                    "2. A mensagem contém reclamação grave ou urgente\n" +
-                    "3. O cliente demonstra insatisfação com as respostas automáticas\n" +
-                    "4. O assunto é complexo e provavelmente requer análise humana\n\n" +
-                    "Contexto da conversa: " + (conversationContext != null ? conversationContext : "Não disponível") + "\n" +
-                    "Mensagem: " + message + "\n\nRequer intervenção humana?";
+            // Usar o PromptBuilderService para construir o prompt de verificação de intervenção humana
+            String prompt = promptBuilderService.buildHumanInterventionPrompt(message, conversationHistory);
             
             List<ChatMessage> messages = new ArrayList<>();
             messages.add(new ChatMessage("system", "Você é um analisador de mensagens para decidir se precisa de intervenção humana."));
@@ -167,10 +157,8 @@ public class OpenAiGptService implements GptServicePort {
         log.debug("Extraindo entidades da mensagem: {}", message);
         
         try {
-            String prompt = "Extraia da seguinte mensagem de um cliente quaisquer entidades relevantes como nomes de pessoas, " +
-                    "endereços, tipos de serviço, datas, números de telefone, emails, etc. Liste cada entidade em uma linha " +
-                    "separada com o formato 'tipo: valor'.\n\n" +
-                    "Mensagem: " + message + "\n\nEntidades:";
+            // Usar o PromptBuilderService para construir o prompt de extração de entidades
+            String prompt = promptBuilderService.buildEntityExtractionPrompt(message);
             
             List<ChatMessage> messages = new ArrayList<>();
             messages.add(new ChatMessage("system", "Você é um extrator de entidades de texto."));
@@ -179,22 +167,31 @@ public class OpenAiGptService implements GptServicePort {
             ChatCompletionRequest request = ChatCompletionRequest.builder()
                     .model(model)
                     .messages(messages)
-                    .maxTokens(200)
-                    .temperature(0.3)
+                    .maxTokens(150)
+                    .temperature(0.2)
                     .build();
             
             ChatCompletionResult result = openAiService.createChatCompletion(request);
-            String response = result.getChoices().get(0).getMessage().getContent().trim();
+            String jsonResponse = result.getChoices().get(0).getMessage().getContent().trim();
             
-            List<String> entities = Arrays.stream(response.split("\n"))
-                    .filter(line -> !line.isBlank())
-                    .collect(Collectors.toList());
+            log.info("Entidades extraídas: {}", jsonResponse);
             
-            log.info("Entidades extraídas: {}", entities);
-            return entities;
+            // Tentar converter o JSON em uma lista de strings
+            try {
+                // Filtrar apenas os valores não vazios do JSON
+                return Arrays.stream(jsonResponse.split("\n"))
+                        .filter(line -> line.contains(":") && !line.contains("null") && !line.contains("\\[\\]"))
+                        .map(line -> line.split(":", 2)[1].trim().replaceAll("[\",\\[\\]]", ""))
+                        .filter(value -> !value.isEmpty())
+                        .collect(Collectors.toList());
+            } catch (Exception ex) {
+                log.warn("Erro ao parsear JSON de entidades: {}", ex.getMessage());
+                // Se não conseguir parsear, retorna a string completa
+                return List.of(jsonResponse);
+            }
         } catch (Exception e) {
             log.error("Erro ao extrair entidades: {}", e.getMessage(), e);
-            return new ArrayList<>();
+            return List.of();
         }
     }
 } 

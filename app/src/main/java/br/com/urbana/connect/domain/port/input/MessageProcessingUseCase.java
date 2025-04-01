@@ -18,6 +18,16 @@ public interface MessageProcessingUseCase {
     Message processInboundMessage(Message inboundMessage);
     
     /**
+     * Processa uma mensagem recebida pelo número de telefone.
+     *
+     * @param phoneNumber Número de telefone do cliente
+     * @param messageContent Conteúdo da mensagem
+     * @param whatsappMessageId ID da mensagem no WhatsApp (opcional)
+     * @return Resposta gerada para a mensagem
+     */
+    String processIncomingMessage(String phoneNumber, String messageContent, String whatsappMessageId);
+    
+    /**
      * Gera uma resposta baseada no histórico da conversa e na última mensagem recebida.
      * 
      * @param conversationId ID da conversa
@@ -43,4 +53,12 @@ public interface MessageProcessingUseCase {
      * @return true se o status foi atualizado com sucesso
      */
     boolean processMessageStatusUpdate(String messageId, MessageStatus status);
+    
+    /**
+     * Processa uma notificação de leitura de mensagem do WhatsApp.
+     *
+     * @param whatsappMessageId ID da mensagem no WhatsApp
+     * @return true se processado com sucesso, false caso contrário
+     */
+    boolean processReadReceipt(String whatsappMessageId);
 } 

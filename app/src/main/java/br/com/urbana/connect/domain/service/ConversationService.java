@@ -110,6 +110,28 @@ public class ConversationService implements ConversationManagementUseCase {
     }
     
     @Override
+    public Conversation updateConversation(Conversation conversation) {
+        log.debug("Atualizando conversa completa: {}", conversation.getId());
+        
+        if (conversation.getId() == null) {
+            throw new IllegalArgumentException("ID da conversa não pode ser nulo");
+        }
+        
+        // Verificar se a conversa existe
+        conversationRepository.findById(conversation.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Conversa não encontrada"));
+        
+        // Atualizar timestamp da última atividade
+        conversation.setLastActivityTime(LocalDateTime.now());
+        
+        // Salvar conversa completa com todos os dados (incluindo contexto)
+        Conversation updatedConversation = conversationRepository.save(conversation);
+        log.info("Conversa atualizada com sucesso. ID: {}", updatedConversation.getId());
+        
+        return updatedConversation;
+    }
+    
+    @Override
     public Conversation closeConversation(String conversationId) {
         log.debug("Fechando conversa: {}", conversationId);
         

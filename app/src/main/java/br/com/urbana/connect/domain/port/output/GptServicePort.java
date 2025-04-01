@@ -11,12 +11,12 @@ public interface GptServicePort {
     /**
      * Gera uma resposta baseada no contexto e na mensagem do usuário.
      * 
-     * @param conversationHistory Lista de mensagens anteriores para contexto
+     * @param conversationHistory Histórico da conversa formatado
      * @param userMessage Mensagem atual do usuário
      * @param systemPrompt Instruções de sistema para o GPT
      * @return Resposta gerada pelo GPT
      */
-    String generateResponse(List<String> conversationHistory, String userMessage, String systemPrompt);
+    String generateResponse(String conversationHistory, String userMessage, String systemPrompt);
     
     /**
      * Analisa a intenção do usuário a partir de uma mensagem.
@@ -30,10 +30,10 @@ public interface GptServicePort {
      * Verifica se uma mensagem requer intervenção humana.
      * 
      * @param message Mensagem do usuário
-     * @param conversationContext Contexto da conversa
+     * @param conversationHistory Histórico formatado da conversa
      * @return true se a mensagem requer intervenção humana
      */
-    boolean requiresHumanIntervention(String message, String conversationContext);
+    boolean requiresHumanIntervention(String message, String conversationHistory);
     
     /**
      * Extrai entidades de uma mensagem (nomes, produtos, serviços, etc.).

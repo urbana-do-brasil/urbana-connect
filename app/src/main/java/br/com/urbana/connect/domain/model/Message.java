@@ -40,4 +40,9 @@ public class Message {
     private MessageStatus status;
     
     private String whatsappMessageId;
+    
+    @Builder.Default
+    private boolean read = false;
+    
+    private LocalDateTime readAt;
 } 

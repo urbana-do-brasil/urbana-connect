@@ -17,10 +17,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.slf4j.MDC;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Optional;
 
 /**
  * Implementação do caso de uso de processamento de mensagens.
@@ -35,6 +37,8 @@ public class MessageService implements MessageProcessingUseCase {
     private final ConversationManagementUseCase conversationService;
     private final GptServicePort gptService;
     private final WhatsappServicePort whatsappService;
+    private final ConversationContextService contextService;
+    private final PromptBuilderService promptBuilderService;
     
     private static final String SYSTEM_PROMPT = "Você é um assistente virtual da Urbana do Brasil, " +
             "uma empresa de coleta de resíduos e limpeza urbana. Seja cordial, educado " +
@@ -47,19 +51,17 @@ public class MessageService implements MessageProcessingUseCase {
         log.debug("Processando mensagem recebida do cliente: {}", inboundMessage.getCustomerId());
         
         // Verificar se o cliente existe ou criar um novo
-        Customer customer = ensureCustomerExists(inboundMessage.getCustomerId(), inboundMessage.getContent());
+        Customer customer = contextService.getOrCreateCustomer(inboundMessage.getCustomerId());
         
         // Buscar ou criar conversa ativa
-        Conversation conversation = ensureActiveConversationExists(customer.getId());
+        Conversation conversation = contextService.getOrCreateActiveConversation(customer);
         
-        // Adicionar mensagem à conversa
-        inboundMessage.setConversationId(conversation.getId());
-        inboundMessage.setDirection(MessageDirection.INBOUND);
-        inboundMessage.setStatus(MessageStatus.READ);
-        inboundMessage.setTimestamp(LocalDateTime.now());
-        
-        Message savedMessage = messageRepository.save(inboundMessage);
-        conversationService.addMessageToConversation(conversation.getId(), savedMessage);
+        // Salvar mensagem de entrada
+        Message savedMessage = contextService.saveUserMessage(
+                conversation, 
+                inboundMessage.getContent(), 
+                inboundMessage.getWhatsappMessageId()
+        );
         
         // Marcar como lida no WhatsApp
         if (inboundMessage.getWhatsappMessageId() != null) {
@@ -67,16 +69,67 @@ public class MessageService implements MessageProcessingUseCase {
         }
         
         // Gerar resposta
-        Message response = generateResponse(conversation.getId(), savedMessage.getId());
+        Message response = generateResponse(conversation, savedMessage);
         
         return response;
     }
     
-    @Override
-    @Cacheable(value = "gpt-responses", key = "#messageId")
-    public Message generateResponse(String conversationId, String messageId) {
-        log.debug("Gerando resposta para a mensagem: {}", messageId);
+    /**
+     * Gera uma resposta para a mensagem do usuário usando o histórico de conversa
+     * e análise de contexto.
+     * 
+     * @param conversation A conversa ativa
+     * @param userMessage A mensagem do usuário
+     * @return A mensagem de resposta gerada
+     */
+    public Message generateResponse(Conversation conversation, Message userMessage) {
+        log.debug("Gerando resposta para a mensagem: {} na conversa: {}", 
+                userMessage.getId(), conversation.getId());
         
+        // Verificar se já foi transferido para atendimento humano
+        if (conversation.isHandedOffToHuman()) {
+            log.info("Conversa já transferida para atendimento humano. Não gerando resposta automática.");
+            return null;
+        }
+        
+        // Recuperar histórico de mensagens
+        List<Message> messageHistory = contextService.getConversationHistory(conversation);
+        
+        // Verificar se requer intervenção humana
+        String formattedHistory = contextService.formatConversationHistory(messageHistory);
+        boolean needsHuman = gptService.requiresHumanIntervention(userMessage.getContent(), formattedHistory);
+        
+        if (needsHuman && !conversation.isHandedOffToHuman()) {
+            return createHumanTransferMessage(conversation, userMessage.getCustomerId());
+        }
+        
+        // Gerar resposta com GPT usando o histórico formatado
+        String responseContent = gptService.generateResponse(
+                formattedHistory,
+                userMessage.getContent(), 
+                SYSTEM_PROMPT);
+        
+        // Salvar resposta
+        Message savedResponse = contextService.saveAssistantResponse(
+                conversation, 
+                responseContent
+        );
+        
+        // Enviar pelo WhatsApp
+        String whatsappMessageId = sendResponseViaWhatsapp(savedResponse, userMessage.getCustomerId());
+        if (whatsappMessageId != null) {
+            savedResponse.setWhatsappMessageId(whatsappMessageId);
+            messageRepository.save(savedResponse);
+        }
+        
+        // Atualizar contexto com entidades e intenção detectadas
+        updateConversationContext(conversation, userMessage.getContent(), responseContent);
+        
+        return savedResponse;
+    }
+    
+    @Override
+    public Message generateResponse(String conversationId, String messageId) {
         // Buscar mensagem original
         Message originalMessage = messageRepository.findById(messageId)
                 .orElseThrow(() -> new IllegalArgumentException("Mensagem não encontrada"));
@@ -85,55 +138,36 @@ public class MessageService implements MessageProcessingUseCase {
         Conversation conversation = conversationService.findConversation(conversationId)
                 .orElseThrow(() -> new IllegalArgumentException("Conversa não encontrada"));
         
-        // Buscar histórico de mensagens
-        List<Message> conversationHistory = conversationService.getConversationMessages(conversationId);
-        
-        // Verificar se requer intervenção humana
-        boolean needsHuman = checkNeedsHumanIntervention(originalMessage, conversation, conversationHistory);
-        
-        if (needsHuman && !conversation.isHandedOffToHuman()) {
-            return createHumanTransferMessage(conversation, originalMessage.getCustomerId());
+        return generateResponse(conversation, originalMessage);
+    }
+    
+    /**
+     * Atualiza o contexto da conversa com informações extraídas da mensagem atual.
+     * 
+     * @param conversation A conversa a ser atualizada
+     * @param userMessage A mensagem do usuário
+     * @param responseContent A resposta gerada
+     */
+    private void updateConversationContext(Conversation conversation, String userMessage, String responseContent) {
+        try {
+            // Analisar intenção
+            String intent = gptService.analyzeIntent(userMessage);
+            conversation.getContext().setLastDetectedTopic(intent);
+            
+            // Extrair entidades
+            List<String> entities = gptService.extractEntities(userMessage);
+            if (!entities.isEmpty()) {
+                conversation.getContext().getIdentifiedEntities().addAll(entities);
+            }
+            
+            // Salvar contexto atualizado - usar o novo método que salva a conversa completa
+            conversationService.updateConversation(conversation);
+            
+            log.debug("Contexto da conversa atualizado. Intenção: {}, Entidades: {}", 
+                    intent, entities);
+        } catch (Exception e) {
+            log.error("Erro ao atualizar contexto da conversa: {}", e.getMessage(), e);
         }
-        
-        // Se já foi transferido para humano, não gerar resposta automática
-        if (conversation.isHandedOffToHuman()) {
-            log.info("Conversa já transferida para atendimento humano. Não gerando resposta automática.");
-            return null;
-        }
-        
-        // Preparar o histórico para o GPT
-        List<String> historyForGpt = prepareHistoryForGpt(conversationHistory);
-        
-        // Gerar resposta com GPT
-        String responseContent = gptService.generateResponse(
-                historyForGpt, 
-                originalMessage.getContent(), 
-                SYSTEM_PROMPT);
-        
-        // Criar e salvar a mensagem de resposta
-        Message responseMessage = Message.builder()
-                .conversationId(conversationId)
-                .customerId(originalMessage.getCustomerId())
-                .type(MessageType.TEXT)
-                .direction(MessageDirection.OUTBOUND)
-                .content(responseContent)
-                .timestamp(LocalDateTime.now())
-                .status(MessageStatus.SENT)
-                .build();
-        
-        Message savedResponse = messageRepository.save(responseMessage);
-        
-        // Adicionar à conversa
-        conversationService.addMessageToConversation(conversationId, savedResponse);
-        
-        // Enviar pelo WhatsApp
-        String whatsappMessageId = sendResponseViaWhatsapp(savedResponse, originalMessage.getCustomerId());
-        if (whatsappMessageId != null) {
-            savedResponse.setWhatsappMessageId(whatsappMessageId);
-            messageRepository.save(savedResponse);
-        }
-        
-        return savedResponse;
     }
     
     @Override
@@ -198,45 +232,6 @@ public class MessageService implements MessageProcessingUseCase {
         return true;
     }
     
-    // Métodos auxiliares
-    
-    private Customer ensureCustomerExists(String phoneNumber, String initialMessage) {
-        return customerService.findCustomerByPhoneNumber(phoneNumber)
-                .orElseGet(() -> {
-                    log.info("Novo cliente detectado. Criando registro para: {}", phoneNumber);
-                    Customer newCustomer = Customer.builder()
-                            .phoneNumber(phoneNumber)
-                            .optedIn(true)
-                            .lastInteraction(LocalDateTime.now())
-                            .build();
-                    return customerService.registerCustomer(newCustomer);
-                });
-    }
-    
-    private Conversation ensureActiveConversationExists(String customerId) {
-        return conversationService.findActiveConversation(customerId)
-                .orElseGet(() -> conversationService.createConversation(customerId));
-    }
-    
-    private boolean checkNeedsHumanIntervention(Message message, Conversation conversation, List<Message> history) {
-        // Verificar contexto da conversa
-        if (conversation.getContext().isNeedsHumanIntervention()) {
-            return true;
-        }
-        
-        // Verificar mensagem atual
-        boolean currentMessageNeedsHuman = gptService.requiresHumanIntervention(
-                message.getContent(), 
-                conversation.getContext().getGptContext());
-        
-        if (currentMessageNeedsHuman) {
-            conversation.getContext().setNeedsHumanIntervention(true);
-            return true;
-        }
-        
-        return false;
-    }
-    
     private Message createHumanTransferMessage(Conversation conversation, String customerId) {
         Message transferMessage = Message.builder()
                 .conversationId(conversation.getId())
@@ -251,36 +246,154 @@ public class MessageService implements MessageProcessingUseCase {
                 .build();
         
         Message savedMessage = messageRepository.save(transferMessage);
+        conversationService.addMessageToConversation(conversation.getId(), savedMessage);
         
-        // Transferir para humano
-        transferToHuman(conversation.getId(), "Solicitação do cliente ou tema complexo");
+        // Atualizar status da conversa
+        conversation.setHandedOffToHuman(true);
+        conversation.getContext().setNeedsHumanIntervention(true);
+        conversation.setStatus(ConversationStatus.WAITING_FOR_AGENT);
+        conversationService.updateConversationStatus(conversation.getId(), ConversationStatus.WAITING_FOR_AGENT);
+        
+        // Enviar pelo WhatsApp
+        Customer customer = customerService.findByPhoneNumber(customerId)
+                .orElseThrow(() -> new IllegalArgumentException("Cliente não encontrado"));
+        
+        String whatsappMessageId = whatsappService.sendTextMessage(
+                customer.getPhoneNumber(), savedMessage.getContent());
+        
+        if (whatsappMessageId != null) {
+            savedMessage.setWhatsappMessageId(whatsappMessageId);
+            messageRepository.save(savedMessage);
+        }
         
         return savedMessage;
     }
     
-    private List<String> prepareHistoryForGpt(List<Message> conversationHistory) {
-        // Limitar histórico para as últimas 10 mensagens para economizar tokens
-        List<Message> limitedHistory = conversationHistory.size() <= 10 
-                ? conversationHistory 
-                : conversationHistory.subList(conversationHistory.size() - 10, conversationHistory.size());
-        
-        return limitedHistory.stream()
-                .map(msg -> {
-                    String prefix = msg.getDirection() == MessageDirection.INBOUND ? "Cliente: " : "Assistente: ";
-                    return prefix + msg.getContent();
-                })
-                .collect(Collectors.toList());
-    }
-    
     private String sendResponseViaWhatsapp(Message response, String customerId) {
         try {
-            Customer customer = customerService.findCustomerByPhoneNumber(customerId)
+            Customer customer = customerService.findById(customerId)
                     .orElseThrow(() -> new IllegalArgumentException("Cliente não encontrado"));
             
-            return whatsappService.sendTextMessage(customer.getPhoneNumber(), response.getContent());
+            String messageId = whatsappService.sendTextMessage(
+                    customer.getPhoneNumber(), response.getContent());
+            
+            if (messageId == null) {
+                log.error("Falha ao enviar mensagem via WhatsApp para: {}", customer.getPhoneNumber());
+            } else {
+                log.info("Mensagem enviada com sucesso via WhatsApp. ID: {}", messageId);
+            }
+            
+            return messageId;
         } catch (Exception e) {
-            log.error("Erro ao enviar mensagem via WhatsApp: {}", e.getMessage(), e);
+            log.error("Erro ao enviar resposta via WhatsApp: {}", e.getMessage(), e);
             return null;
+        }
+    }
+
+    /**
+     * Processa uma mensagem recebida, salvando nos repositórios apropriados
+     * e gerando uma resposta utilizando a OpenAI.
+     *
+     * @param phoneNumber Número de telefone do cliente
+     * @param messageContent Conteúdo da mensagem
+     * @param whatsappMessageId ID da mensagem no WhatsApp (opcional)
+     * @return Resposta gerada para a mensagem
+     */
+    @Override
+    public String processIncomingMessage(String phoneNumber, String messageContent, String whatsappMessageId) {
+        log.debug("Processando mensagem de entrada: {}", messageContent);
+        MDC.put("messageContent", messageContent);
+        
+        try {
+            // 1. Buscar ou criar cliente e conversa
+            Customer customer = contextService.getOrCreateCustomer(phoneNumber);
+            Conversation conversation = contextService.getOrCreateActiveConversation(customer);
+            
+            MDC.put("customerId", customer.getId());
+            MDC.put("conversationId", conversation.getId());
+            
+            // 2. Verifica se a conversa está finalizada
+            if (contextService.isEnded(conversation)) {
+                log.info("Conversa estava encerrada. Criando uma nova.");
+                conversation = contextService.getOrCreateActiveConversation(customer);
+            }
+            
+            // 3. Salvar mensagem do usuário
+            Message userMessage = contextService.saveUserMessage(conversation, messageContent, whatsappMessageId);
+            
+            // 4. Obter histórico da conversa
+            List<Message> conversationHistory = contextService.getConversationHistory(conversation);
+            String formattedHistory = contextService.formatConversationHistory(conversationHistory);
+            
+            // 5. Analisar a intenção do usuário
+            String intent = gptService.analyzeIntent(messageContent);
+            log.info("Intenção detectada: {}", intent);
+            
+            // 6. Verificar necessidade de intervenção humana
+            boolean needsHuman = gptService.requiresHumanIntervention(messageContent, formattedHistory);
+            if (needsHuman) {
+                log.info("Mensagem requer intervenção humana");
+                conversation.getContext().setNeedsHumanIntervention(true);
+                conversationService.updateConversationStatus(conversation.getId(), ConversationStatus.WAITING_HUMAN);
+                return "Estou transferindo você para um atendente humano. Por favor, aguarde um momento.";
+            }
+            
+            // 7. Gerar resposta com GPT
+            String response = gptService.generateResponse(formattedHistory, messageContent, SYSTEM_PROMPT);
+            
+            // 8. Extrair entidades e atualizar contexto da conversa
+            List<String> entities = gptService.extractEntities(messageContent);
+            String entitiesStr = String.join(", ", entities);
+            
+            // 9. Atualizar o contexto da conversa
+            contextService.updateConversationContext(
+                    conversation, 
+                    intent, 
+                    entitiesStr
+            );
+            
+            // 10. Salvar resposta do assistente
+            Message assistantMessage = contextService.saveAssistantResponse(conversation, response);
+            
+            log.info("Resposta gerada com sucesso: {}", response);
+            return response;
+        } catch (Exception e) {
+            log.error("Erro ao processar mensagem: {}", e.getMessage(), e);
+            return "Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.";
+        } finally {
+            MDC.remove("messageContent");
+            MDC.remove("customerId");
+            MDC.remove("conversationId");
+        }
+    }
+    
+    /**
+     * Processa uma notificação de leitura de mensagem do WhatsApp.
+     *
+     * @param whatsappMessageId ID da mensagem no WhatsApp
+     * @return true se processado com sucesso, false caso contrário
+     */
+    @Override
+    public boolean processReadReceipt(String whatsappMessageId) {
+        log.debug("Processando confirmação de leitura para mensagem: {}", whatsappMessageId);
+        
+        try {
+            Optional<Message> message = messageRepository.findByWhatsappMessageId(whatsappMessageId);
+            
+            if (message.isPresent()) {
+                Message updatedMessage = message.get();
+                updatedMessage.setRead(true);
+                updatedMessage.setReadAt(LocalDateTime.now());
+                messageRepository.save(updatedMessage);
+                log.info("Mensagem marcada como lida: {}", whatsappMessageId);
+                return true;
+            } else {
+                log.warn("Mensagem não encontrada para confirmação de leitura: {}", whatsappMessageId);
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("Erro ao processar confirmação de leitura: {}", e.getMessage(), e);
+            return false;
         }
     }
 } 

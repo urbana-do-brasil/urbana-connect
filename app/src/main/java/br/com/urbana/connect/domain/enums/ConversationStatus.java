@@ -7,5 +7,6 @@ public enum ConversationStatus {
     ACTIVE,
     WAITING_FOR_CUSTOMER,
     WAITING_FOR_AGENT,
+    WAITING_HUMAN,
     CLOSED
 } 

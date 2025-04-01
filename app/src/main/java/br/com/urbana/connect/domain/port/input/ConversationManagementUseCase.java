@@ -56,6 +56,14 @@ public interface ConversationManagementUseCase {
     Conversation updateConversationStatus(String conversationId, ConversationStatus status);
     
     /**
+     * Atualiza a conversa completa, incluindo contexto e outros dados.
+     * 
+     * @param conversation Conversa com dados atualizados
+     * @return Conversa atualizada salva no repositório
+     */
+    Conversation updateConversation(Conversation conversation);
+    
+    /**
      * Fecha uma conversa.
      * 
      * @param conversationId ID da conversa
