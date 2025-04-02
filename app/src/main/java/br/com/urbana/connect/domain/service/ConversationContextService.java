@@ -1,5 +1,6 @@
 package br.com.urbana.connect.domain.service;
 
+import br.com.urbana.connect.application.config.ContextConfig;
 import br.com.urbana.connect.domain.enums.ConversationStatus;
 import br.com.urbana.connect.domain.enums.MessageDirection;
 import br.com.urbana.connect.domain.model.Conversation;
@@ -33,8 +34,7 @@ public class ConversationContextService {
     private final CustomerMongoRepository customerRepository;
     private final ConversationMongoRepository conversationRepository;
     private final MessageMongoRepository messageRepository;
-    
-    private static final int MAX_CONVERSATION_HISTORY_PAIRS = 5; // 5 pares de mensagens (usuário/assistente)
+    private final ContextConfig contextConfig;
     
     /**
      * Recupera ou cria um cliente com base no número de telefone.
@@ -81,14 +81,20 @@ public class ConversationContextService {
                     .customerId(customer.getId())
                     .startTime(LocalDateTime.now())
                     .status(ConversationStatus.ACTIVE)
+                    .createdAt(LocalDateTime.now())
                     .build();
+            
+            // Inicializa o contexto da conversa
+            newConversation.getContext().setLastInteractionTime(LocalDateTime.now());
+            newConversation.getContext().setConversationState("INICIADA");
+            
             return conversationRepository.save(newConversation);
         });
     }
     
     /**
-     * Recupera o histórico de mensagens de uma conversa, limitado a um número 
-     * específico de pares de mensagens.
+     * Recupera o histórico de mensagens de uma conversa, limitado pelo número
+     * configurado de mensagens máximas.
      * 
      * @param conversation Conversa da qual recuperar o histórico
      * @return Lista de mensagens ordenadas cronologicamente
@@ -97,8 +103,9 @@ public class ConversationContextService {
         log.debug("Recuperando histórico da conversa: {}", conversation.getId());
         
         // Recuperar as últimas mensagens, ordenadas cronologicamente
-        // Limitamos a recuperar apenas os últimos N pares de mensagens (usuário/assistente)
-        int messageLimit = MAX_CONVERSATION_HISTORY_PAIRS * 2; // Multiplicamos por 2 para obter N pares
+        // Limitamos a recuperar apenas as últimas N mensagens conforme configuração
+        int messageLimit = contextConfig.getMaxMessages();
+        log.debug("Limite de mensagens configurado: {}", messageLimit);
         
         List<Message> messages = messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId());
         
@@ -112,7 +119,23 @@ public class ConversationContextService {
     }
     
     /**
+     * Estima o número de tokens em uma string.
+     * Esta é uma estimativa simplificada, onde aproximadamente 4 caracteres = 1 token.
+     * 
+     * @param text Texto para estimar tokens
+     * @return Número estimado de tokens
+     */
+    private int estimateTokenCount(String text) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        // Estimativa simplificada: aprox. 4 caracteres = 1 token
+        return Math.max(1, text.length() / 4);
+    }
+    
+    /**
      * Formata o histórico de mensagens para uso pela API da OpenAI.
+     * Gerencia o tamanho da janela de contexto conforme as configurações.
      * 
      * @param messages Lista de mensagens a serem formatadas
      * @return String formatada com o histórico
@@ -123,15 +146,32 @@ public class ConversationContextService {
         }
         
         StringBuilder formattedHistory = new StringBuilder();
+        int tokenCount = 0;
+        int tokenLimit = contextConfig.getTokenLimit();
         
-        for (Message message : messages) {
-            String role = message.getDirection() == MessageDirection.INBOUND ? "User" : "Assistant";
-            formattedHistory.append(role)
-                    .append(": ")
-                    .append(message.getContent())
-                    .append("\n");
+        // Formatar primeiro da mais antiga para a mais recente
+        for (int i = 0; i < messages.size(); i++) {
+            Message message = messages.get(i);
+            String role = message.getDirection() == MessageDirection.INBOUND ? "[USUARIO]" : "[ASSISTENTE]";
+            String formattedMessage = role + ": " + message.getContent() + "\n\n";
+            
+            // Estimar tokens desta mensagem
+            int messageTokens = estimateTokenCount(formattedMessage);
+            
+            // Se adicionar esta mensagem exceder o limite, pare (a menos que seja a primeira mensagem)
+            if (tokenCount + messageTokens > tokenLimit && tokenCount > 0) {
+                log.debug("Limite de tokens atingido: {} excederia o limite de {}", 
+                         tokenCount + messageTokens, tokenLimit);
+                break;
+            }
+            
+            // Adiciona a mensagem ao histórico formatado
+            formattedHistory.append(formattedMessage);
+            tokenCount += messageTokens;
         }
         
+        log.debug("Histórico formatado com aproximadamente {} tokens (limite: {})", 
+                 tokenCount, tokenLimit);
         return formattedHistory.toString();
     }
     
@@ -156,6 +196,12 @@ public class ConversationContextService {
                 .timestamp(LocalDateTime.now())
                 .build();
         
+        // Atualiza o timestamp da última interação no contexto
+        conversation.getContext().setLastInteractionTime(LocalDateTime.now());
+        conversation.getContext().setConversationState("AGUARDANDO_RESPOSTA");
+        conversation.setLastActivityTime(LocalDateTime.now());
+        conversationRepository.save(conversation);
+        
         return messageRepository.save(message);
     }
     
@@ -177,6 +223,12 @@ public class ConversationContextService {
                 .direction(MessageDirection.OUTBOUND)
                 .timestamp(LocalDateTime.now())
                 .build();
+        
+        // Atualiza o timestamp da última interação no contexto
+        conversation.getContext().setLastInteractionTime(LocalDateTime.now());
+        conversation.getContext().setConversationState("AGUARDANDO_USUARIO");
+        conversation.setLastActivityTime(LocalDateTime.now());
+        conversationRepository.save(conversation);
         
         return messageRepository.save(message);
     }
@@ -202,6 +254,7 @@ public class ConversationContextService {
         
         conversation.setStatus(ConversationStatus.CLOSED);
         conversation.setEndTime(LocalDateTime.now());
+        conversation.getContext().setConversationState("FINALIZADA");
         
         return conversationRepository.save(conversation);
     }
@@ -219,17 +272,36 @@ public class ConversationContextService {
                                                 String identifiedEntities) {
         log.debug("Atualizando contexto da conversa: {}", conversation.getId());
         
+        // Atualiza o tópico detectado
         conversation.getContext().setLastDetectedTopic(detectedTopic);
         
-        // Limpa a lista atual de entidades e adiciona a nova se não for nula
-        conversation.getContext().getIdentifiedEntities().clear();
+        // Atualiza as entidades identificadas
         if (identifiedEntities != null && !identifiedEntities.isEmpty()) {
             conversation.getContext().getIdentifiedEntities().add(identifiedEntities);
         }
         
-        // Atualiza a data da última atividade
+        // Atualiza a data da última interação
+        conversation.getContext().setLastInteractionTime(LocalDateTime.now());
         conversation.setLastActivityTime(LocalDateTime.now());
         
+        return conversationRepository.save(conversation);
+    }
+    
+    /**
+     * Gera e atualiza um resumo da conversa no contexto.
+     * Método preparado para quando a funcionalidade de resumo automático for habilitada.
+     *
+     * @param conversation Conversa a ser resumida
+     * @param summary Resumo gerado (pode ser pelo GPT ou outro método)
+     * @return Conversa atualizada
+     */
+    public Conversation updateConversationSummary(Conversation conversation, String summary) {
+        if (!contextConfig.isSummaryEnabled() || summary == null || summary.trim().isEmpty()) {
+            return conversation;
+        }
+        
+        log.debug("Atualizando resumo da conversa: {}", conversation.getId());
+        conversation.getContext().setConversationSummary(summary);
         return conversationRepository.save(conversation);
     }
 } 

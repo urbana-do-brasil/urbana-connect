@@ -71,4 +71,11 @@ http:
   connection:
     timeout: 10000
   socket:
-    timeout: 30000 
+    timeout: 30000
+
+# Configuração do contexto de conversas
+urbana:
+  context:
+    max-messages: ${URBANA_CONTEXT_MAX_MESSAGES:10}
+    token-limit: ${URBANA_CONTEXT_TOKEN_LIMIT:1500}
+    summary-enabled: ${URBANA_CONTEXT_SUMMARY_ENABLED:false} 

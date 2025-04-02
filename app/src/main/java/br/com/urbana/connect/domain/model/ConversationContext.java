@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,4 +29,19 @@ public class ConversationContext {
     private boolean needsHumanIntervention;
     
     private String gptContext;
+    
+    /**
+     * Timestamp da última interação.
+     */
+    private LocalDateTime lastInteractionTime;
+    
+    /**
+     * Resumo do conteúdo da conversa.
+     */
+    private String conversationSummary;
+    
+    /**
+     * Estado atual da conversa.
+     */
+    private String conversationState;
 } 

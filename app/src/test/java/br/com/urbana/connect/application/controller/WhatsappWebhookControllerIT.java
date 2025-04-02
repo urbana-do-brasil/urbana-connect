@@ -38,6 +38,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.argThat;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -156,8 +157,10 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
         // Given - Primeira mensagem e configuração de mock para seguinte
         String firstWebhookPayload = buildWebhookPayload(TEST_PHONE_NUMBER, TEST_MESSAGE_CONTENT);
         
-        // Configurar mock para a segunda resposta com histórico
-        when(gptServicePort.generateResponse(contains(TEST_MESSAGE_CONTENT), eq(FOLLOW_UP_MESSAGE), anyString()))
+        // Configurar mock para a segunda resposta com histórico formatado adequadamente
+        when(gptServicePort.generateResponse(argThat(history -> 
+                history.contains("[USUARIO]:") && history.contains("[ASSISTENTE]:")), 
+                eq(FOLLOW_UP_MESSAGE), anyString()))
                 .thenReturn(GPT_FOLLOW_UP_RESPONSE);
         
         // Enviar a primeira mensagem
@@ -199,13 +202,18 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
         assertThat(lastResponse.getDirection()).isEqualTo(MessageDirection.OUTBOUND);
         assertThat(lastResponse.getContent()).isEqualTo(GPT_FOLLOW_UP_RESPONSE);
         
-        // Verificar que o GPT foi chamado com contexto para a segunda mensagem
-        verify(gptServicePort, times(1)).generateResponse(contains(TEST_MESSAGE_CONTENT), eq(FOLLOW_UP_MESSAGE), anyString());
+        // Verificar que o GPT foi chamado com contexto formatado para a segunda mensagem
+        verify(gptServicePort, times(1)).generateResponse(
+                argThat(history -> history.contains("[USUARIO]:") && history.contains("[ASSISTENTE]:")), 
+                eq(FOLLOW_UP_MESSAGE), 
+                anyString());
         
         // Verificar que o contexto da conversa foi atualizado com a intenção e entidades
         Conversation updatedConversation = conversationRepository.findById(conversation.getId()).orElseThrow();
         assertThat(updatedConversation.getContext().getLastDetectedTopic()).isEqualTo("DUVIDA_SERVICO");
         assertThat(updatedConversation.getContext().getIdentifiedEntities()).isNotEmpty();
+        assertThat(updatedConversation.getContext().getLastInteractionTime()).isNotNull();
+        assertThat(updatedConversation.getContext().getConversationState()).isNotNull();
     }
 
     /**

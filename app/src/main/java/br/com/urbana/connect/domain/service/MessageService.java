@@ -1,5 +1,6 @@
 package br.com.urbana.connect.domain.service;
 
+import br.com.urbana.connect.application.config.ContextConfig;
 import br.com.urbana.connect.domain.model.Conversation;
 import br.com.urbana.connect.domain.enums.ConversationStatus;
 import br.com.urbana.connect.domain.model.Customer;
@@ -39,6 +40,7 @@ public class MessageService implements MessageProcessingUseCase {
     private final WhatsappServicePort whatsappService;
     private final ConversationContextService contextService;
     private final PromptBuilderService promptBuilderService;
+    private final ContextConfig contextConfig;
     
     private static final String SYSTEM_PROMPT = "Você é um assistente virtual da Urbana do Brasil, " +
             "uma empresa de coleta de resíduos e limpeza urbana. Seja cordial, educado " +
@@ -152,6 +154,7 @@ public class MessageService implements MessageProcessingUseCase {
         try {
             // Analisar intenção
             String intent = gptService.analyzeIntent(userMessage);
+            conversation.getContext().setCustomerIntent(intent);
             conversation.getContext().setLastDetectedTopic(intent);
             
             // Extrair entidades
@@ -160,13 +163,97 @@ public class MessageService implements MessageProcessingUseCase {
                 conversation.getContext().getIdentifiedEntities().addAll(entities);
             }
             
+            // Atualizar timestamp da última interação
+            LocalDateTime now = LocalDateTime.now();
+            conversation.getContext().setLastInteractionTime(now);
+            conversation.setLastActivityTime(now);
+            
+            // Determinar o estado atual da conversa
+            String currentState = determineConversationState(conversation, responseContent);
+            conversation.getContext().setConversationState(currentState);
+            
+            // Se resumo automático estiver habilitado, gerar um resumo da conversa
+            if (contextConfig.isSummaryEnabled()) {
+                generateConversationSummary(conversation);
+            }
+            
             // Salvar contexto atualizado - usar o novo método que salva a conversa completa
             conversationService.updateConversation(conversation);
             
-            log.debug("Contexto da conversa atualizado. Intenção: {}, Entidades: {}", 
-                    intent, entities);
+            log.debug("Contexto da conversa atualizado. Intenção: {}, Entidades: {}, Estado: {}", 
+                    intent, entities, currentState);
         } catch (Exception e) {
             log.error("Erro ao atualizar contexto da conversa: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * Determina o estado atual da conversa com base no conteúdo da resposta.
+     * 
+     * @param conversation A conversa atual
+     * @param responseContent O conteúdo da resposta gerada
+     * @return O estado atual da conversa
+     */
+    private String determineConversationState(Conversation conversation, String responseContent) {
+        // Se já foi transferido para humano, mantém esse estado
+        if (conversation.isHandedOffToHuman()) {
+            return "NECESSITA_INTERVENCAO";
+        }
+        
+        // Verifica se a resposta indica que uma intervenção humana é necessária
+        if (responseContent.toLowerCase().contains("atendente") ||
+            responseContent.toLowerCase().contains("humano") ||
+            responseContent.toLowerCase().contains("transferir")) {
+            return "POSSIVEL_INTERVENCAO";
+        }
+        
+        // Verifica se parece ser uma despedida
+        if (responseContent.toLowerCase().contains("até logo") ||
+            responseContent.toLowerCase().contains("adeus") ||
+            responseContent.toLowerCase().contains("tchau")) {
+            return "FINALIZANDO";
+        }
+        
+        // Estado padrão - aguardando resposta do usuário
+        return "AGUARDANDO_USUARIO";
+    }
+    
+    /**
+     * Gera um resumo da conversa usando o serviço GPT.
+     * Essa é uma funcionalidade avançada que pode ser ativada via configuração.
+     * 
+     * @param conversation A conversa a ser resumida
+     */
+    private void generateConversationSummary(Conversation conversation) {
+        try {
+            // Buscar as últimas mensagens para resumir (limitado a um número menor que o contexto normal)
+            List<Message> messages = messageRepository.findByConversationId(conversation.getId());
+            if (messages.size() < 4) {
+                // Não resumir conversas muito curtas
+                return;
+            }
+            
+            // Formatar as mensagens para o resumo
+            StringBuilder messageHistory = new StringBuilder();
+            for (Message message : messages) {
+                String role = message.getDirection() == MessageDirection.INBOUND ? "Usuário" : "Assistente";
+                messageHistory.append(role).append(": ").append(message.getContent()).append("\n");
+            }
+            
+            // Prompt para resumir a conversa
+            String summaryPrompt = "Resumir a seguinte conversa em 2-3 sentenças, mantendo os pontos principais:\n\n" + 
+                                  messageHistory.toString();
+            
+            // Chamar GPT para gerar o resumo
+            String summary = gptService.generateResponse("", summaryPrompt, 
+                    "Você é um resumidor de conversas. Seja conciso e objetivo.");
+            
+            // Atualizar o resumo na conversa
+            contextService.updateConversationSummary(conversation, summary);
+            
+            log.debug("Resumo da conversa gerado: {}", summary);
+        } catch (Exception e) {
+            log.error("Erro ao gerar resumo da conversa: {}", e.getMessage(), e);
         }
     }
     

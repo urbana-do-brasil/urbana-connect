@@ -26,3 +26,10 @@ logging:
     br.com.urbana.connect: DEBUG
     org.springframework.data.mongodb.core: DEBUG
     org.testcontainers: INFO 
+
+# Configuração do contexto de conversas para testes
+urbana:
+  context:
+    max-messages: 5
+    token-limit: 500
+    summary-enabled: false 
