@@ -1,5 +1,6 @@
 package br.com.urbana.connect.infrastructure.client;
 
+import br.com.urbana.connect.domain.model.ConversationContext;
 import br.com.urbana.connect.domain.port.output.GptServicePort;
 import br.com.urbana.connect.domain.service.PromptBuilderService;
 import com.fasterxml.jackson.databind.ObjectMapper;

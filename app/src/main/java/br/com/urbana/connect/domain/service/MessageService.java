@@ -105,7 +105,7 @@ public class MessageService implements MessageProcessingUseCase {
             return createHumanTransferMessage(conversation, userMessage.getCustomerId());
         }
         
-        // Gerar resposta com GPT usando o histórico formatado
+        // Gerar resposta com GPT usando o histórico formatado e o contexto
         String responseContent = gptService.generateResponse(
                 formattedHistory,
                 userMessage.getContent(), 
@@ -240,9 +240,8 @@ public class MessageService implements MessageProcessingUseCase {
                 messageHistory.append(role).append(": ").append(message.getContent()).append("\n");
             }
             
-            // Prompt para resumir a conversa
-            String summaryPrompt = "Resumir a seguinte conversa em 2-3 sentenças, mantendo os pontos principais:\n\n" + 
-                                  messageHistory.toString();
+            // Usar o PromptBuilderService para construir o prompt de resumo
+            String summaryPrompt = promptBuilderService.buildSummaryPrompt(messageHistory.toString());
             
             // Chamar GPT para gerar o resumo
             String summary = gptService.generateResponse("", summaryPrompt, 
