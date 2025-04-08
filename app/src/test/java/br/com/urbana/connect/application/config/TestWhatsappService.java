@@ -1,10 +1,14 @@
 package br.com.urbana.connect.application.config;
 
+import br.com.urbana.connect.domain.enums.MessageStatus;
 import br.com.urbana.connect.domain.model.Message;
 import br.com.urbana.connect.domain.port.output.WhatsappServicePort;
+import br.com.urbana.connect.domain.service.MessageService;
 import br.com.urbana.connect.infrastructure.client.WebhookPayloadProcessor;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.util.UUID;
 import java.util.logging.Logger;
 
@@ -17,6 +21,7 @@ public class TestWhatsappService implements WhatsappServicePort {
     private final String verifyToken;
     private final ObjectMapper objectMapper;
     private final WebhookPayloadProcessor webhookPayloadProcessor;
+    private final MessageService messageService;
     private static final Logger logger = Logger.getLogger(TestWhatsappService.class.getName());
 
     /**
@@ -24,10 +29,12 @@ public class TestWhatsappService implements WhatsappServicePort {
      *
      * @param verifyToken Token de verificação de webhook
      * @param objectMapper Mapper para JSON
+     * @param messageService Serviço de mensagens para processamento de status
      */
-    public TestWhatsappService(String verifyToken, ObjectMapper objectMapper) {
+    public TestWhatsappService(String verifyToken, ObjectMapper objectMapper, MessageService messageService) {
         this.verifyToken = verifyToken;
         this.objectMapper = objectMapper;
+        this.messageService = messageService;
         this.webhookPayloadProcessor = new WebhookPayloadProcessor(objectMapper);
         logger.info("TestWhatsappService inicializado com token: " + verifyToken);
     }
@@ -61,6 +68,61 @@ public class TestWhatsappService implements WhatsappServicePort {
     @Override
     public Message processWebhookNotification(String payload) {
         logger.fine("Processando payload de teste: " + payload);
-        return webhookPayloadProcessor.processPayload(payload);
+        try {
+            JsonNode rootNode = objectMapper.readTree(payload);
+            
+            // Verificar se é um payload de atualização de status
+            if (isStatusUpdatePayload(rootNode)) {
+                processStatusUpdate(rootNode);
+                return null;
+            }
+            
+            // Processar payload regular de mensagem
+            return webhookPayloadProcessor.processPayload(payload);
+        } catch (IOException e) {
+            logger.warning("Erro ao processar payload: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Verifica se o payload é uma atualização de status.
+     */
+    private boolean isStatusUpdatePayload(JsonNode rootNode) {
+        if (!rootNode.has("entry") || rootNode.path("entry").isEmpty()) {
+            return false;
+        }
+        
+        JsonNode valueNode = rootNode.path("entry").path(0).path("changes").path(0).path("value");
+        return valueNode.has("statuses") && !valueNode.path("statuses").isEmpty();
+    }
+    
+    /**
+     * Processa uma atualização de status.
+     */
+    private void processStatusUpdate(JsonNode rootNode) {
+        try {
+            JsonNode statusNode = rootNode.path("entry").path(0)
+                    .path("changes").path(0).path("value")
+                    .path("statuses").path(0);
+            
+            String messageId = statusNode.path("id").asText();
+            String status = statusNode.path("status").asText();
+            
+            logger.info("Processando atualização de status: messageId=" + messageId + ", status=" + status);
+            
+            // Se o serviço de mensagens estiver disponível, atualizar o status
+            if (messageService != null) {
+                if ("read".equals(status)) {
+                    messageService.processReadReceipt(messageId);
+                } else if ("delivered".equals(status)) {
+                    // Encontrar a mensagem pelo ID do WhatsApp e então atualizar o status
+                    // Isso seria implementado melhor na aplicação real
+                    logger.info("Mensagem marcada como entregue: " + messageId);
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("Erro ao processar atualização de status: " + e.getMessage());
+        }
     }
 } 
