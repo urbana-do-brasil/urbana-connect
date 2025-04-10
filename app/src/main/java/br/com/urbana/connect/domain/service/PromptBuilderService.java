@@ -17,7 +17,7 @@ import java.util.Locale;
 @Slf4j
 public class PromptBuilderService {
     
-    @Value("${openai.system-prompt:Você é um assistente virtual da Urbana do Brasil, especialista em coleta de resíduos e limpeza urbana.}")
+    @Value("${openai.system-prompt:Você é Urba 😉, assistente virtual da Urbana do Brasil, especialista em Arquitetura e Decoração.}")
     private String defaultSystemPrompt;
     
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withLocale(new Locale("pt", "BR"));
@@ -145,16 +145,16 @@ public class PromptBuilderService {
         // Adicionar diretrizes de comportamento
         instructionsBuilder.append("""
                 ## Instruções:
-                - Você é um assistente da Urbana do Brasil, empresa especializada em coleta de resíduos e limpeza urbana.
-                - Use linguagem clara, direta e amigável, com tom cordial e prestativo.
-                - Suas respostas devem ser concisas (máximo 3-4 frases) e precisas.
-                - Forneça informações específicas sobre serviços de coleta, reciclagem e limpeza.
+                - Você é Urba 😉, assistente virtual da Urbana do Brasil, empresa de Arquitetura e Decoração ("Made in Paraíba").
+                - Use linguagem informal, acessível, entusiasmada, com tom amigável e positivo.
+                - Utilize emojis frequentemente (💜, 😉, 🤔, 🛋️, 🏡, 🎨, 🎉, ✨, 👍, 🤩, ✌️, etc.) para transmitir emoção e engajamento.
+                - Suas respostas devem ser descomplicadas, transparentes e empáticas.
+                - Forneça informações sobre os serviços de decoração: Decor (Interiores), Decor Fachada e Decor Pintura.
+                - Enfatize que nossos serviços renovam espaços sem "quebra-quebra".
                 - Se o cliente demonstrar frustração ou pedir explicitamente, ofereça transferir para um atendente humano.
-                - Se não souber a resposta, seja honesto e diga que não tem essa informação.
+                - Se não souber a resposta, seja honesta e diga que não tem essa informação.
                 - Nunca invente informações sobre preços, prazos ou serviços que não conhece.
-                - Evite linguagem técnica complexa; use termos acessíveis ao público geral.
-                - Não solicite ou armazene informações pessoais sensíveis.
-                - Mantenha o foco nos serviços da Urbana do Brasil.
+                - Mantenha o foco nos serviços de renovação e decoração da Urbana do Brasil.
                 """);
         
         return instructionsBuilder.toString();
@@ -178,8 +178,8 @@ public class PromptBuilderService {
                 - Responda APENAS com uma das categorias abaixo, sem explicações adicionais:
                 
                 ## Categorias:
-                - DUVIDA_SERVICO: Quando o usuário pergunta sobre serviços oferecidos ou como funcionam
-                - AGENDAMENTO: Quando o usuário quer agendar, remarcar ou verificar um serviço
+                - DUVIDA_SERVICO: Quando o usuário pergunta sobre serviços de decoração ou como funcionam
+                - AGENDAMENTO: Quando o usuário quer agendar, remarcar ou verificar um projeto
                 - RECLAMACAO: Quando o usuário expressa insatisfação ou relata um problema
                 - CANCELAMENTO: Quando o usuário quer cancelar um serviço ou contrato
                 - CONTATO_HUMANO: Quando o usuário solicita explicitamente falar com um atendente humano
@@ -210,8 +210,8 @@ public class PromptBuilderService {
                 - O usuário pede explicitamente para falar com um humano/atendente/pessoa
                 - O usuário demonstra frustração significativa ou irritação (linguagem agressiva, pontuação excessiva)
                 - O usuário repete a mesma pergunta após receber resposta (indicando que não ficou satisfeito)
-                - O usuário faz perguntas extremamente específicas que exigem conhecimento especializado
-                - O usuário menciona emergência ou situação urgente
+                - O usuário faz perguntas extremamente específicas sobre projetos de decoração que exigem conhecimento especializado
+                - O usuário menciona emergência ou situação urgente relacionada a um projeto
                 - O usuário está reclamando sobre um problema não resolvido
                 - O usuário usa linguagem que indica que respostas automáticas não estão ajudando
                 
@@ -257,10 +257,11 @@ public class PromptBuilderService {
                 - cidade: Cidade mencionada
                 - telefone: Número de telefone mencionado
                 - email: Endereço de email mencionado
-                - data: Qualquer data mencionada (agendamento, coleta, etc.)
+                - data: Qualquer data mencionada (agendamento, visita, etc.)
                 - horario: Qualquer horário mencionado
-                - servico: Tipo de serviço de coleta ou limpeza mencionado
-                - produtos: Produtos ou materiais mencionados
+                - servico: Tipo de serviço de decoração mencionado (Decor, Decor Fachada, Decor Pintura)
+                - ambiente: Ambientes ou espaços mencionados (sala, quarto, cozinha, área externa, etc.)
+                - estilo: Estilos de decoração mencionados (moderno, rústico, minimalista, etc.)
                 - valor: Valores monetários, preços ou referências a dinheiro
                 - problema: Descrição de problemas ou reclamações específicas
                 """.formatted(userMessage);

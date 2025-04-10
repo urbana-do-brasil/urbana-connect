@@ -71,20 +71,20 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
     private GptServicePort gptServicePort;
 
     private static final String TEST_PHONE_NUMBER = "+5511999999999";
-    private static final String TEST_MESSAGE_CONTENT = "Olá, gostaria de informações sobre coleta de lixo";
-    private static final String GPT_RESPONSE = "Olá! Temos serviços de coleta de lixo residencial e comercial. Posso ajudar com mais informações específicas?";
-    private static final String FOLLOW_UP_MESSAGE = "Sim, quanto custa para residências?";
-    private static final String GPT_FOLLOW_UP_RESPONSE = "Para residências, o serviço de coleta de lixo básico custa R$50,00 por mês, com coletas semanais. Temos também planos premium a partir de R$80,00 com coletas duas vezes por semana.";
+    private static final String TEST_MESSAGE_CONTENT = "Olá, gostaria de informações sobre serviços de decoração";
+    private static final String GPT_RESPONSE = "Olá! 💜 Temos serviços de Decor Interiores 🛋️, Decor Fachada 🏡 e Decor Pintura 🎨. Posso ajudar com mais informações específicas? 😉";
+    private static final String FOLLOW_UP_MESSAGE = "Sim, quanto custa para decorar um ambiente pequeno?";
+    private static final String GPT_FOLLOW_UP_RESPONSE = "Para ambientes pequenos (até 20m²), o nosso serviço Decor custa R$350 por ambiente! 🎉 Você recebe um projeto completo e pode fazer você mesmo, seguindo nossos tutoriais. 🤩";
     
     // Novas constantes para os testes adicionais
     private static final String HUMAN_INTERVENTION_MESSAGE = "Preciso falar com um atendente humano";
-    private static final String HUMAN_TRANSFER_RESPONSE = "Sua conversa foi transferida para um atendente humano. Aguarde um momento, por favor.";
+    private static final String HUMAN_TRANSFER_RESPONSE = "Claro, vou transferir sua conversa para um atendente humano! 👋 Aguarde um momentinho, por favor. 💜";
     
     private static final String SECOND_PHONE_NUMBER = "+5511888888888";
     private static final String THIRD_PHONE_NUMBER = "+5511777777777";
     
-    private static final String COMPLEX_QUESTION = "Como faço para descartar baterias e eletrônicos usados? Preciso de informações detalhadas sobre o procedimento correto de descarte.";
-    private static final String COMPLEX_RESPONSE = "Para descartar baterias e eletrônicos, você deve levá-los a um ponto de coleta especializado. Temos pontos de coleta em todos os ecopontos da cidade e em algumas lojas parceiras. Esses itens não devem ser descartados no lixo comum devido aos componentes tóxicos.";
+    private static final String COMPLEX_QUESTION = "Quais são as opções de estilo para decoração de uma sala de estar pequena? Preciso de ideias para otimizar o espaço sem deixar apertado.";
+    private static final String COMPLEX_RESPONSE = "Para salas pequenas, temos várias opções de estilo que otimizam espaço! 💡 Recomendo móveis multifuncionais, espelhos para ampliar visualmente, cores claras nas paredes e iluminação estratégica. Com nosso Decor Interiores 🛋️, criamos um projeto específico para maximizar seu espaço! Quer ver alguns exemplos? ✨";
 
     @BeforeEach
     void setUp() {
@@ -99,10 +99,10 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
                 .thenReturn("DUVIDA_SERVICO");
                 
         when(gptServicePort.extractEntities(eq(TEST_MESSAGE_CONTENT)))
-                .thenReturn(Arrays.asList("Tipo: coleta de lixo"));
+                .thenReturn(Arrays.asList("Tipo: decoração"));
                 
         when(gptServicePort.extractEntities(eq(COMPLEX_QUESTION)))
-                .thenReturn(Arrays.asList("Tipo: baterias", "Tipo: eletrônicos", "Ação: descarte"));
+                .thenReturn(Arrays.asList("Tipo: decoração", "Espaço: sala", "Característica: pequena"));
                 
         when(gptServicePort.analyzeIntent(eq(COMPLEX_QUESTION)))
                 .thenReturn("DESCARTE_ESPECIAL");
@@ -175,7 +175,7 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
         // Verificar que o contexto da conversa foi atualizado
         Conversation updatedConversation = conversationRepository.findById(conversation.getId()).orElseThrow();
         assertThat(updatedConversation.getContext().getLastDetectedTopic()).isEqualTo("DUVIDA_SERVICO");
-        assertThat(updatedConversation.getContext().getIdentifiedEntities()).contains("Tipo: coleta de lixo");
+        assertThat(updatedConversation.getContext().getIdentifiedEntities()).contains("Tipo: decoração");
     }
     
     @Test
@@ -241,11 +241,11 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
     @Test
     void shouldHandleMultipleCustomersMessagingConcurrently() throws Exception {
         // Definir perguntas e respostas para os clientes adicionais
-        final String second_question = "Olá, vocês fazem coleta de entulho?";
-        final String second_response = "Sim, fazemos coleta de entulho. O preço varia de acordo com o volume.";
+        final String second_question = "Olá, vocês fazem decoração de fachadas?";
+        final String second_response = "Sim, temos o serviço Decor Fachada 🏡 especializado para renovar a aparência externa da sua casa sem quebra-quebra! Gostaria de saber mais? 😊";
         
-        final String third_question = "Como contratar serviço de limpeza pós-obra?";
-        final String third_response = "Para contratar o serviço de limpeza pós-obra, é necessário agendar uma visita técnica.";
+        final String third_question = "Como funciona o serviço de pintura?";
+        final String third_response = "Nosso Decor Pintura 🎨 renova completamente os ambientes! Você recebe um projeto com paleta de cores, manual didático e todo o passo a passo para transformar seu espaço. O valor é R$350 por ambiente. Quer transformar sua casa? ✨";
         
         // Configurar mock para clientes adicionais
         when(gptServicePort.generateResponse(anyString(), eq(second_question), anyString()))
@@ -343,7 +343,7 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
         // Verificar que as entidades foram extraídas corretamente
         assertThat(conversation.getContext().getIdentifiedEntities()).hasSize(3);
         assertThat(conversation.getContext().getIdentifiedEntities())
-                .contains("Tipo: baterias", "Tipo: eletrônicos", "Ação: descarte");
+                .contains("Tipo: decoração", "Espaço: sala", "Característica: pequena");
                 
         // Verificar a resposta enviada
         List<Message> messages = 

@@ -42,11 +42,12 @@ public class MessageService implements MessageProcessingUseCase {
     private final PromptBuilderService promptBuilderService;
     private final ContextConfig contextConfig;
     
-    private static final String SYSTEM_PROMPT = "Você é um assistente virtual da Urbana do Brasil, " +
-            "uma empresa de coleta de resíduos e limpeza urbana. Seja cordial, educado " +
-            "e forneça informações precisas sobre os serviços da empresa. " +
+    private static final String SYSTEM_PROMPT = "Você é Urba 😉, assistente virtual da Urbana do Brasil, " +
+            "uma empresa de Arquitetura e Decoração. Seja amigável, entusiasmada, " +
+            "use emojis frequentemente e forneça informações sobre nossos serviços de decoração " +
+            "(Decor Interiores 🛋️, Decor Fachada 🏡 e Decor Pintura 🎨), que renovam espaços sem 'quebra-quebra'. " +
             "Se não souber a resposta ou se o cliente solicitar falar com um humano, " +
-            "informe que irá transferir para um atendente.";
+            "informe que irá transferir para um atendente. 💜";
     
     @Override
     public Message processInboundMessage(Message inboundMessage) {

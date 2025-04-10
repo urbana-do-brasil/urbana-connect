@@ -80,7 +80,7 @@ class ConversationContextServiceTest {
                 .id("msg1")
                 .conversationId(testConversation.getId())
                 .customerId(testCustomer.getId())
-                .content("Olá, gostaria de informações sobre coleta de lixo.")
+                .content("Olá, gostaria de informações sobre os serviços de decoração.")
                 .direction(MessageDirection.INBOUND)
                 .timestamp(now.minusMinutes(10))
                 .build());
@@ -90,7 +90,7 @@ class ConversationContextServiceTest {
                 .id("msg2")
                 .conversationId(testConversation.getId())
                 .customerId(testCustomer.getId())
-                .content("Olá! Temos serviços de coleta residencial e comercial. Como posso ajudar?")
+                .content("Olá! 💜 Temos serviços de Decor Interiores 🛋️, Decor Fachada 🏡 e Decor Pintura 🎨. Como posso ajudar? 😉")
                 .direction(MessageDirection.OUTBOUND)
                 .timestamp(now.minusMinutes(9))
                 .build());
@@ -100,7 +100,7 @@ class ConversationContextServiceTest {
                 .id("msg3")
                 .conversationId(testConversation.getId())
                 .customerId(testCustomer.getId())
-                .content("Quanto custa o serviço para uma residência pequena?")
+                .content("Quanto custa o serviço de decoração para um ambiente pequeno?")
                 .direction(MessageDirection.INBOUND)
                 .timestamp(now.minusMinutes(8))
                 .build());
@@ -110,7 +110,7 @@ class ConversationContextServiceTest {
                 .id("msg4")
                 .conversationId(testConversation.getId())
                 .customerId(testCustomer.getId())
-                .content("Para residências pequenas, o custo é de R$50,00 por mês com coleta semanal.")
+                .content("Para ambientes pequenos (até 20m²), o nosso serviço Decor custa R$350 por ambiente! 🎉 Você recebe um projeto completo e pode fazer você mesmo, seguindo nossos tutoriais. 🤩")
                 .direction(MessageDirection.OUTBOUND)
                 .timestamp(now.minusMinutes(7))
                 .build());
@@ -192,10 +192,10 @@ class ConversationContextServiceTest {
         
         // Then
         assertNotNull(result);
-        assertTrue(result.contains("[USUARIO]: Olá, gostaria de informações sobre coleta de lixo."));
-        assertTrue(result.contains("[ASSISTENTE]: Olá! Temos serviços de coleta residencial e comercial."));
-        assertTrue(result.contains("[USUARIO]: Quanto custa o serviço para uma residência pequena?"));
-        assertTrue(result.contains("[ASSISTENTE]: Para residências pequenas, o custo é de R$50,00"));
+        assertTrue(result.contains("[USUARIO]: Olá, gostaria de informações sobre os serviços de decoração."));
+        assertTrue(result.contains("[ASSISTENTE]: Olá! 💜 Temos serviços de Decor Interiores"));
+        assertTrue(result.contains("[USUARIO]: Quanto custa o serviço de decoração para um ambiente pequeno?"));
+        assertTrue(result.contains("[ASSISTENTE]: Para ambientes pequenos (até 20m²), o nosso serviço Decor custa R$350"));
     }
 
     @Test
@@ -210,16 +210,16 @@ class ConversationContextServiceTest {
         // Then
         assertNotNull(result);
         // Verificar que contém apenas as primeiras mensagens
-        assertTrue(result.contains("[USUARIO]: Olá, gostaria de informações sobre coleta de lixo."));
+        assertTrue(result.contains("[USUARIO]: Olá, gostaria de informações sobre os serviços de decoração."));
         // Não deve conter a última mensagem
-        assertFalse(result.contains("Para residências pequenas, o custo é de R$50,00"));
+        assertFalse(result.contains("Para ambientes pequenos (até 20m²), o nosso serviço Decor custa R$350"));
     }
 
     @Test
     void updateConversationContext_updatesContextCorrectly() {
         // Given
         String detectedTopic = "DUVIDA_SERVICO";
-        String identifiedEntities = "coleta, residencial, custo";
+        String identifiedEntities = "decoração, interiores, custo";
         when(conversationRepository.save(any(Conversation.class))).thenReturn(testConversation);
         
         // When

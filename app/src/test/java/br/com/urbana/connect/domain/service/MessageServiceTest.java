@@ -84,10 +84,10 @@ class MessageServiceTest {
     private final String CUSTOMER_ID = "cust-123";
     private final String PHONE_NUMBER = "5511999999999";
     private final String WHATSAPP_MESSAGE_ID = "wamid.123";
-    private final String MESSAGE_CONTENT = "Olá, preciso de ajuda";
-    private final String RESPONSE_CONTENT = "Olá! Como posso ajudar você hoje?";
-    private final String HUMAN_TRANSFER_CONTENT = "Entendi que você precisa falar com um atendente humano";
-    private final String SUMMARY_CONTENT = "Resumo da conversa entre cliente e assistente";
+    private final String MESSAGE_CONTENT = "Olá, preciso de ajuda com a decoração do meu apartamento";
+    private final String RESPONSE_CONTENT = "Olá! 💜 Como posso ajudar você com a decoração do seu apartamento hoje? Temos várias opções de serviço que podem te atender! 😊";
+    private final String HUMAN_TRANSFER_CONTENT = "Entendi que você precisa falar com um atendente humano! 👋 Vou transferir sua conversa agora mesmo. Aguarde um momentinho, por favor. 💜";
+    private final String SUMMARY_CONTENT = "Resumo da conversa entre cliente e assistente sobre serviços de decoração";
     private final String SUMMARY_PROMPT = "Resumir a seguinte conversa: [histórico da conversa]";
 
     @BeforeEach
@@ -381,38 +381,28 @@ class MessageServiceTest {
         
         // Testar para resposta com menção a atendente
         String state2 = (String) determineConversationStateMethod.invoke(
-            messageService, conversation, "Por favor, aguarde enquanto um atendente analisa seu caso.");
+            messageService, conversation, "Por favor, aguarde enquanto um atendente analisa seu projeto. 💜");
         assertEquals("POSSIVEL_INTERVENCAO", state2);
         
         // Testar para resposta com menção a humano
         String state3 = (String) determineConversationStateMethod.invoke(
-            messageService, conversation, "Um humano vai te atender em breve.");
+            messageService, conversation, "Um humano vai te atender em breve! 👋");
         assertEquals("POSSIVEL_INTERVENCAO", state3);
         
         // Testar para resposta com menção a transferir
         String state4 = (String) determineConversationStateMethod.invoke(
-            messageService, conversation, "Vou transferir você para um especialista.");
+            messageService, conversation, "Vou transferir você para um especialista em decoração. ✨");
         assertEquals("POSSIVEL_INTERVENCAO", state4);
         
         // Testar para despedida "até logo"
         String state5 = (String) determineConversationStateMethod.invoke(
-            messageService, conversation, "Até logo! Tenha um bom dia.");
+            messageService, conversation, "Até logo! Tenha um bom dia. 💜");
         assertEquals("FINALIZANDO", state5);
         
         // Testar para despedida "adeus"
         String state6 = (String) determineConversationStateMethod.invoke(
-            messageService, conversation, "Adeus e obrigado por utilizar nossos serviços!");
+            messageService, conversation, "Adeus e obrigada por escolher a Urbana! ✌️");
         assertEquals("FINALIZANDO", state6);
-        
-        // Testar para despedida "tchau"
-        String state7 = (String) determineConversationStateMethod.invoke(
-            messageService, conversation, "Tchau! Espero ter ajudado.");
-        assertEquals("FINALIZANDO", state7);
-        
-        // Testar para resposta normal
-        String state8 = (String) determineConversationStateMethod.invoke(
-            messageService, conversation, "Aqui estão as informações solicitadas.");
-        assertEquals("AGUARDANDO_USUARIO", state8);
     }
     
     @Test

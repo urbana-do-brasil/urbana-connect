@@ -23,7 +23,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class PromptBuilderServiceTest {
 
-    private static final String DEFAULT_SYSTEM_PROMPT = "Você é um assistente virtual da Urbana do Brasil, especialista em coleta de resíduos e limpeza urbana.";
+    private static final String DEFAULT_SYSTEM_PROMPT = "Você é Urba 😉, assistente virtual da Urbana do Brasil, especialista em Arquitetura e Decoração.";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm").withLocale(new Locale("pt", "BR"));
 
     @Spy
@@ -38,7 +38,7 @@ class PromptBuilderServiceTest {
     @Test
     void buildPrompt_withBasicParams_shouldReturnCorrectPrompt() {
         // Given
-        String userMessage = "Olá, gostaria de saber o horário de coleta no meu bairro";
+        String userMessage = "Olá, gostaria de saber mais sobre os serviços de decoração";
         String conversationHistory = "[USUARIO]: Mensagem anterior\n[ASSISTENTE]: Resposta anterior";
 
         // When
@@ -56,7 +56,7 @@ class PromptBuilderServiceTest {
     @Test
     void buildPrompt_withEmptyHistory_shouldOmitHistorySection() {
         // Given
-        String userMessage = "Olá, gostaria de saber o horário de coleta no meu bairro";
+        String userMessage = "Olá, gostaria de saber mais sobre a decoração de interiores";
         String emptyHistory = "";
 
         // When
@@ -73,7 +73,7 @@ class PromptBuilderServiceTest {
     @Test
     void buildPrompt_withNullHistory_shouldOmitHistorySection() {
         // Given
-        String userMessage = "Olá, gostaria de saber o horário de coleta no meu bairro";
+        String userMessage = "Olá, gostaria de saber mais sobre renovação de fachadas";
 
         // When
         String prompt = promptBuilderService.buildPrompt(userMessage, null);
@@ -89,17 +89,17 @@ class PromptBuilderServiceTest {
     @Test
     void buildPrompt_withContext_shouldIncludeContextSection() {
         // Given
-        String userMessage = "Quando é a próxima coleta?";
+        String userMessage = "Quanto custa o serviço de decoração?";
         String conversationHistory = "[USUARIO]: Olá\n[ASSISTENTE]: Como posso ajudar?";
         LocalDateTime lastInteraction = LocalDateTime.now();
         
         ConversationContext context = ConversationContext.builder()
                 .customerIntent("DUVIDA_SERVICO")
-                .lastDetectedTopic("coleta de lixo")
-                .identifiedEntities(Arrays.asList("coleta", "horário"))
+                .lastDetectedTopic("decoração de interiores")
+                .identifiedEntities(Arrays.asList("decoração", "custo"))
                 .conversationState("AWAITING_RESPONSE")
                 .lastInteractionTime(lastInteraction)
-                .conversationSummary("Cliente quer saber sobre horários de coleta")
+                .conversationSummary("Cliente quer saber sobre preços dos serviços de decoração")
                 .build();
 
         // When
@@ -109,12 +109,12 @@ class PromptBuilderServiceTest {
         assertThat(prompt).isNotNull();
         assertThat(prompt).contains(DEFAULT_SYSTEM_PROMPT);
         assertThat(prompt).contains("### Informações de contexto:");
-        assertThat(prompt).contains("- Tópico atual: coleta de lixo");
+        assertThat(prompt).contains("- Tópico atual: decoração de interiores");
         assertThat(prompt).contains("- Intenção do cliente: DUVIDA_SERVICO");
-        assertThat(prompt).contains("- Entidades mencionadas: coleta, horário");
+        assertThat(prompt).contains("- Entidades mencionadas: decoração, custo");
         assertThat(prompt).contains("- Estado da conversa: AWAITING_RESPONSE");
         assertThat(prompt).contains("- Última interação em: " + DATE_FORMATTER.format(lastInteraction));
-        assertThat(prompt).contains("- Resumo da conversa: Cliente quer saber sobre horários de coleta");
+        assertThat(prompt).contains("- Resumo da conversa: Cliente quer saber sobre preços dos serviços de decoração");
         assertThat(prompt).contains(conversationHistory);
         assertThat(prompt).contains(userMessage);
     }
@@ -165,7 +165,7 @@ class PromptBuilderServiceTest {
     @Test
     void buildIntentAnalysisPrompt_shouldReturnCorrectlyFormattedPrompt() {
         // Given
-        String userMessage = "Gostaria de saber quanto custa o serviço de coleta para empresas";
+        String userMessage = "Gostaria de saber quanto custa o serviço de decoração para minha sala";
 
         // When
         String prompt = promptBuilderService.buildIntentAnalysisPrompt(userMessage);
@@ -218,7 +218,7 @@ class PromptBuilderServiceTest {
     @Test
     void buildEntityExtractionPrompt_shouldReturnCorrectlyFormattedPrompt() {
         // Given
-        String userMessage = "Meu nome é João Silva, moro na Rua das Flores, 123, bairro Jardim, São Paulo, telefone (11) 98765-4321";
+        String userMessage = "Meu nome é João Silva, moro na Rua das Flores, 123, bairro Jardim, São Paulo, telefone (11) 98765-4321. Quero decorar minha sala de estar com estilo moderno";
 
         // When
         String prompt = promptBuilderService.buildEntityExtractionPrompt(userMessage);
@@ -233,18 +233,21 @@ class PromptBuilderServiceTest {
         assertThat(prompt).contains("endereco:");
         assertThat(prompt).contains("bairro:");
         assertThat(prompt).contains("telefone:");
+        assertThat(prompt).contains("servico:");
+        assertThat(prompt).contains("ambiente:");
+        assertThat(prompt).contains("estilo:");
     }
 
     @Test
     void buildSummaryPrompt_shouldReturnCorrectlyFormattedPrompt() {
         // Given
         String conversationHistory = """
-                [USUARIO]: Olá, gostaria de informações sobre coleta de lixo
-                [ASSISTENTE]: Olá! Temos serviços de coleta para residências e empresas. Como posso ajudar?
-                [USUARIO]: Quanto custa para uma residência pequena?
-                [ASSISTENTE]: Para residências pequenas, o custo é de R$50,00 mensais com coleta semanal.
-                [USUARIO]: E para empresas?
-                [ASSISTENTE]: Para empresas, os preços começam em R$300,00, variando conforme o volume e tipo de resíduos.
+                [USUARIO]: Olá, gostaria de informações sobre os serviços de decoração
+                [ASSISTENTE]: Olá! 💜 Temos serviços de Decor Interiores 🛋️, Decor Fachada 🏡 e Decor Pintura 🎨. Como posso ajudar? 😉
+                [USUARIO]: Quanto custa para decorar um ambiente pequeno?
+                [ASSISTENTE]: Para ambientes pequenos (até 20m²), o nosso serviço Decor custa R$350 por ambiente! 🎉 Você recebe um projeto completo e pode fazer você mesmo, seguindo nossos tutoriais. 🤩
+                [USUARIO]: E para fachadas?
+                [ASSISTENTE]: Para o serviço Decor Fachada 🏡, o valor também é R$350! Você recebe um projeto de renovação da sua fachada sem quebra-quebra, com todas as instruções para transformar sua casa! ✨
                 """;
 
         // When
@@ -275,7 +278,7 @@ class PromptBuilderServiceTest {
     @Test
     void buildPrompt_withLongHistoryAndContext_shouldIncludeAllSections() {
         // Given
-        String userMessage = "Pode me dar mais detalhes sobre os serviços?";
+        String userMessage = "Pode me dar mais detalhes sobre os serviços de decoração?";
         StringBuilder longHistory = new StringBuilder();
         for (int i = 0; i < 10; i++) {
             longHistory.append("[USUARIO]: Mensagem ").append(i).append("\n");
@@ -284,13 +287,13 @@ class PromptBuilderServiceTest {
         
         ConversationContext context = ConversationContext.builder()
                 .customerIntent("SOLICITACAO_INFO")
-                .lastDetectedTopic("serviços")
-                .identifiedEntities(Arrays.asList("serviços", "detalhes"))
+                .lastDetectedTopic("decoração")
+                .identifiedEntities(Arrays.asList("decoração", "detalhes"))
                 .conversationState("INFORMACAO_SOLICITADA")
                 .lastInteractionTime(LocalDateTime.now())
-                .conversationSummary("Cliente solicitando informações sobre serviços oferecidos")
+                .conversationSummary("Cliente solicitando informações sobre serviços de decoração oferecidos")
                 .needsHumanIntervention(false)
-                .gptContext("Conversa sobre detalhes de serviços")
+                .gptContext("Conversa sobre detalhes de serviços de decoração")
                 .build();
 
         // When
@@ -300,9 +303,9 @@ class PromptBuilderServiceTest {
         assertThat(prompt).isNotNull();
         assertThat(prompt).contains(DEFAULT_SYSTEM_PROMPT);
         assertThat(prompt).contains("### Informações de contexto:");
-        assertThat(prompt).contains("- Tópico atual: serviços");
+        assertThat(prompt).contains("- Tópico atual: decoração");
         assertThat(prompt).contains("- Intenção do cliente: SOLICITACAO_INFO");
-        assertThat(prompt).contains("- Entidades mencionadas: serviços, detalhes");
+        assertThat(prompt).contains("- Entidades mencionadas: decoração, detalhes");
         assertThat(prompt).contains("- Estado da conversa: INFORMACAO_SOLICITADA");
         assertThat(prompt).contains("### Histórico da conversa:");
         assertThat(prompt).contains("### Mensagem atual:");
