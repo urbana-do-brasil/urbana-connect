@@ -17,6 +17,21 @@ services:
       timeout: 10s
       retries: 5
       start_period: 40s
+      
+  mongo-express:
+    image: mongo-express:latest
+    container_name: urbana-connect-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+      - ME_CONFIG_MONGODB_PORT=27017
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=senha123
+      - ME_CONFIG_MONGODB_ENABLE_ADMIN=true
+    depends_on:
+      - mongodb
+    restart: unless-stopped
 
 volumes:
   mongodb_data:
