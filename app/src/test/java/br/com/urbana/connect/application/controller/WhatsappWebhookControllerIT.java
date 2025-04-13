@@ -86,6 +86,20 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
     private static final String COMPLEX_QUESTION = "Quais são as opções de estilo para decoração de uma sala de estar pequena? Preciso de ideias para otimizar o espaço sem deixar apertado.";
     private static final String COMPLEX_RESPONSE = "Para salas pequenas, temos várias opções de estilo que otimizam espaço! 💡 Recomendo móveis multifuncionais, espelhos para ampliar visualmente, cores claras nas paredes e iluminação estratégica. Com nosso Decor Interiores 🛋️, criamos um projeto específico para maximizar seu espaço! Quer ver alguns exemplos? ✨";
 
+    // Constantes para testes de saudação e FAQ
+    private static final String GREETING_MESSAGE = "Olá, bom dia";
+    private static final String GREETING_RESPONSE = "Olá! 😊 Que bom te ver por aqui! Sou a Urba, assistente virtual da Urbana do Brasil, especialista em decoração e renovação de espaços sem quebra-quebra! 🏡 Posso te ajudar com nossos serviços de Decor Interiores 🛋️, Decor Fachada ou Decor Pintura 🎨. Como posso te ajudar hoje? 💜";
+    
+    // Perguntas FAQ
+    private static final String FAQ_QUESTION_SERVICES = "Quais serviços vocês oferecem?";
+    private static final String FAQ_RESPONSE_SERVICES = "Que legal que perguntou! 🎉 Oferecemos soluções de decoração super bacanas e sem quebra-quebra! Temos o Decor Interiores 🛋️, Decor Fachada 🏡 e Decor Pintura 🎨. Quer saber mais sobre algum deles? 😉";
+    
+    private static final String FAQ_QUESTION_PRICE = "Qual o preço do Decor Interiores?";
+    private static final String FAQ_RESPONSE_PRICE = "Nosso Decor Interiores tem um valor super acessível de R$350 por ambiente (até 20m²)! 😊 Para os outros serviços, como Decor Fachada e Pintura, precisamos entender um pouquinho mais sobre seu espaço pra te passar um orçamento certinho. 👍";
+    
+    private static final String FAQ_QUESTION_DIY = "Como funciona o faça você mesmo?";
+    private static final String FAQ_RESPONSE_DIY = "Para o Decor Interiores e Decor Pintura, temos uma opção onde te entregamos um guia super detalhado com vídeos e tutoriais para você mesmo(a) colocar a mão na massa e economizar! 👷‍♀️👷‍♂️";
+
     @BeforeEach
     void setUp() {
         // Configurar comportamento padrão dos mocks
@@ -115,6 +129,24 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
                 
         when(gptServicePort.requiresHumanIntervention(eq(HUMAN_INTERVENTION_MESSAGE), anyString()))
                 .thenReturn(true);
+                
+        // Configurações para os novos testes
+        when(gptServicePort.generateResponse(anyString(), eq(GREETING_MESSAGE), anyString()))
+                .thenReturn(GREETING_RESPONSE);
+                
+        when(gptServicePort.generateResponse(anyString(), eq(FAQ_QUESTION_SERVICES), anyString()))
+                .thenReturn(FAQ_RESPONSE_SERVICES);
+                
+        when(gptServicePort.generateResponse(anyString(), eq(FAQ_QUESTION_PRICE), anyString()))
+                .thenReturn(FAQ_RESPONSE_PRICE);
+                
+        when(gptServicePort.generateResponse(anyString(), eq(FAQ_QUESTION_DIY), anyString()))
+                .thenReturn(FAQ_RESPONSE_DIY);
+                
+        // Configurar para verificar que o promptBuilderService.buildGreetingPrompt() foi chamado
+        when(gptServicePort.generateResponse(eq(""), eq(""), argThat(prompt -> 
+                prompt != null && prompt.contains("## Tarefa: Gerar Saudação Inicial"))))
+                .thenReturn(GREETING_RESPONSE);
     }
 
     @AfterEach
@@ -360,6 +392,94 @@ class WhatsappWebhookControllerIT extends AbstractIntegrationTest {
         verify(gptServicePort, times(1)).generateResponse(anyString(), eq(COMPLEX_QUESTION), anyString());
         verify(gptServicePort, times(1)).analyzeIntent(eq(COMPLEX_QUESTION));
         verify(gptServicePort, times(1)).extractEntities(eq(COMPLEX_QUESTION));
+    }
+
+    @Test
+    void shouldSendGreetingResponseWhenFirstMessageIsGreeting() throws Exception {
+        // Given - Payload com saudação
+        String webhookPayload = buildWebhookPayload(TEST_PHONE_NUMBER, GREETING_MESSAGE);
+
+        // When - Enviar a requisição para o endpoint
+        mockMvc.perform(post("/api/webhook")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(webhookPayload))
+                .andExpect(status().isOk())
+                .andExpect(content().string("EVENT_RECEIVED"));
+
+        // Then - Verificar cliente e conversa criados
+        await().atMost(5, TimeUnit.SECONDS).until(() -> 
+            customerRepository.findByPhoneNumber(TEST_PHONE_NUMBER).isPresent());
+            
+        Customer customer = customerRepository.findByPhoneNumber(TEST_PHONE_NUMBER).orElseThrow();
+        Conversation conversation = conversationRepository.findByCustomerIdOrderByStartTimeDesc(customer.getId()).get(0);
+        
+        // Verificar que temos duas mensagens: a saudação do cliente e a resposta
+        await().atMost(5, TimeUnit.SECONDS).until(() ->
+            messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId()).size() >= 2);
+            
+        List<Message> messages = messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId());
+        
+        // Verificar entrada e saída
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(0).getContent()).isEqualTo(GREETING_MESSAGE);
+        assertThat(messages.get(1).getContent()).isEqualTo(GREETING_RESPONSE);
+        
+        // Verificar que o método correto foi chamado no GPT service
+        verify(gptServicePort, times(1)).generateResponse(eq(""), eq(""), 
+                argThat(prompt -> prompt != null && prompt.contains("## Tarefa: Gerar Saudação Inicial")));
+    }
+    
+    @Test
+    void shouldRespondToFaqQuestionsUsingKnowledgeBase() throws Exception {
+        // Realizar testes para cada pergunta do FAQ
+        testFaqResponse(FAQ_QUESTION_SERVICES, FAQ_RESPONSE_SERVICES);
+        testFaqResponse(FAQ_QUESTION_PRICE, FAQ_RESPONSE_PRICE);
+        testFaqResponse(FAQ_QUESTION_DIY, FAQ_RESPONSE_DIY);
+    }
+    
+    /**
+     * Método auxiliar para testar respostas a perguntas FAQ.
+     * 
+     * @param question A pergunta do FAQ
+     * @param expectedResponse A resposta esperada
+     */
+    private void testFaqResponse(String question, String expectedResponse) throws Exception {
+        // Limpar dados para cada teste
+        messageRepository.deleteAll();
+        conversationRepository.deleteAll();
+        customerRepository.deleteAll();
+        
+        // Given - Payload com pergunta FAQ
+        String webhookPayload = buildWebhookPayload(TEST_PHONE_NUMBER, question);
+
+        // When - Enviar a requisição para o endpoint
+        mockMvc.perform(post("/api/webhook")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(webhookPayload))
+                .andExpect(status().isOk())
+                .andExpect(content().string("EVENT_RECEIVED"));
+
+        // Then - Verificar cliente e conversa criados
+        await().atMost(5, TimeUnit.SECONDS).until(() -> 
+            customerRepository.findByPhoneNumber(TEST_PHONE_NUMBER).isPresent());
+            
+        Customer customer = customerRepository.findByPhoneNumber(TEST_PHONE_NUMBER).orElseThrow();
+        Conversation conversation = conversationRepository.findByCustomerIdOrderByStartTimeDesc(customer.getId()).get(0);
+        
+        // Verificar mensagens (entrada e resposta esperada)
+        await().atMost(5, TimeUnit.SECONDS).until(() ->
+            messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId()).size() >= 2);
+            
+        List<Message> messages = messageRepository.findByConversationIdOrderByTimestampAsc(conversation.getId());
+        
+        // Verificar entrada e saída
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(0).getContent()).isEqualTo(question);
+        assertThat(messages.get(1).getContent()).isEqualTo(expectedResponse);
+        
+        // Verificar que o método correto foi chamado no GPT service
+        verify(gptServicePort, times(1)).generateResponse(anyString(), eq(question), 
+                argThat(prompt -> prompt != null && prompt.contains("## Base de Conhecimento - Perguntas Frequentes")));
     }
 
     /**

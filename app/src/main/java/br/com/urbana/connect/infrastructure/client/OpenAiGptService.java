@@ -56,18 +56,33 @@ public class OpenAiGptService implements GptServicePort {
         log.debug("Gerando resposta com GPT para mensagem: {}", userMessage);
         
         try {
-            // Usar o PromptBuilderService para construir o prompt completo
-            String fullPrompt = promptBuilderService.buildPrompt(userMessage, conversationHistory);
-            
             List<ChatMessage> messages = new ArrayList<>();
             
-            // Adicionar prompt do sistema
-            if (systemPrompt != null && !systemPrompt.isEmpty()) {
-                messages.add(new ChatMessage("system", systemPrompt));
+            // Se systemPrompt contém a string "## Tarefa: Gerar Saudação Inicial", é um prompt de saudação
+            // Se contém "## Base de Conhecimento - Perguntas Frequentes", é um prompt de FAQ 
+            // Em ambos os casos, o systemPrompt completo já está no formato necessário
+            if (systemPrompt != null && (
+                    systemPrompt.contains("## Tarefa: Gerar Saudação Inicial") ||
+                    systemPrompt.contains("## Base de Conhecimento - Perguntas Frequentes"))) {
+                log.debug("Usando prompt especial: {}", 
+                        systemPrompt.contains("## Tarefa: Gerar Saudação Inicial") ? "Saudação" : "FAQ");
+                
+                // Para estes prompts especiais, enviamos tudo como uma única mensagem de usuário
+                messages.add(new ChatMessage("user", systemPrompt));
+            } else {
+                // Fluxo normal/original
+                
+                // Usar o PromptBuilderService para construir o prompt completo
+                String fullPrompt = promptBuilderService.buildPrompt(userMessage, conversationHistory);
+                
+                // Adicionar prompt do sistema
+                if (systemPrompt != null && !systemPrompt.isEmpty()) {
+                    messages.add(new ChatMessage("system", systemPrompt));
+                }
+                
+                // Adicionar o prompt completo como mensagem do usuário
+                messages.add(new ChatMessage("user", fullPrompt));
             }
-            
-            // Adicionar o prompt completo como mensagem do usuário
-            messages.add(new ChatMessage("user", fullPrompt));
             
             // Criar requisição
             ChatCompletionRequest request = ChatCompletionRequest.builder()

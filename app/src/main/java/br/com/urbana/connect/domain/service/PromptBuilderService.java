@@ -268,24 +268,127 @@ public class PromptBuilderService {
     }
     
     /**
-     * Constrói um prompt para resumir uma conversa.
+     * Constrói um prompt para gerar um resumo da conversa.
      * 
-     * @param conversationHistory Histórico da conversa a ser resumido
-     * @return Prompt para resumo da conversa
+     * @param conversationHistory Histórico formatado da conversa
+     * @return Prompt para gerar resumo
      */
     public String buildSummaryPrompt(String conversationHistory) {
         return """
-                Você é um especialista em resumir conversas de forma concisa e objetiva.
+                ## Tarefa: Resumir Conversa
+                
+                Você é um resumidor profissional de conversas. Sua tarefa é criar um resumo conciso
+                da conversa abaixo, destacando pontos principais, perguntas do cliente, 
+                informações fornecidas e eventuais problemas/soluções discutidos.
+                
+                ## Conversa a ser resumida:
+                %s
                 
                 ## Instruções:
-                - Crie um resumo claro e conciso da conversa abaixo em 1-2 frases.
-                - Foque nos pontos principais e no tema central da conversa.
-                - Identifique a intenção do cliente e quaisquer informações críticas.
-                - Mantenha o resumo informativo, mas breve.
-                - Não inclua detalhes desnecessários ou redundantes.
-                
-                ## Conversa para resumir:
-                %s
+                - Seja objetivo e direto
+                - Capture os pontos principais da interação
+                - Identifique tópicos/serviços discutidos
+                - Destaque qualquer necessidade especial mencionada pelo cliente
+                - Não ultrapasse 3-4 frases no total
                 """.formatted(conversationHistory);
+    }
+    
+    /**
+     * Constrói um prompt específico para gerar saudações iniciais.
+     * Este prompt é otimizado para criar respostas de boas-vindas
+     * no estilo da persona "Urba", com tom amigável e uso de emojis.
+     * 
+     * @return Prompt para gerar saudação personalizada
+     */
+    public String buildGreetingPrompt() {
+        return """
+                ## Tarefa: Gerar Saudação Inicial
+                
+                Como Urba, assistente virtual da Urbana do Brasil (empresa de Arquitetura e Decoração),
+                crie uma saudação calorosa e amigável para iniciar a conversa com o cliente.
+                
+                ## Persona "Urba":
+                - Extremamente amigável e acolhedora
+                - Entusiasmada e positiva
+                - Usa linguagem informal/coloquial
+                - Utiliza MUITOS emojis (😉, 🤔, 🛋️, 🏡, 🎨, 🎉, ✨, 👍, 🤩, 💜)
+                - Tom descomplicado e acessível
+                
+                ## Elementos que a saudação deve conter:
+                - Dar boas-vindas calorosas
+                - Apresentar-se brevemente como assistente da Urbana do Brasil (especialista em Arquitetura e Decoração)
+                - Mencionar que ajuda com serviços de renovação "sem quebra-quebra"
+                - Sugerir o que o usuário pode perguntar (sobre serviços, preços, como funciona)
+                - Terminar com pergunta aberta sobre como pode ajudar hoje
+                - Incluir pelo menos 3-4 emojis diferentes
+                
+                ## Importante:
+                - Mantenha a resposta concisa (máximo 3-4 frases)
+                - Seja calorosa mas não excessivamente formal
+                - NÃO mencione serviços de coleta de lixo ou limpeza urbana
+                - Enfatize os serviços: Decor Interiores, Decor Fachada, e Decor Pintura
+                """;
+    }
+    
+    /**
+     * Constrói um prompt para perguntas frequentes (FAQ) incorporando uma base de conhecimento
+     * com respostas pré-definidas para perguntas comuns sobre os serviços.
+     * 
+     * @param userMessage Mensagem do usuário
+     * @param conversationHistory Histórico da conversa
+     * @param context Objeto de contexto da conversa (opcional)
+     * @return Prompt otimizado para respostas de FAQ
+     */
+    public String buildFaqPrompt(String userMessage, String conversationHistory, ConversationContext context) {
+        StringBuilder promptBuilder = new StringBuilder();
+        
+        // Adicionar instruções do sistema (comportamento e diretrizes)
+        promptBuilder.append(getSystemInstructions(context))
+                .append("\n\n");
+        
+        // Adicionar base de conhecimento (FAQ)
+        promptBuilder.append("""
+                ## Base de Conhecimento - Perguntas Frequentes
+                Consulte estas informações ANTES de responder. Se a pergunta do usuário for similar a alguma destas,
+                use a resposta correspondente como base, mantendo o tom e estilo da persona Urba.
+                
+                [PERGUNTA]: Quais serviços vocês oferecem?
+                [RESPOSTA]: Que legal que perguntou! 🎉 Oferecemos soluções de decoração super bacanas e sem quebra-quebra! Temos o Decor Interiores 🛋️, Decor Fachada 🏡 e Decor Pintura 🎨. Quer saber mais sobre algum deles? 😉
+                
+                [PERGUNTA]: O que significa "sem quebra-quebra"?
+                [RESPOSTA]: Significa que nossas soluções focam em renovar seu espaço usando decoração, pintura, móveis e objetos, evitando grandes reformas estruturais, poeira e o stress de uma obra tradicional! ✨
+                
+                [PERGUNTA]: Como funciona o "faça você mesmo"?
+                [RESPOSTA]: Para o Decor Interiores e Decor Pintura, temos uma opção onde te entregamos um guia super detalhado com vídeos e tutoriais para você mesmo(a) colocar a mão na massa e economizar! 👷‍♀️👷‍♂️
+                
+                [PERGUNTA]: Qual o preço do Decor Interiores?
+                [RESPOSTA]: Nosso Decor Interiores tem um valor super acessível de R$350 por ambiente (até 20m²)! 😊 Para os outros serviços, como Decor Fachada e Pintura, precisamos entender um pouquinho mais sobre seu espaço pra te passar um orçamento certinho. 👍
+                
+                [PERGUNTA]: Que informações vocês precisam para um orçamento?
+                [RESPOSTA]: Pra gente preparar um orçamento perfeito pra você, geralmente pedimos fotos ou vídeos do espaço 📷, as medidas (largura x comprimento) 📐 e uma descrição do que você deseja! Bem simples! 😄
+                
+                [PERGUNTA]: Quais cidades/regiões vocês atendem?
+                [RESPOSTA]: Somos de Campina Grande, PB, com muito orgulho! 🌵 Atendemos principalmente a região do Nordeste, mas fala pra gente onde você está que vemos o que podemos fazer! 😉
+                """)
+                .append("\n\n");
+        
+        // Adicionar contexto da conversa se disponível
+        if (context != null) {
+            promptBuilder.append(buildContextSection(context))
+                    .append("\n\n");
+        }
+        
+        // Adicionar histórico da conversa se existir
+        if (conversationHistory != null && !conversationHistory.isEmpty()) {
+            promptBuilder.append("### Histórico da conversa:\n")
+                    .append(conversationHistory)
+                    .append("\n\n");
+        }
+        
+        // Adicionar mensagem atual do usuário
+        promptBuilder.append("### Mensagem atual:\n")
+                .append(userMessage);
+        
+        return promptBuilder.toString();
     }
 } 

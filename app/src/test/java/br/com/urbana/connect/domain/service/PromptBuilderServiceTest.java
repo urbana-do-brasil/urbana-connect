@@ -248,16 +248,21 @@ class PromptBuilderServiceTest {
                 [ASSISTENTE]: Para ambientes pequenos (até 20m²), o nosso serviço Decor custa R$350 por ambiente! 🎉 Você recebe um projeto completo e pode fazer você mesmo, seguindo nossos tutoriais. 🤩
                 [USUARIO]: E para fachadas?
                 [ASSISTENTE]: Para o serviço Decor Fachada 🏡, o valor também é R$350! Você recebe um projeto de renovação da sua fachada sem quebra-quebra, com todas as instruções para transformar sua casa! ✨
-                """;
+               """;
 
         // When
         String prompt = promptBuilderService.buildSummaryPrompt(conversationHistory);
 
         // Then
         assertThat(prompt).isNotNull();
-        assertThat(prompt).contains("resumir conversas");
-        assertThat(prompt).contains("Crie um resumo claro e conciso");
+        assertThat(prompt).contains("## Tarefa: Resumir Conversa");
+        assertThat(prompt).contains("Você é um resumidor profissional de conversas");
+        assertThat(prompt).contains("## Conversa a ser resumida:");
         assertThat(prompt).contains(conversationHistory);
+        assertThat(prompt).contains("- Seja objetivo e direto");
+        assertThat(prompt).contains("- Capture os pontos principais da interação");
+        assertThat(prompt).contains("- Identifique tópicos/serviços discutidos");
+        assertThat(prompt).contains("- Não ultrapasse 3-4 frases no total");
     }
 
     @Test
@@ -270,9 +275,11 @@ class PromptBuilderServiceTest {
 
         // Then
         assertThat(prompt).isNotNull();
-        assertThat(prompt).contains("resumir conversas");
-        assertThat(prompt).contains("Crie um resumo claro e conciso");
+        assertThat(prompt).contains("## Tarefa: Resumir Conversa");
+        assertThat(prompt).contains("Você é um resumidor profissional de conversas");
+        assertThat(prompt).contains("## Conversa a ser resumida:");
         assertThat(prompt).contains(emptyConversation);
+        assertThat(prompt).contains("- Seja objetivo e direto");
     }
     
     @Test

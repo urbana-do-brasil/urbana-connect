@@ -49,6 +49,13 @@ public class MessageService implements MessageProcessingUseCase {
             "Se não souber a resposta ou se o cliente solicitar falar com um humano, " +
             "informe que irá transferir para um atendente. 💜";
     
+    // Expressões regulares para detecção de saudações
+    private static final List<String> GREETING_PATTERNS = List.of(
+            "\\boi\\b", "\\bolá\\b", "\\bola\\b", "\\bhello\\b", "\\bhi\\b",
+            "\\bbom dia\\b", "\\bboa tarde\\b", "\\bboa noite\\b", "\\bboa\\b",
+            "\\btudo bem\\b", "\\bcomo vai\\b", "\\bhey\\b"
+    );
+    
     @Override
     public Message processInboundMessage(Message inboundMessage) {
         log.debug("Processando mensagem recebida do cliente: {}", inboundMessage.getCustomerId());
@@ -106,11 +113,28 @@ public class MessageService implements MessageProcessingUseCase {
             return createHumanTransferMessage(conversation, userMessage.getCustomerId());
         }
         
-        // Gerar resposta com GPT usando o histórico formatado e o contexto
-        String responseContent = gptService.generateResponse(
-                formattedHistory,
-                userMessage.getContent(), 
-                SYSTEM_PROMPT);
+        // Verificar se é uma saudação para uma conversa nova ou se é a primeira mensagem
+        String responseContent;
+        if (isGreeting(userMessage.getContent()) && 
+            (messageHistory.size() <= 1 || isFirstMessageInNewSession(conversation, messageHistory))) {
+            log.info("Detectada saudação inicial, gerando resposta de boas-vindas");
+            
+            // Para saudações, utilizamos um prompt específico (sem histórico necessário)
+            String greetingPrompt = promptBuilderService.buildGreetingPrompt();
+            responseContent = gptService.generateResponse("", "", greetingPrompt);
+        } else {
+            // Para outras mensagens, usamos o prompt de FAQ que inclui a base de conhecimento
+            log.debug("Gerando resposta com base no contexto e possível FAQ");
+            String faqPrompt = promptBuilderService.buildFaqPrompt(
+                    userMessage.getContent(), 
+                    formattedHistory, 
+                    conversation.getContext());
+                    
+            responseContent = gptService.generateResponse(
+                    "",  // Histórico já está no prompt
+                    userMessage.getContent(), 
+                    faqPrompt);
+        }
         
         // Salvar resposta
         Message savedResponse = contextService.saveAssistantResponse(
@@ -129,6 +153,52 @@ public class MessageService implements MessageProcessingUseCase {
         updateConversationContext(conversation, userMessage.getContent(), responseContent);
         
         return savedResponse;
+    }
+    
+    /**
+     * Verifica se a mensagem é uma saudação comum.
+     * 
+     * @param message Conteúdo da mensagem a ser verificada
+     * @return true se for uma saudação, false caso contrário
+     */
+    private boolean isGreeting(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return false;
+        }
+        
+        String normalized = message.toLowerCase().trim();
+        
+        // Verifica se é uma mensagem muito curta (típico de saudações)
+        if (normalized.split("\\s+").length <= 3) {
+            // Verificar padrões de saudação usando expressões regulares
+            for (String pattern : GREETING_PATTERNS) {
+                if (normalized.matches(".*" + pattern + ".*")) {
+                    log.debug("Saudação detectada com padrão: {}", pattern);
+                    return true;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * Verifica se é a primeira mensagem em uma nova sessão de conversa.
+     * Útil para reapresentar saudações quando o cliente retorna após um período de inatividade.
+     * 
+     * @param conversation A conversa atual
+     * @param messageHistory Histórico de mensagens
+     * @return true se for a primeira mensagem de uma nova sessão
+     */
+    private boolean isFirstMessageInNewSession(Conversation conversation, List<Message> messageHistory) {
+        if (messageHistory.size() <= 1) {
+            return true;
+        }
+        
+        // Se a última atividade foi há mais de 6 horas, consideramos uma nova sessão
+        LocalDateTime lastActivity = conversation.getLastActivityTime();
+        return lastActivity != null && 
+               lastActivity.plusHours(6).isBefore(LocalDateTime.now());
     }
     
     @Override

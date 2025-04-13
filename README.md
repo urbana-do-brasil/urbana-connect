@@ -112,6 +112,160 @@ A pasta `docs/arquitetura/` contém a documentação completa da arquitetura do 
 - Estruturas de dados
 - Configurações de infraestrutura
 
+## Testes Manuais com cURL
+
+### Testando Webhook
+
+Para testar o webhook manualmente, você pode usar os seguintes comandos cURL:
+
+#### Saudações
+
+```bash
+# Testar saudação simples (deve acionar o fluxo de boas-vindas)
+curl -X POST http://localhost:8080/api/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "object": "whatsapp_business_account",
+    "entry": [{
+        "id": "123456789",
+        "changes": [{
+            "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                    "display_phone_number": "5511111111111",
+                    "phone_number_id": "123456789"
+                },
+                "contacts": [{
+                    "profile": {
+                        "name": "Usuário Teste"
+                    },
+                    "wa_id": "5511999999999"
+                }],
+                "messages": [{
+                    "from": "5511999999999",
+                    "id": "wamid.123456789",
+                    "timestamp": "1677587365",
+                    "text": {
+                        "body": "Olá, bom dia!"
+                    },
+                    "type": "text"
+                }]
+            },
+            "field": "messages"
+        }]
+    }]
+}'
+```
+
+#### Perguntas Frequentes (FAQ)
+
+```bash
+# Testar pergunta sobre serviços oferecidos
+curl -X POST http://localhost:8080/api/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "object": "whatsapp_business_account",
+    "entry": [{
+        "id": "123456789",
+        "changes": [{
+            "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                    "display_phone_number": "5511111111111",
+                    "phone_number_id": "123456789"
+                },
+                "contacts": [{
+                    "profile": {
+                        "name": "Usuário Teste"
+                    },
+                    "wa_id": "5511999999999"
+                }],
+                "messages": [{
+                    "from": "5511999999999",
+                    "id": "wamid.123456789",
+                    "timestamp": "1677587365",
+                    "text": {
+                        "body": "Quais serviços vocês oferecem?"
+                    },
+                    "type": "text"
+                }]
+            },
+            "field": "messages"
+        }]
+    }]
+}'
+
+# Testar pergunta sobre preços
+curl -X POST http://localhost:8080/api/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "object": "whatsapp_business_account",
+    "entry": [{
+        "id": "123456789",
+        "changes": [{
+            "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                    "display_phone_number": "5511111111111",
+                    "phone_number_id": "123456789"
+                },
+                "contacts": [{
+                    "profile": {
+                        "name": "Usuário Teste"
+                    },
+                    "wa_id": "5511999999999"
+                }],
+                "messages": [{
+                    "from": "5511999999999",
+                    "id": "wamid.123456789",
+                    "timestamp": "1677587365",
+                    "text": {
+                        "body": "Qual o preço do Decor Interiores?"
+                    },
+                    "type": "text"
+                }]
+            },
+            "field": "messages"
+        }]
+    }]
+}'
+
+# Testar pergunta sobre "faça você mesmo"
+curl -X POST http://localhost:8080/api/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "object": "whatsapp_business_account",
+    "entry": [{
+        "id": "123456789",
+        "changes": [{
+            "value": {
+                "messaging_product": "whatsapp",
+                "metadata": {
+                    "display_phone_number": "5511111111111",
+                    "phone_number_id": "123456789"
+                },
+                "contacts": [{
+                    "profile": {
+                        "name": "Usuário Teste"
+                    },
+                    "wa_id": "5511999999999"
+                }],
+                "messages": [{
+                    "from": "5511999999999",
+                    "id": "wamid.123456789",
+                    "timestamp": "1677587365",
+                    "text": {
+                        "body": "Como funciona o faça você mesmo?"
+                    },
+                    "type": "text"
+                }]
+            },
+            "field": "messages"
+        }]
+    }]
+}'
+```
+
 ## Próximos Passos
 
 1. Implementação dos componentes básicos da aplicação

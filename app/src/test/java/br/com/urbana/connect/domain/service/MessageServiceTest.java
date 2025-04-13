@@ -269,6 +269,12 @@ class MessageServiceTest {
 
     @Test
     void processInboundMessage_shouldProcessMessageAndGenerateResponse() {
+        // Configurar mock de promptBuilderService para retornar um prompt FAQ
+        when(promptBuilderService.buildFaqPrompt(anyString(), anyString(), any())).thenReturn("Prompt FAQ");
+        
+        // Configurar mock para que o GPT não detecte necessidade de intervenção humana
+        when(gptService.requiresHumanIntervention(anyString(), anyString())).thenReturn(false);
+        
         // When
         Message result = messageService.processInboundMessage(inboundMessage);
 
@@ -293,6 +299,25 @@ class MessageServiceTest {
     
     @Test
     void generateResponse_withExistingConversationAndMessage_shouldGenerateResponse() {
+        // Configurar mock de promptBuilderService para retornar um prompt FAQ
+        when(promptBuilderService.buildFaqPrompt(anyString(), anyString(), any())).thenReturn("Prompt FAQ");
+        
+        // Reconfigurar o mock da mensagem para ter conteúdo não-saudação
+        Message testMessage = Message.builder()
+                .id(MESSAGE_ID)
+                .conversationId(CONVERSATION_ID)
+                .customerId(CUSTOMER_ID)
+                .direction(MessageDirection.INBOUND)
+                .type(MessageType.TEXT)
+                .content("Preciso de informações sobre o serviço de decoração")
+                .timestamp(LocalDateTime.now())
+                .status(MessageStatus.SENT)
+                .whatsappMessageId(WHATSAPP_MESSAGE_ID)
+                .build();
+        
+        // Ajustar o repositório para retornar nossa mensagem específica
+        when(messageRepository.findById(MESSAGE_ID)).thenReturn(Optional.of(testMessage));
+        
         // When
         Message result = messageService.generateResponse(CONVERSATION_ID, MESSAGE_ID);
 
