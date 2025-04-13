@@ -89,6 +89,8 @@ class MessageServiceTest {
     private final String HUMAN_TRANSFER_CONTENT = "Entendi que você precisa falar com um atendente humano! 👋 Vou transferir sua conversa agora mesmo. Aguarde um momentinho, por favor. 💜";
     private final String SUMMARY_CONTENT = "Resumo da conversa entre cliente e assistente sobre serviços de decoração";
     private final String SUMMARY_PROMPT = "Resumir a seguinte conversa: [histórico da conversa]";
+    private final String REMINDER_CONTENT = "Nossa equipe já foi notificada e entrará em contato em breve! 😊 Obrigada pela paciência. 💜";
+    private final String HUMAN_HANDOFF_KEYWORD = "falar com atendente";
 
     @BeforeEach
     void setUp() {
@@ -359,7 +361,7 @@ class MessageServiceTest {
         when(messageRepository.save(argThat(message -> 
             message.getDirection() == MessageDirection.OUTBOUND && 
             message.getContent() != null && 
-            message.getContent().contains("atendente humano")
+            message.getContent().contains("atenção super especial")
         ))).thenReturn(humanTransferMessage);
 
         // When
@@ -371,7 +373,7 @@ class MessageServiceTest {
         verify(gptService).requiresHumanIntervention(inboundMessage.getContent(), "Histórico formatado");
         
         // Verificar que a conversa foi atualizada para indicar intervenção humana
-        verify(conversationService).updateConversationStatus(eq(CONVERSATION_ID), eq(ConversationStatus.WAITING_FOR_AGENT));
+        verify(conversationService).updateConversation(any(Conversation.class));
         
         // Verificar que não foi chamado o método de geração de resposta do GPT
         verify(gptService, never()).generateResponse(anyString(), anyString(), anyString());
@@ -708,5 +710,173 @@ class MessageServiceTest {
         
         // A mensagem ainda é salva, mas não é atualizada com o ID do WhatsApp
         verify(messageRepository).save(any(Message.class));
+    }
+    
+    @Test
+    void generateResponse_withHandoffKeywords_shouldTransferToHuman() {
+        // Configurar mensagem com palavra-chave de handoff
+        Message handoffMessage = Message.builder()
+                .id("handoff-msg")
+                .conversationId(CONVERSATION_ID)
+                .customerId(CUSTOMER_ID)
+                .direction(MessageDirection.INBOUND)
+                .type(MessageType.TEXT)
+                .content(HUMAN_HANDOFF_KEYWORD)
+                .timestamp(LocalDateTime.now())
+                .status(MessageStatus.SENT)
+                .whatsappMessageId("wamid.handoff")
+                .build();
+        
+        // Configurar comportamento dos mocks
+        when(contextService.getConversationHistory(any(Conversation.class))).thenReturn(messageHistory);
+        when(contextService.formatConversationHistory(anyList())).thenReturn("Histórico formatado");
+        when(gptService.requiresHumanIntervention(anyString(), anyString())).thenReturn(false); // O GPT não detectaria, mas as palavras-chave sim
+        when(messageRepository.save(any(Message.class))).thenReturn(humanTransferMessage);
+        when(customerService.findByPhoneNumber(anyString())).thenReturn(Optional.of(customer));
+        when(whatsappService.sendTextMessage(anyString(), anyString())).thenReturn("wamid.transfer123");
+        
+        // Executar o método
+        Message result = messageService.generateResponse(conversation, handoffMessage);
+        
+        // Verificar que a conversa foi marcada como handoff
+        assertTrue(conversation.isHandedOffToHuman());
+        assertEquals(ConversationStatus.WAITING_FOR_AGENT, conversation.getStatus());
+        assertEquals("AGUARDANDO_ATENDENTE", conversation.getContext().getConversationState());
+        
+        // Verificar que a mensagem de transferência foi criada e retornada
+        assertNotNull(result);
+        assertEquals(MessageDirection.OUTBOUND, result.getDirection());
+        
+        // Verificar que a conversa foi atualizada no serviço
+        verify(conversationService).updateConversation(conversation);
+    }
+    
+    @Test
+    void generateResponse_withConversationInHandoffMode_shouldReturnReminderAfterDelay() {
+        // Configurar conversa já em modo handoff
+        Conversation handoffConversation = Conversation.builder()
+                .id(CONVERSATION_ID)
+                .customerId(CUSTOMER_ID)
+                .status(ConversationStatus.WAITING_FOR_AGENT)
+                .handedOffToHuman(true)
+                .lastActivityTime(LocalDateTime.now().minusMinutes(5))  // 5 minutos atrás (mais que o tempo limite)
+                .context(new ConversationContext())
+                .build();
+        
+        // Configurar mensagem do cliente após handoff
+        Message followUpMessage = Message.builder()
+                .id("followup-msg")
+                .conversationId(CONVERSATION_ID)
+                .customerId(CUSTOMER_ID)
+                .direction(MessageDirection.INBOUND)
+                .type(MessageType.TEXT)
+                .content("Cadê o atendente?")
+                .timestamp(LocalDateTime.now())
+                .status(MessageStatus.SENT)
+                .build();
+        
+        // Mockando o objeto de lembrete
+        Message reminderMessage = Message.builder()
+                .id("reminder-msg")
+                .conversationId(CONVERSATION_ID)
+                .customerId(CUSTOMER_ID)
+                .direction(MessageDirection.OUTBOUND)
+                .type(MessageType.TEXT)
+                .content(REMINDER_CONTENT)
+                .timestamp(LocalDateTime.now())
+                .status(MessageStatus.SENT)
+                .build();
+        
+        // Configurar comportamento dos mocks
+        when(messageRepository.save(any(Message.class))).thenReturn(reminderMessage);
+        when(customerService.findByPhoneNumber(anyString())).thenReturn(Optional.of(customer));
+        when(whatsappService.sendTextMessage(anyString(), anyString())).thenReturn("wamid.reminder");
+        
+        // Executar o método
+        Message result = messageService.generateResponse(handoffConversation, followUpMessage);
+        
+        // Verificar que uma mensagem de lembrete foi retornada
+        assertNotNull(result);
+        assertEquals(REMINDER_CONTENT, result.getContent());
+        assertEquals(MessageDirection.OUTBOUND, result.getDirection());
+        
+        // Verificar que não houve chamada ao GPT (por já estar em handoff)
+        verify(gptService, never()).generateResponse(anyString(), anyString(), anyString());
+    }
+    
+    @Test
+    void containsHandoffKeywords_withVariousMessages_shouldDetectCorrectly() throws Exception {
+        // Acessar o método privado via reflection
+        java.lang.reflect.Method method = MessageService.class.getDeclaredMethod("containsHandoffKeywords", String.class);
+        method.setAccessible(true);
+        
+        // Frases que o teste está verificando - vamos garantir que estejam exatamente em conformidade com as palavras-chave
+        // definidas no método original para evitar falsos negativos
+        assertTrue((Boolean) method.invoke(messageService, "falar com atendente"));
+        assertTrue((Boolean) method.invoke(messageService, "quero falar com humano"));
+        assertTrue((Boolean) method.invoke(messageService, "falar com pessoa"));
+        
+        // Mensagens que não devem acionar o handoff
+        assertFalse((Boolean) method.invoke(messageService, "Olá, como vai?"));
+        assertFalse((Boolean) method.invoke(messageService, "Quero saber sobre decoração"));
+        assertFalse((Boolean) method.invoke(messageService, (Object)null));
+        assertFalse((Boolean) method.invoke(messageService, ""));
+    }
+    
+    @Test
+    void processIncomingMessage_withHandoffKeywords_shouldImmediatelyHandoff() {
+        // Configurar
+        when(contextService.getOrCreateCustomer(anyString())).thenReturn(customer);
+        when(contextService.getOrCreateActiveConversation(any(Customer.class))).thenReturn(conversation);
+        when(contextService.saveUserMessage(any(Conversation.class), anyString(), anyString())).thenReturn(inboundMessage);
+        
+        // Preparar um mock para a mensagem de transferência
+        Message mockedTransferMessage = Message.builder()
+                .id("transfer-new")
+                .conversationId(CONVERSATION_ID)
+                .customerId(CUSTOMER_ID)
+                .direction(MessageDirection.OUTBOUND)
+                .type(MessageType.TEXT)
+                .content("Entendi! 😉 Para te dar a atenção super especial que você merece...")
+                .timestamp(LocalDateTime.now())
+                .status(MessageStatus.SENT)
+                .build();
+        
+        // Mock para o método de salvar mensagem
+        when(messageRepository.save(any(Message.class))).thenReturn(mockedTransferMessage);
+        when(customerService.findByPhoneNumber(anyString())).thenReturn(Optional.of(customer));
+        
+        // Executar com mensagem contendo palavra-chave de handoff
+        String result = messageService.processIncomingMessage(PHONE_NUMBER, HUMAN_HANDOFF_KEYWORD, WHATSAPP_MESSAGE_ID);
+        
+        // Verificar que foi retornada a indicação de transferência
+        assertEquals("Transferindo para atendente humano...", result);
+        
+        // Verificar que não houve chamada ao GPT para gerar resposta
+        verify(gptService, never()).generateResponse(anyString(), anyString(), anyString());
+    }
+    
+    @Test
+    void processIncomingMessage_withHandoffedConversation_shouldNotProcessWithGpt() {
+        // Configurar conversa já em handoff
+        conversation.setHandedOffToHuman(true);
+        conversation.setStatus(ConversationStatus.WAITING_FOR_AGENT);
+        
+        // Configurar mocks
+        when(contextService.getOrCreateCustomer(anyString())).thenReturn(customer);
+        when(contextService.getOrCreateActiveConversation(any(Customer.class))).thenReturn(conversation);
+        when(contextService.saveUserMessage(any(Conversation.class), anyString(), anyString())).thenReturn(inboundMessage);
+        
+        // Executar método
+        String result = messageService.processIncomingMessage(PHONE_NUMBER, "Mensagem qualquer em conversa já transferida", WHATSAPP_MESSAGE_ID);
+        
+        // Verificar resultado
+        assertEquals("Mensagem recebida. Aguardando atendimento humano.", result);
+        
+        // Verificar que não houve processamento com GPT
+        verify(gptService, never()).analyzeIntent(anyString());
+        verify(gptService, never()).requiresHumanIntervention(anyString(), anyString());
+        verify(gptService, never()).generateResponse(anyString(), anyString(), anyString());
+        verify(gptService, never()).extractEntities(anyString());
     }
 } 

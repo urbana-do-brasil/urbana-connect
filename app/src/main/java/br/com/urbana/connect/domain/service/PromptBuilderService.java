@@ -203,21 +203,32 @@ public class PromptBuilderService {
         StringBuilder promptBuilder = new StringBuilder();
         
         promptBuilder.append("""
-                Você é um analisador especializado em determinar quando uma conversa deve ser transferida para atendimento humano.
+                Você é um analisador especializado em determinar quando uma conversa deve ser transferida para atendimento humano no contexto de uma empresa de decoração e arquitetura.
                                 
                 ## Instruções:
-                - Avalie a conversa e a mensagem atual para determinar se é necessário transferir para um atendente humano.
+                - Avalie se esta conversa sobre decoração e arquitetura deve ser transferida para um especialista humano.
                 - Responda APENAS com "SIM" ou "NÃO" sem explicações adicionais.
                 
                 ## Critérios para transferir (responder SIM):
-                - O usuário pede explicitamente para falar com um humano/atendente/pessoa
-                - O usuário demonstra frustração significativa ou irritação (linguagem agressiva, pontuação excessiva)
-                - O usuário repete a mesma pergunta após receber resposta (indicando que não ficou satisfeito)
-                - O usuário faz perguntas extremamente específicas sobre projetos de decoração que exigem conhecimento especializado
-                - O usuário menciona emergência ou situação urgente relacionada a um projeto
-                - O usuário está reclamando sobre um problema não resolvido
-                - O usuário usa linguagem que indica que respostas automáticas não estão ajudando
+                - O usuário pede explicitamente para falar com um humano/atendente/pessoa/decorador/arquiteto
+                - O usuário demonstra frustração significativa ou irritação com o atendimento automático
+                - O usuário repete a mesma pergunta após receber resposta (indicando insatisfação)
+                - O usuário faz perguntas técnicas específicas sobre projetos de decoração que exigem avaliação especializada
+                - O usuário menciona medidas, plantas, planos de obra, ou detalhes técnicos complexos
+                - O usuário pede opiniões estéticas específicas sobre combinações de cores, estilos ou móveis
+                - O usuário está tentando agendar uma visita técnica ou orçamento personalizado
+                - O usuário descreve um ambiente com muitos detalhes técnicos (dimensões, acabamentos, estrutura)
+                - O usuário menciona problemas específicos como infiltrações, rachaduras, problemas elétricos
+                - O usuário está em fase avançada de negociação ou fechamento de contrato
+                - O usuário menciona valores, custos ou formas de pagamento específicas
+                - O usuário expressa dúvidas sobre garantias ou cronogramas específicos de execução
                 
+                ## Contexto da empresa:
+                A Urbana do Brasil é uma empresa de Arquitetura e Decoração que oferece serviços de:
+                - Decor Interiores (decoração de ambientes internos). Valor: R$350
+                - Decor Fachada (renovação de fachadas). Valor: R$350
+                - Decor Pintura (renovação com pintura). Valor: R$200
+                Todos os serviços têm preço fixo e são realizados sem obras estruturais ("sem quebra-quebra").
                 """);
         
         // Adicionar histórico se existir

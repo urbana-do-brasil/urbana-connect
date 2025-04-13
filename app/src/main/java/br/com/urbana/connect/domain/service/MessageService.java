@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.Optional;
+import java.util.Arrays;
 
 /**
  * Implementação do caso de uso de processamento de mensagens.
@@ -99,17 +100,30 @@ public class MessageService implements MessageProcessingUseCase {
         // Verificar se já foi transferido para atendimento humano
         if (conversation.isHandedOffToHuman()) {
             log.info("Conversa já transferida para atendimento humano. Não gerando resposta automática.");
+            
+            // Enviar mensagem leve de lembrete, se estiver aguardando há muito tempo
+            if (conversation.getLastActivityTime() != null &&
+                conversation.getLastActivityTime().plusMinutes(2).isBefore(LocalDateTime.now())) {
+                return createHandoffReminderMessage(conversation, userMessage.getCustomerId());
+            }
+            
             return null;
         }
         
         // Recuperar histórico de mensagens
         List<Message> messageHistory = contextService.getConversationHistory(conversation);
         
-        // Verificar se requer intervenção humana
+        // Verificar se requer intervenção humana via detecção com GPT
         String formattedHistory = contextService.formatConversationHistory(messageHistory);
         boolean needsHuman = gptService.requiresHumanIntervention(userMessage.getContent(), formattedHistory);
         
-        if (needsHuman && !conversation.isHandedOffToHuman()) {
+        // Verificar palavras-chave explícitas para handoff
+        boolean containsHandoffKeywords = containsHandoffKeywords(userMessage.getContent());
+        
+        // Se precisar de intervenção humana (por GPT ou palavras-chave)
+        if ((needsHuman || containsHandoffKeywords) && !conversation.isHandedOffToHuman()) {
+            log.info("Transferindo para atendimento humano. Detectado por: {}", 
+                    containsHandoffKeywords ? "palavras-chave" : "análise GPT");
             return createHumanTransferMessage(conversation, userMessage.getCustomerId());
         }
         
@@ -389,15 +403,50 @@ public class MessageService implements MessageProcessingUseCase {
         return true;
     }
     
+    /**
+     * Verifica se a mensagem do usuário contém palavras-chave explícitas
+     * solicitando atendimento humano.
+     * 
+     * @param message Conteúdo da mensagem
+     * @return true se contém palavras-chave de handoff
+     */
+    private boolean containsHandoffKeywords(String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return false;
+        }
+        
+        String normalized = message.toLowerCase().trim();
+        
+        // Lista de palavras-chave que indicam pedido explícito de atendimento humano
+        List<String> handoffKeywords = Arrays.asList(
+            "falar com atendente", "falar com humano", "atendente humano", 
+            "quero atendente", "quero falar com pessoa", "falar com pessoa",
+            "atendente por favor", "preciso de atendente", "pessoa real",
+            "quero falar com alguém", "falar com gente", "atendimento humano",
+            "ajuda de verdade", "suporte", "falar com suporte",
+            "pessoa de verdade", "sem bot", "não quero falar com robô"
+        );
+        
+        return handoffKeywords.stream().anyMatch(normalized::contains);
+    }
+    
+    /**
+     * Cria uma mensagem de transferência para atendimento humano.
+     * 
+     * @param conversation A conversa a ser transferida
+     * @param customerId ID do cliente
+     * @return Mensagem criada e salva
+     */
     private Message createHumanTransferMessage(Conversation conversation, String customerId) {
+        // Criar mensagem de transferência com o estilo "Urba"
         Message transferMessage = Message.builder()
                 .conversationId(conversation.getId())
                 .customerId(customerId)
                 .type(MessageType.TEXT)
                 .direction(MessageDirection.OUTBOUND)
-                .content("Entendi que você precisa falar com um atendente humano. " +
-                        "Estou transferindo sua conversa para um de nossos atendentes. " +
-                        "Por favor, aguarde um momento.")
+                .content("Entendi! 😉 Para te dar a atenção super especial que você merece nesse ponto, " +
+                        "vou acionar nossa equipe de especialistas em decoração! 🧑‍🎨 Fica tranquilo(a) que " +
+                        "em breve alguém entrará em contato por aqui para continuar a conversa. Até já! ✨💜")
                 .timestamp(LocalDateTime.now())
                 .status(MessageStatus.SENT)
                 .build();
@@ -408,8 +457,45 @@ public class MessageService implements MessageProcessingUseCase {
         // Atualizar status da conversa
         conversation.setHandedOffToHuman(true);
         conversation.getContext().setNeedsHumanIntervention(true);
+        conversation.getContext().setConversationState("AGUARDANDO_ATENDENTE");
         conversation.setStatus(ConversationStatus.WAITING_FOR_AGENT);
-        conversationService.updateConversationStatus(conversation.getId(), ConversationStatus.WAITING_FOR_AGENT);
+        conversationService.updateConversation(conversation);
+        
+        // Enviar pelo WhatsApp
+        Customer customer = customerService.findByPhoneNumber(customerId)
+                .orElseThrow(() -> new IllegalArgumentException("Cliente não encontrado"));
+        
+        String whatsappMessageId = whatsappService.sendTextMessage(
+                customer.getPhoneNumber(), savedMessage.getContent());
+        
+        if (whatsappMessageId != null) {
+            savedMessage.setWhatsappMessageId(whatsappMessageId);
+            messageRepository.save(savedMessage);
+        }
+        
+        return savedMessage;
+    }
+    
+    /**
+     * Cria uma mensagem de lembrete para o cliente que está aguardando atendimento humano.
+     * 
+     * @param conversation A conversa em aguardo
+     * @param customerId ID do cliente
+     * @return Mensagem de lembrete
+     */
+    private Message createHandoffReminderMessage(Conversation conversation, String customerId) {
+        Message reminderMessage = Message.builder()
+                .conversationId(conversation.getId())
+                .customerId(customerId)
+                .type(MessageType.TEXT)
+                .direction(MessageDirection.OUTBOUND)
+                .content("Nossa equipe já foi notificada e entrará em contato em breve! 😊 " +
+                        "Obrigada pela paciência. 💜")
+                .timestamp(LocalDateTime.now())
+                .status(MessageStatus.SENT)
+                .build();
+        
+        Message savedMessage = messageRepository.save(reminderMessage);
         
         // Enviar pelo WhatsApp
         Customer customer = customerService.findByPhoneNumber(customerId)
@@ -478,45 +564,58 @@ public class MessageService implements MessageProcessingUseCase {
             // 3. Salvar mensagem do usuário
             Message userMessage = contextService.saveUserMessage(conversation, messageContent, whatsappMessageId);
             
-            // 4. Obter histórico da conversa
+            // 4. Verificar se já está em handoff
+            if (conversation.isHandedOffToHuman()) {
+                log.info("Conversa já transferida para atendimento humano. Ignorando processamento automático.");
+                return "Mensagem recebida. Aguardando atendimento humano.";
+            }
+            
+            // 5. Obter histórico da conversa
             List<Message> conversationHistory = contextService.getConversationHistory(conversation);
             String formattedHistory = contextService.formatConversationHistory(conversationHistory);
             
-            // 5. Analisar a intenção do usuário
+            // 6. Verificar palavras-chave para handoff
+            boolean containsHandoffKeywords = containsHandoffKeywords(messageContent);
+            if (containsHandoffKeywords) {
+                log.info("Palavras-chave de handoff detectadas. Transferindo para atendimento humano.");
+                createHumanTransferMessage(conversation, phoneNumber);
+                return "Transferindo para atendente humano...";
+            }
+            
+            // 7. Analisar a intenção do usuário
             String intent = gptService.analyzeIntent(messageContent);
             log.info("Intenção detectada: {}", intent);
             
-            // 6. Verificar necessidade de intervenção humana
+            // 8. Verificar necessidade de intervenção humana via GPT
             boolean needsHuman = gptService.requiresHumanIntervention(messageContent, formattedHistory);
             if (needsHuman) {
-                log.info("Mensagem requer intervenção humana");
-                conversation.getContext().setNeedsHumanIntervention(true);
-                conversationService.updateConversationStatus(conversation.getId(), ConversationStatus.WAITING_HUMAN);
-                return "Estou transferindo você para um atendente humano. Por favor, aguarde um momento.";
+                log.info("Mensagem requer intervenção humana segundo análise do GPT");
+                createHumanTransferMessage(conversation, phoneNumber);
+                return "Transferindo para atendente humano...";
             }
             
-            // 7. Gerar resposta com GPT
+            // 9. Gerar resposta com GPT
             String response = gptService.generateResponse(formattedHistory, messageContent, SYSTEM_PROMPT);
             
-            // 8. Extrair entidades e atualizar contexto da conversa
+            // 10. Extrair entidades e atualizar contexto da conversa
             List<String> entities = gptService.extractEntities(messageContent);
             String entitiesStr = String.join(", ", entities);
             
-            // 9. Atualizar o contexto da conversa
+            // 11. Atualizar o contexto da conversa
             contextService.updateConversationContext(
                     conversation, 
                     intent, 
                     entitiesStr
             );
             
-            // 10. Salvar resposta do assistente
+            // 12. Salvar resposta do assistente
             Message assistantMessage = contextService.saveAssistantResponse(conversation, response);
             
             log.info("Resposta gerada com sucesso: {}", response);
             return response;
         } catch (Exception e) {
             log.error("Erro ao processar mensagem: {}", e.getMessage(), e);
-            return "Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente.";
+            return "Ops! 😅 Parece que tive um probleminha técnico. Poderia tentar me perguntar de novo? Ou, se preferir, diga 'falar com atendente' para chamar nossa equipe.";
         } finally {
             MDC.remove("messageContent");
             MDC.remove("customerId");
