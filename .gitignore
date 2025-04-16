@@ -132,4 +132,7 @@ vendor/
 !terraform.tfvars.example
 !terraform/environments/dev/terraform.tfvars
 !terraform/environments/staging/terraform.tfvars
-!terraform/environments/prod/terraform.tfvars 
+!terraform/environments/prod/terraform.tfvars
+
+# Permitir o versionamento do Gradle Wrapper JAR
+!app/gradle/wrapper/gradle-wrapper.jar 
