@@ -27,10 +27,7 @@ jobs:
     if: github.event_name == 'pull_request' # Executa apenas em Pull Requests
 
     env:
-      # Mapeia os secrets do GitHub para as variáveis de ambiente esperadas
-      # Removidas as variáveis AWS_* para o Spaces
-      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      # Usando a variável específica para o host app.terraform.io
+      # DIGITALOCEAN_ACCESS_TOKEN removido daqui, será pego do TF Cloud
       TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
       # Garante que o Terraform não peça input interativo
       TF_INPUT: false
@@ -120,9 +117,7 @@ jobs:
                           # Removido por simplicidade, pois o 'if' já controla a execução
 
     env:
-      # Removidas as variáveis AWS_* para o Spaces
-      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-      # Usando a variável específica para o host app.terraform.io
+      # DIGITALOCEAN_ACCESS_TOKEN removido daqui, será pego do TF Cloud
       TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
       TF_INPUT: false
       TF_IN_AUTOMATION: true
