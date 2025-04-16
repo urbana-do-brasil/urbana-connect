@@ -36,8 +36,6 @@ jobs:
       TF_INPUT: false
       # Informa ao provider que está rodando em automação
       TF_IN_AUTOMATION: true
-      # Habilitando debug log
-      TF_LOG: DEBUG
 
     defaults:
       run:
@@ -128,8 +126,6 @@ jobs:
       TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
       TF_INPUT: false
       TF_IN_AUTOMATION: true
-      # Habilitando debug log
-      TF_LOG: DEBUG
 
     defaults:
       run:
