@@ -1,0 +1,151 @@
+name: Terraform CI/CD for DOKS Infra
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'infra/terraform/doks/**'
+
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/terraform/doks/**'
+
+# Opcional: Adicionar workflow_dispatch para trigger manual do apply
+# workflow_dispatch:
+
+permissions:
+  contents: read # Necessário para actions/checkout
+  # pull-requests: write # Descomente se precisar que o bot comente o plano no PR
+
+jobs:
+  terraform_plan:
+    name: 'Terraform Plan'
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' # Executa apenas em Pull Requests
+
+    env:
+      # Mapeia os secrets do GitHub para as variáveis de ambiente esperadas
+      # Removidas as variáveis AWS_* para o Spaces
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      # Usando a variável específica para o host app.terraform.io
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      # Garante que o Terraform não peça input interativo
+      TF_INPUT: false
+      # Informa ao provider que está rodando em automação
+      TF_IN_AUTOMATION: true
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./infra/terraform/doks # Define o diretório de trabalho
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.7.x # Especifique a versão do Terraform ou deixe "latest"
+        # terraform_wrapper: true # Opcional: pode ajudar com output
+
+    - name: Terraform Format Check
+      id: fmt
+      run: terraform fmt -check
+      continue-on-error: true # Permite continuar mesmo se houver erro de formatação
+
+    - name: Terraform Init
+      id: init
+      # Não precisa mais passar backend-config para o init
+      run: terraform init
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate -no-color
+
+    - name: Run Terraform Plan
+      id: plan
+      run: terraform plan -no-color
+      continue-on-error: true # Permite que o workflow continue se o plan falhar (para reportar erro)
+
+    # Opcional: Adicionar um passo para comentar o plano no PR
+    # - name: Comment Plan on PR
+    #   uses: actions/github-script@v6
+    #   if: github.event_name == 'pull_request'
+    #   with:
+    #     github-token: ${{ secrets.GITHUB_TOKEN }} # Precisa da permissão pull-requests: write
+    #     script: |-
+    #       const output = `#### Terraform Format and Style 🖌\\\`\\\`\\\`
+    #       ${{ steps.fmt.outcome }} 
+    #       \\\`\\\`\\\`
+    #       #### Terraform Initialization ⚙️\\\`\\\`\\\`
+    #       ${{ steps.init.outcome }}
+    #       \\\`\\\`\\\`
+    #       #### Terraform Validation 🤖\\\`\\\`\\\`
+    #       ${{ steps.validate.outcome }}
+    #       \\\`\\\`\\\`
+    #       <details><summary>Validation Output</summary>
+    #       \\\`\\\`\\\`
+    #       ${{ steps.validate.outputs.stdout }}
+    #       \\\`\\\`\\\`
+    #       </details>
+    #       #### Terraform Plan 📖\\\`\\\`\\\`
+    #       ${{ steps.plan.outcome }}
+    #       \\\`\\\`\\\`
+    #       <details><summary>Show Plan</summary>
+    #       \\\`\\\`\\\`terraform
+    #       ${{ steps.plan.outputs.stdout }}
+    #       \\\`\\\`\\\`
+    #       </details>
+    #       *Pusher: @${{ github.actor }}, Action: \\\`\\\`${{ github.event_name }}\\\`\\\`, Working Directory: \\\`\\\`${{ env.tf_actions_working_dir }}\\\`\\\`, Workflow: \\\`\\\`${{ github.workflow }}\\\`\\\`*`;
+    #       github.rest.issues.createComment({
+    #         issue_number: context.issue.number,
+    #         owner: context.repo.owner,
+    #         repo: context.repo.repo,
+    #         body: output
+    #       })
+
+    - name: Check Plan Status
+      if: steps.plan.outcome == 'failure'
+      run: exit 1 # Falha o workflow se o plan falhar
+
+  terraform_apply:
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' # Executa apenas em push para main
+    # needs: terraform_plan # Opcional: Garante que o apply só rode se o plan (em PR) foi ok
+                          # Removido por simplicidade, pois o 'if' já controla a execução
+
+    env:
+      # Removidas as variáveis AWS_* para o Spaces
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+      # Usando a variável específica para o host app.terraform.io
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      TF_INPUT: false
+      TF_IN_AUTOMATION: true
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./infra/terraform/doks
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.7.x # Use a mesma versão do job de plan
+
+    - name: Terraform Init
+      id: init
+      # Não precisa mais passar backend-config para o init
+      run: terraform init
+
+    - name: Terraform Apply
+      id: apply
+      run: terraform apply -auto-approve -no-color 
