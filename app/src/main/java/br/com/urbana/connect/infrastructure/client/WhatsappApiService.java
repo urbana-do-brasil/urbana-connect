@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -68,13 +70,12 @@ public class WhatsappApiService implements WhatsappServicePort {
             // Construir payload da mensagem
             ObjectNode messageNode = objectMapper.createObjectNode();
             messageNode.put("messaging_product", "whatsapp");
-            messageNode.put("recipient_type", "individual");
             messageNode.put("to", sanitizedPhone);
+            messageNode.put("type", "text");
             
             ObjectNode textNode = objectMapper.createObjectNode();
             textNode.put("body", textContent);
             
-            messageNode.set("type", objectMapper.valueToTree("text"));
             messageNode.set("text", textNode);
             
             // Configurar headers
@@ -84,7 +85,14 @@ public class WhatsappApiService implements WhatsappServicePort {
             
             // Enviar requisição
             String url = apiUrl + "/" + phoneNumberId + "/messages";
-            HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(messageNode), headers);
+            
+            // Adicionar log detalhado da estrutura da mensagem
+            log.info("Payload completo da mensagem para WhatsApp: {}", objectMapper.writeValueAsString(messageNode));
+            log.info("Headers da requisição: {}", headers);
+            log.info("URL de envio: {}", url);
+            
+            // Enviar o objeto diretamente em vez de convertê-lo para string
+            HttpEntity<ObjectNode> entity = new HttpEntity<>(messageNode, headers);
             
             ResponseEntity<JsonNode> response = restTemplate.exchange(
                     url, HttpMethod.POST, entity, JsonNode.class);
@@ -119,26 +127,44 @@ public class WhatsappApiService implements WhatsappServicePort {
         log.debug("Marcando mensagem como lida: {}", whatsappMessageId);
         
         try {
-            // Construir payload
-            ObjectNode readNode = objectMapper.createObjectNode();
-            readNode.put("messaging_product", "whatsapp");
-            readNode.put("status", "read");
-            readNode.put("message_id", whatsappMessageId);
+            // Criar payload usando ObjectNode
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.put("messaging_product", "whatsapp");
+            payload.put("status", "read");
+            payload.put("message_id", whatsappMessageId);
+            
+            String jsonPayload = objectMapper.writeValueAsString(payload);
+            log.debug("Payload JSON para marcar mensagem como lida: {}", jsonPayload);
             
             // Configurar headers
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("Authorization", "Bearer " + accessToken);
             
-            // Enviar requisição
+            // Enviar requisição para o endpoint correto
             String url = apiUrl + "/" + phoneNumberId + "/messages";
-            HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(readNode), headers);
+            log.debug("URL para marcar mensagem como lida: {}", url);
             
-            ResponseEntity<JsonNode> response = restTemplate.exchange(
-                    url, HttpMethod.POST, entity, JsonNode.class);
+            // Adicionar log detalhado da estrutura do payload
+            log.info("Payload completo para marcar mensagem como lida: {}", jsonPayload);
+            log.info("Headers da requisição: {}", headers);
+            log.info("URL de envio: {}", url);
+            
+            // Enviar o objeto diretamente em vez de convertê-lo para string
+            HttpEntity<ObjectNode> entity = new HttpEntity<>(payload, headers);
+            
+            log.debug("Enviando requisição para marcar mensagem como lida");
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.POST, entity, String.class);
             
             boolean success = response.getStatusCode().is2xxSuccessful();
-            log.info("Marcar mensagem como lida: {}", success ? "sucesso" : "falha");
+            
+            if (success) {
+                log.info("Mensagem marcada como lida com sucesso: {}", whatsappMessageId);
+            } else {
+                log.error("Erro ao marcar mensagem como lida. Status: {}. Resposta: {}", 
+                          response.getStatusCode(), response.getBody());
+            }
             
             return success;
         } catch (Exception e) {

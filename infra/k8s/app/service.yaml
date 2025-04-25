@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: urbana-connect
+  namespace: urbana-connect
+  labels:
+    app: urbana-connect
+spec:
+  type: ClusterIP # Expõe o serviço internamente no cluster
+  selector:
+    app: urbana-connect # Seleciona os Pods gerenciados pelo Deployment com esta label
+  ports:
+    - protocol: TCP
+      port: 80         # Porta pela qual o Service será acessado dentro do cluster
+      targetPort: 8080 # Porta que o container está expondo (definida no Deployment) 

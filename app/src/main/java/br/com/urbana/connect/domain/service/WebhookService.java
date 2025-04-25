@@ -39,7 +39,7 @@ public class WebhookService implements WebhookUseCase {
             log.info("Mensagem processada com sucesso. Content: {}", processedMessage.getContent());
             
             // Enviar a resposta para o cliente
-            //whatsappServicePort.sendMessage(message.getFrom(), processedMessage.getContent());
+            whatsappServicePort.sendMessage(message.getCustomerId(), processedMessage);
 
             return true;
         } catch (Exception e) {

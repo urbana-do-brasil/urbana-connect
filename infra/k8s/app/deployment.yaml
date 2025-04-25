@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: urbana-connect
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urbana-connect
+  namespace: urbana-connect
+  labels:
+    app: urbana-connect
+spec:
+  replicas: 1 # Reduzido para 1 réplica devido à limitação de recursos
+  selector:
+    matchLabels:
+      app: urbana-connect
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1       # Permite criar 1 pod adicional durante o update
+      maxUnavailable: 0 # Garante que sempre haja o número desejado de réplicas rodando
+  template:
+    metadata:
+      labels:
+        app: urbana-connect
+    spec:
+      imagePullSecrets:
+      - name: do-registry-credentials
+      containers:
+      - name: urbana-connect
+        image: registry.digitalocean.com/urbana-connect-registry/urbana-connect:latest
+        imagePullPolicy: IfNotPresent # Ou Always, se necessário
+        ports:
+        - containerPort: 8080 # Porta que a aplicação expõe
+        resources:
+          requests: # Recursos mínimos garantidos
+            memory: "128Mi"
+            cpu: "100m" # Reduzido de 250m para 100m
+          limits:   # Recursos máximos permitidos
+            memory: "256Mi"
+            cpu: "300m" # Reduzido de 500m para 300m
+        livenessProbe: # Verifica se a aplicação está viva
+          httpGet:
+            path: /actuator/health/liveness # Endpoint do Spring Boot Actuator
+            port: 8080
+          initialDelaySeconds: 30 # Tempo para iniciar antes da primeira verificação
+          periodSeconds: 10       # Intervalo entre verificações
+          failureThreshold: 3     # Quantidade de falhas antes de reiniciar
+        readinessProbe: # Verifica se a aplicação está pronta para receber tráfego
+          httpGet:
+            path: /actuator/health/readiness # Endpoint do Spring Boot Actuator
+            port: 8080
+          initialDelaySeconds: 20 # Tempo para iniciar antes da primeira verificação
+          periodSeconds: 5        # Intervalo entre verificações
+          failureThreshold: 3     # Quantidade de falhas antes de marcar como não pronto
+        envFrom: # Carrega variáveis de ambiente do ConfigMap e Secret
+        - configMapRef:
+            name: urbana-connect-config # Referencia o ConfigMap
+        - secretRef:
+            name: urbana-connect-secrets # Referencia o Secret 
+        - secretRef:
+            name: urbana-connect-mongodb-uri # Referencia o Secret com a URI do MongoDB
+        - secretRef:
+            name: urbana-connect-openai # Referencia o Secret com a chave da API OpenAI
+        - secretRef:
+            name: urbana-connect-whatsapp # Referencia o Secret com as configurações do WhatsApp 

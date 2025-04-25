@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: urbana-connect
+  namespace: urbana-connect
+  annotations:
+    kubernetes.io/ingress.class: nginx # Especifica que o Nginx Ingress Controller gerenciará este Ingress
+    cert-manager.io/cluster-issuer: letsencrypt-prod # Indica ao Cert-Manager para usar o ClusterIssuer 'letsencrypt-prod' para obter certificados
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60" # Exemplo de anotação Nginx: aumenta o timeout de conexão
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    # Adicione outras anotações Nginx conforme necessário (ex: cors, rate limiting, etc.)
+spec:
+  tls:
+  - hosts:
+    - api.urbanadobrasil.com
+    secretName: urbana-connect-tls # O Cert-Manager criará um Secret com este nome contendo o certificado TLS
+  rules:
+  - host: api.urbanadobrasil.com
+    http:
+      paths:
+      - path: / # Roteia todo o tráfego sob este host
+        pathType: Prefix
+        backend:
+          service:
+            name: urbana-connect # Nome do Service criado anteriormente
+            port:
+              number: 80       # Porta do Service (que mapeia para 8080 do container) 

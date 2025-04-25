@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urbana-connect-config
+  namespace: urbana-connect
+data:
+  # Configurações da aplicação Spring Boot
+  SPRING_PROFILES_ACTIVE: "prod" # Ativa o perfil de produção
+
+  # Exemplo: Configurações de Logging (ajuste conforme necessário)
+  LOGGING_LEVEL_ROOT: "INFO"
+  LOGGING_LEVEL_COM_URBANACONNECT: "DEBUG" # Exemplo de nível de log para seu pacote
+
+  # Configurações do WhatsApp
+  WHATSAPP_API_URL: "https://graph.facebook.com/v22.0"
+
+  # Adicione outras variáveis de ambiente não-sensíveis aqui
+  # EXEMPLO_CONFIG: "valor_da_configuracao" 

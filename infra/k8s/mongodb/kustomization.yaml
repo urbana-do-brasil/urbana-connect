@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Define o namespace padrão para todos os recursos
+namespace: mongodb
+
+# Lista de recursos a serem gerenciados pelo Kustomize
+# Nota: Este arquivo não inclui o mongodb-secret.yaml que deve ser criado e aplicado separadamente
+resources: []
+  # Descomente a linha abaixo após criar o mongodb-simple.yaml a partir do template
+  # - mongodb-simple.yaml
+
+# Nota importante: 
+# Antes de aplicar este kustomization, crie o mongodb-secret.yaml a partir do template em ../secrets/templates
+# e aplique-o separadamente com:
+# kubectl apply -f ../secrets/prod/mongodb-secret.yaml 
