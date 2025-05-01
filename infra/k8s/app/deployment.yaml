@@ -44,14 +44,14 @@ spec:
           httpGet:
             path: /actuator/health/liveness # Endpoint do Spring Boot Actuator
             port: 8080
-          initialDelaySeconds: 30 # Tempo para iniciar antes da primeira verificação
+          initialDelaySeconds: 120 # Tempo para iniciar antes da primeira verificação (AUMENTADO)
           periodSeconds: 10       # Intervalo entre verificações
           failureThreshold: 3     # Quantidade de falhas antes de reiniciar
         readinessProbe: # Verifica se a aplicação está pronta para receber tráfego
           httpGet:
             path: /actuator/health/readiness # Endpoint do Spring Boot Actuator
             port: 8080
-          initialDelaySeconds: 20 # Tempo para iniciar antes da primeira verificação
+          initialDelaySeconds: 120 # Tempo para iniciar antes da primeira verificação (AUMENTADO)
           periodSeconds: 5        # Intervalo entre verificações
           failureThreshold: 3     # Quantidade de falhas antes de marcar como não pronto
         envFrom: # Carrega variáveis de ambiente do ConfigMap e Secret
