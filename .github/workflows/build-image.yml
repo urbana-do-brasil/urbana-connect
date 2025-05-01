@@ -1,0 +1,49 @@
+name: Build e Push da Imagem Docker
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão da aplicação (formato: X.Y.Z)'
+        required: true
+        default: '1.0.0'
+        type: string
+
+jobs:
+  build-and-push:
+    name: Build e Push da Imagem
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@v4
+
+    - name: Configurar JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Garantir permissão de execução para gradlew
+      run: chmod +x ./gradlew
+      working-directory: ./app
+
+    - name: Build da aplicação com Gradle
+      run: ./gradlew bootJar
+      working-directory: ./app
+
+    - name: Instalar doctl
+      uses: digitalocean/action-doctl@v2
+      with:
+        token: ${{ secrets.DO_PAT }}
+
+    - name: Login no Container Registry da DigitalOcean
+      run: doctl registry login --expiry-seconds 1200
+
+    - name: Build e Push da imagem Docker
+      uses: docker/build-push-action@v5
+      with:
+        context: ./app
+        file: ./app/Dockerfile
+        push: true
+        tags: registry.digitalocean.com/urbana-connect-registry/urbana-connect:${{ inputs.version }},registry.digitalocean.com/urbana-connect-registry/urbana-connect:latest 

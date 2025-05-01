@@ -68,10 +68,27 @@ tasks.named('test') {
     finalizedBy jacocoTestReport
 }
 
+jacoco {
+    toolVersion = "0.8.9"
+}
+
 jacocoTestReport {
     dependsOn test
     reports {
         xml.required = true
         html.required = true
+        csv.required = false
+    }
+    
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                // Exclusões de classes que geralmente não precisam de cobertura de testes
+                "**/config/**",
+                "**/model/**",
+                "**/dto/**",
+                "**/exception/**"
+            ])
+        }))
     }
 } 
