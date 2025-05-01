@@ -45,7 +45,51 @@ jobs:
         echo "Manifestos aplicados."
 
     - name: Verificar status do rollout
+      id: rollout_status
       run: |
         echo "Verificando o status do rollout do deployment urbana-connect..."
         kubectl rollout status deployment/urbana-connect -n urbana-connect --timeout=180s
-        echo "Rollout concluído." 
+        echo "Rollout concluído."
+
+    - name: Diagnosticar Falha no Rollout
+      if: failure() && steps.rollout_status.conclusion == 'failure'
+      run: |
+        echo "::error::O rollout do deployment falhou. Coletando informações de diagnóstico..."
+        echo "Instalando jq..."
+        sudo apt-get update && sudo apt-get install -y jq
+
+        echo "--- Descrevendo Deployment urbana-connect ---"
+        kubectl describe deployment urbana-connect -n urbana-connect || echo "Falha ao descrever o deployment."
+
+        echo "--- Listando Pods no namespace urbana-connect ---"
+        kubectl get pods -n urbana-connect -o wide || echo "Falha ao listar pods."
+
+        # Obter o nome do ReplicaSet mais recente
+        REPLICA_SET=$(kubectl get rs -n urbana-connect -l app=urbana-connect -o json | jq -r '.items | sort_by(.metadata.creationTimestamp) | last | .metadata.name // empty')
+        if [ -z "$REPLICA_SET" ]; then
+          echo "Não foi possível encontrar o ReplicaSet mais recente."
+          exit 0 # Sair do script de diagnóstico se não encontrar RS
+        fi
+        echo "--- Descrevendo ReplicaSet mais recente ($REPLICA_SET) ---"
+        kubectl describe rs $REPLICA_SET -n urbana-connect || echo "Falha ao descrever o ReplicaSet $REPLICA_SET."
+
+        # Listar pods gerenciados pelo ReplicaSet mais recente
+        echo "--- Listando Pods do ReplicaSet mais recente ($REPLICA_SET) ---"
+        PODS_JSON=$(kubectl get pods -n urbana-connect -l app=urbana-connect -o json)
+        POD_NAMES=$(echo "$PODS_JSON" | jq -r --arg rs "$REPLICA_SET" '.items[] | select(.metadata.ownerReferences[0].name == $rs) | .metadata.name // empty')
+
+        if [ -z "$POD_NAMES" ]; then
+          echo "Não foram encontrados pods para o ReplicaSet $REPLICA_SET."
+        else
+          echo "Pods encontrados: $POD_NAMES"
+          for POD in $POD_NAMES; do
+            echo "--- Descrevendo Pod $POD ---"
+            kubectl describe pod $POD -n urbana-connect || echo "Falha ao descrever o pod $POD."
+            echo "--- Logs do Pod $POD (últimas 200 linhas) ---"
+            kubectl logs $POD -n urbana-connect --tail=200 || echo "Falha ao obter logs do pod $POD."
+            echo "--- Logs Anteriores do Pod $POD (se houver) ---"
+            kubectl logs $POD -n urbana-connect --previous --tail=200 || echo "Sem logs anteriores ou falha ao obter para o pod $POD."
+          done
+        fi
+        # Forçar a falha do workflow para garantir visibilidade do erro
+        exit 1 
