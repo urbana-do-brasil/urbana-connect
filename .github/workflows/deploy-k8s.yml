@@ -33,15 +33,15 @@ jobs:
       run: |
         echo "Instalando yq..."
         sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
-        echo "Atualizando a imagem em infra/k8s/app/deployment.yaml para a versão ${{ inputs.version }}..."
-        yq -i '.spec.template.spec.containers[0].image = "registry.digitalocean.com/urbana-connect-registry/urbana-connect:${{ inputs.version }}"' infra/k8s/app/deployment.yaml
+        echo "Atualizando a imagem no Deployment dentro de infra/k8s/app/deployment.yaml para a versão ${{ inputs.version }}..."
+        yq -i 'select(.kind == "Deployment").spec.template.spec.containers[0].image = "registry.digitalocean.com/urbana-connect-registry/urbana-connect:${{ inputs.version }}"' infra/k8s/app/deployment.yaml
         echo "Conteúdo atualizado do deployment.yaml:"
         cat infra/k8s/app/deployment.yaml
 
-    - name: Aplicar Manifestos K8s
+    - name: Aplicar Manifestos K8s com Kustomize
       run: |
-        echo "Aplicando manifestos do diretório infra/k8s/app/..."
-        kubectl apply -f infra/k8s/app/ -n urbana-connect
+        echo "Aplicando manifestos do diretório infra/k8s/app/ usando kustomize..."
+        kubectl apply -k infra/k8s/app/ -n urbana-connect
         echo "Manifestos aplicados."
 
     - name: Verificar status do rollout
