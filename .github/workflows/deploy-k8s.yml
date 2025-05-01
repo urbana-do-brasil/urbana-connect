@@ -29,10 +29,23 @@ jobs:
         echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > $HOME/.kube/config
         chmod 600 $HOME/.kube/config
 
-    - name: Atualizar imagem no Deployment Kubernetes
+    - name: Atualizar Tag da Imagem no deployment.yaml
       run: |
-        kubectl set image deployment/urbana-connect urbana-connect=registry.digitalocean.com/urbana-connect-registry/urbana-connect:${{ inputs.version }} -n urbana-connect
+        echo "Instalando yq..."
+        sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq && sudo chmod +x /usr/bin/yq
+        echo "Atualizando a imagem em infra/k8s/app/deployment.yaml para a versão ${{ inputs.version }}..."
+        yq -i '.spec.template.spec.containers[0].image = "registry.digitalocean.com/urbana-connect-registry/urbana-connect:${{ inputs.version }}"' infra/k8s/app/deployment.yaml
+        echo "Conteúdo atualizado do deployment.yaml:"
+        cat infra/k8s/app/deployment.yaml
+
+    - name: Aplicar Manifestos K8s
+      run: |
+        echo "Aplicando manifestos do diretório infra/k8s/app/..."
+        kubectl apply -f infra/k8s/app/ -n urbana-connect
+        echo "Manifestos aplicados."
 
     - name: Verificar status do rollout
       run: |
-        kubectl rollout status deployment/urbana-connect -n urbana-connect --timeout=180s 
+        echo "Verificando o status do rollout do deployment urbana-connect..."
+        kubectl rollout status deployment/urbana-connect -n urbana-connect --timeout=180s
+        echo "Rollout concluído." 
