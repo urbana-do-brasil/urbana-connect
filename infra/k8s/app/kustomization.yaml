@@ -9,9 +9,4 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-  - configmap.yaml
-
-# Adicionar labels comuns a todos os recursos
-commonLabels:
-  app.kubernetes.io/name: urbana-connect
-  app.kubernetes.io/instance: urbana-connect 
+  - configmap.yaml 

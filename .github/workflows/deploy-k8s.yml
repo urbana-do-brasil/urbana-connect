@@ -33,10 +33,6 @@ jobs:
       run: |
         kubectl set image deployment/urbana-connect urbana-connect=registry.digitalocean.com/urbana-connect-registry/urbana-connect:${{ inputs.version }} -n urbana-connect
 
-    - name: Aplicar manifestos Kubernetes
-      run: |
-        kubectl apply -k infra/k8s/app/
-
     - name: Verificar status do rollout
       run: |
         kubectl rollout status deployment/urbana-connect -n urbana-connect --timeout=180s 
