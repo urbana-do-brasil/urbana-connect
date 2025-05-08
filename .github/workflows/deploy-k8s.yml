@@ -37,10 +37,22 @@ jobs:
     - name: Configurar credenciais do registro DigitalOcean
       run: |
         echo "Configurando acesso ao registro DigitalOcean..."
-        # Remover o secret existente para evitar conflitos
-        kubectl delete secret do-registry-credentials -n urbana-connect --ignore-not-found
         
-        # Criar o secret do registro para o namespace urbana-connect
+        # Remover o deployment existente para forçar recriação
+        echo "Removendo o deployment existente..."
+        kubectl delete deployment urbana-connect -n urbana-connect --ignore-not-found
+        
+        # Remover secrets existentes
+        echo "Removendo secrets de credenciais existentes..."
+        kubectl delete secret do-registry-credentials -n urbana-connect --ignore-not-found
+        kubectl delete secret registry-urbana-connect-registry -n urbana-connect --ignore-not-found
+        
+        # Verificar se o namespace existe
+        echo "Verificando namespace urbana-connect..."
+        kubectl get namespace urbana-connect || kubectl create namespace urbana-connect
+        
+        # Criar o secret com as credenciais do registro DigitalOcean
+        echo "Criando secret do-registry-credentials..."
         kubectl create secret docker-registry do-registry-credentials \
           --docker-server=registry.digitalocean.com \
           --docker-username=do-access-token \
@@ -48,11 +60,71 @@ jobs:
           --docker-email=noreply@digitalocean.com \
           --namespace=urbana-connect
         
-        # Aplicar também o manifesto gerado pelo doctl para ter certeza
-        doctl registry kubernetes-manifest | kubectl apply -f -
+        # Verificar a configuração do secret
+        echo "Secret do-registry-credentials criado:"
+        kubectl get secret do-registry-credentials -n urbana-connect -o yaml | grep -v "token\|password"
         
-        # Verificar se o secret foi criado corretamente
-        kubectl get secret do-registry-credentials -n urbana-connect
+        # Verificar a configuração do acesso ao registro DigitalOcean diretamente
+        echo "Testando acesso ao registro DigitalOcean..."
+        doctl registry repository list-tags urbana-connect-registry urbana-connect
+        
+        # Aplicar também o manifesto gerado pelo doctl
+        echo "Aplicando configuração do registro via doctl..."
+        doctl registry kubernetes-manifest | kubectl apply -f -
+
+    - name: Verificar se a imagem existe no registro
+      run: |
+        echo "Verificando se a imagem existe no registro da DigitalOcean..."
+        if doctl registry repository list-tags urbana-connect-registry urbana-connect | grep -q "${{ inputs.version }}"; then
+          echo "✅ Imagem urbana-connect:${{ inputs.version }} encontrada no registro!"
+        else
+          echo "⚠️ ATENÇÃO: A imagem urbana-connect:${{ inputs.version }} não foi encontrada no registro!"
+          echo "Listando tags disponíveis:"
+          doctl registry repository list-tags urbana-connect-registry urbana-connect
+          
+          echo "Por favor, verifique se você já fez o build e push da imagem para o registro."
+          echo "Exemplo de comando para push da imagem:"
+          echo "docker build -t registry.digitalocean.com/urbana-connect-registry/urbana-connect:${{ inputs.version }} ."
+          echo "docker push registry.digitalocean.com/urbana-connect-registry/urbana-connect:${{ inputs.version }}"
+          
+          exit 1
+        fi
+
+    - name: Criar secrets da aplicação
+      run: |
+        echo "Criando namespace do MongoDB..."
+        kubectl get namespace mongodb || kubectl create namespace mongodb
+        
+        echo "Configurando secret do MongoDB..."
+        kubectl create secret generic mongodb-secret \
+          --from-literal=username=${{ secrets.MONGODB_USERNAME }} \
+          --from-literal=password=${{ secrets.MONGODB_PASSWORD }} \
+          --namespace=mongodb \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        echo "Criando secret URI do MongoDB para a aplicação..."
+        kubectl create secret generic urbana-connect-mongodb-uri \
+          --from-literal=MONGODB_URI=${{ secrets.MONGODB_URI }} \
+          --namespace=urbana-connect \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        echo "Criando secret do OpenAI..."
+        kubectl create secret generic urbana-connect-openai \
+          --from-literal=OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
+          --namespace=urbana-connect \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        echo "Criando secret do WhatsApp..."
+        kubectl create secret generic urbana-connect-whatsapp \
+          --from-literal=WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }} \
+          --from-literal=WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }} \
+          --from-literal=WHATSAPP_VERIFY_TOKEN=${{ secrets.WHATSAPP_VERIFY_TOKEN }} \
+          --namespace=urbana-connect \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
+        echo "Verificando se as secrets foram criadas..."
+        kubectl get secrets -n urbana-connect
+        kubectl get secrets -n mongodb
 
     - name: Atualizar Tag da Imagem no deployment.yaml
       run: |
@@ -69,52 +141,46 @@ jobs:
         kubectl apply -k infra/k8s/app/ -n urbana-connect
         echo "Manifestos aplicados."
 
-    - name: Verificar status do rollout
-      id: rollout_status
+    - name: Verificar o status do rollout do deployment urbana-connect
       run: |
         echo "Verificando o status do rollout do deployment urbana-connect..."
-        kubectl rollout status deployment/urbana-connect -n urbana-connect --timeout=180s
-        echo "Rollout concluído."
-
-    - name: Diagnosticar Falha no Rollout
-      if: failure() && steps.rollout_status.conclusion == 'failure'
-      run: |
-        echo "::error::O rollout do deployment falhou. Coletando informações de diagnóstico..."
-        echo "Instalando jq..."
-        sudo apt-get update && sudo apt-get install -y jq
-
-        echo "--- Descrevendo Deployment urbana-connect ---"
-        kubectl describe deployment urbana-connect -n urbana-connect || echo "Falha ao descrever o deployment."
-
-        echo "--- Listando Pods no namespace urbana-connect ---"
-        kubectl get pods -n urbana-connect -o wide || echo "Falha ao listar pods."
-
-        # Obter o nome do ReplicaSet mais recente
-        REPLICA_SET=$(kubectl get rs -n urbana-connect -l app=urbana-connect -o json | jq -r '.items | sort_by(.metadata.creationTimestamp) | last | .metadata.name // empty')
-        if [ -z "$REPLICA_SET" ]; then
-          echo "Não foi possível encontrar o ReplicaSet mais recente."
-          exit 0 # Sair do script de diagnóstico se não encontrar RS
-        fi
-        echo "--- Descrevendo ReplicaSet mais recente ($REPLICA_SET) ---"
-        kubectl describe rs $REPLICA_SET -n urbana-connect || echo "Falha ao descrever o ReplicaSet $REPLICA_SET."
-
-        # Listar pods gerenciados pelo ReplicaSet mais recente
-        echo "--- Listando Pods do ReplicaSet mais recente ($REPLICA_SET) ---"
-        PODS_JSON=$(kubectl get pods -n urbana-connect -l app=urbana-connect -o json)
-        POD_NAMES=$(echo "$PODS_JSON" | jq -r --arg rs "$REPLICA_SET" '.items[] | select(.metadata.ownerReferences[0].name == $rs) | .metadata.name // empty')
-
-        if [ -z "$POD_NAMES" ]; then
-          echo "Não foram encontrados pods para o ReplicaSet $REPLICA_SET."
-        else
-          echo "Pods encontrados: $POD_NAMES"
-          for POD in $POD_NAMES; do
-            echo "--- Descrevendo Pod $POD ---"
-            kubectl describe pod $POD -n urbana-connect || echo "Falha ao descrever o pod $POD."
-            echo "--- Logs do Pod $POD (últimas 200 linhas) ---"
-            kubectl logs $POD -n urbana-connect --tail=200 || echo "Falha ao obter logs do pod $POD."
-            echo "--- Logs Anteriores do Pod $POD (se houver) ---"
-            kubectl logs $POD -n urbana-connect --previous --tail=200 || echo "Sem logs anteriores ou falha ao obter para o pod $POD."
-          done
-        fi
-        # Forçar a falha do workflow para garantir visibilidade do erro
+        
+        # Aumentar o timeout para 300s (5 minutos)
+        timeout_seconds=300
+        start_time=$(date +%s)
+        end_time=$((start_time + timeout_seconds))
+        
+        # Loop para verificar status do rollout
+        while [ $(date +%s) -lt $end_time ]; do
+          echo "Verificando status dos pods..."
+          kubectl get pods -n urbana-connect
+          
+          # Verificar se o deployment está disponível
+          if kubectl rollout status deployment/urbana-connect -n urbana-connect --timeout=10s; then
+            echo "Deployment concluído com sucesso!"
+            exit 0
+          fi
+          
+          # Se encontrarmos erros de imagem, verificamos os detalhes
+          if kubectl get pods -n urbana-connect -o jsonpath='{.items[*].status.containerStatuses[*].state.waiting.reason}' | grep -q "ImagePull"; then
+            echo "Erro de ImagePull detectado. Verificando detalhes dos pods:"
+            kubectl describe pods -n urbana-connect
+            
+            echo "Verificando secrets disponíveis:"
+            kubectl get secrets -n urbana-connect
+            
+            echo "Tentando reiniciar o pod com problemas..."
+            POD_NAME=$(kubectl get pods -n urbana-connect -o jsonpath='{.items[0].metadata.name}')
+            kubectl delete pod $POD_NAME -n urbana-connect
+          fi
+          
+          echo "Aguardando 15 segundos..."
+          sleep 15
+        done
+        
+        echo "Timeout excedido. Coletando informações finais de diagnóstico:"
+        kubectl describe deployment urbana-connect -n urbana-connect
+        kubectl get pods -n urbana-connect -o wide
+        kubectl describe pods -n urbana-connect
+        
         exit 1 

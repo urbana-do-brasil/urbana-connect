@@ -58,8 +58,6 @@ spec:
         - configMapRef:
             name: urbana-connect-config # Referencia o ConfigMap
         - secretRef:
-            name: urbana-connect-secrets # Referencia o Secret 
-        - secretRef:
             name: urbana-connect-mongodb-uri # Referencia o Secret com a URI do MongoDB
         - secretRef:
             name: urbana-connect-openai # Referencia o Secret com a chave da API OpenAI
