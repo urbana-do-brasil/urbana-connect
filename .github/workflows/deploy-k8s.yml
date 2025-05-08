@@ -37,14 +37,22 @@ jobs:
     - name: Configurar credenciais do registro DigitalOcean
       run: |
         echo "Configurando acesso ao registro DigitalOcean..."
-        doctl registry kubernetes-manifest | kubectl apply -f -
-        # Criar o secret específico para o namespace urbana-connect
+        # Remover o secret existente para evitar conflitos
+        kubectl delete secret do-registry-credentials -n urbana-connect --ignore-not-found
+        
+        # Criar o secret do registro para o namespace urbana-connect
         kubectl create secret docker-registry do-registry-credentials \
           --docker-server=registry.digitalocean.com \
-          --docker-username=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
+          --docker-username=do-access-token \
           --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
-          --namespace=urbana-connect \
-          --dry-run=client -o yaml | kubectl apply -f -
+          --docker-email=noreply@digitalocean.com \
+          --namespace=urbana-connect
+        
+        # Aplicar também o manifesto gerado pelo doctl para ter certeza
+        doctl registry kubernetes-manifest | kubectl apply -f -
+        
+        # Verificar se o secret foi criado corretamente
+        kubectl get secret do-registry-credentials -n urbana-connect
 
     - name: Atualizar Tag da Imagem no deployment.yaml
       run: |
