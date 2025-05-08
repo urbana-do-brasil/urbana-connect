@@ -34,6 +34,18 @@ jobs:
         echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > $HOME/.kube/config
         chmod 600 $HOME/.kube/config
 
+    - name: Configurar credenciais do registro DigitalOcean
+      run: |
+        echo "Configurando acesso ao registro DigitalOcean..."
+        doctl registry kubernetes-manifest | kubectl apply -f -
+        # Criar o secret específico para o namespace urbana-connect
+        kubectl create secret docker-registry do-registry-credentials \
+          --docker-server=registry.digitalocean.com \
+          --docker-username=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
+          --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
+          --namespace=urbana-connect \
+          --dry-run=client -o yaml | kubectl apply -f -
+
     - name: Atualizar Tag da Imagem no deployment.yaml
       run: |
         echo "Instalando yq..."
