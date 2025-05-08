@@ -18,6 +18,11 @@ jobs:
     - name: Checkout do código
       uses: actions/checkout@v4
 
+    - name: Install doctl
+      uses: digitalocean/action-doctl@v2
+      with:
+        token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
     - name: Configurar kubectl
       uses: azure/setup-kubectl@v3
       with:
