@@ -45,8 +45,8 @@ resource "digitalocean_kubernetes_cluster" "primary" {
 
   node_pool {
     name       = "default-pool"
-    size       = "s-2vcpu-2gb"
-    node_count = 1
+    size       = "s-1vcpu-2gb"
+    node_count = 2
   }
 
 }
