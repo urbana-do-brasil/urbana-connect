@@ -13,9 +13,6 @@ on:
     paths:
       - 'infra/terraform/doks/**'
 
-# Opcional: Adicionar workflow_dispatch para trigger manual do apply
-# workflow_dispatch:
-
 permissions:
   contents: read # Necessário para actions/checkout
   # pull-requests: write # Descomente se precisar que o bot comente o plano no PR
@@ -113,8 +110,7 @@ jobs:
     name: 'Terraform Apply'
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push' # Executa apenas em push para main
-    # needs: terraform_plan # Opcional: Garante que o apply só rode se o plan (em PR) foi ok
-                          # Removido por simplicidade, pois o 'if' já controla a execução
+    timeout-minutes: 30   # Aumentar timeout para dar tempo suficiente ao Helm
 
     env:
       # DIGITALOCEAN_ACCESS_TOKEN removido daqui, será pego do TF Cloud
@@ -143,4 +139,27 @@ jobs:
 
     - name: Terraform Apply
       id: apply
-      run: terraform apply -auto-approve -no-color 
+      run: terraform apply -auto-approve -no-color
+      
+    - name: Obter IP do Load Balancer
+      id: get_lb_ip
+      run: |
+        # Aguarda até que o Load Balancer seja provisionado (pode levar alguns minutos)
+        echo "Aguardando provisionamento do Load Balancer..."
+        sleep 120  # Tempo de espera para garantir que o terraform output tenha o IP
+        
+        # Tenta obter o IP
+        LB_IP=$(terraform output -raw load_balancer_ip || echo "não disponível")
+        echo "LOAD_BALANCER_IP=${LB_IP}" >> $GITHUB_ENV
+        echo "Load Balancer IP: ${LB_IP}"
+    
+    - name: Exibir informações importantes
+      run: |
+        echo "============================================="
+        echo "🚀 Cluster criado/atualizado com sucesso!"
+        echo "📋 Informações importantes:"
+        echo "   - IP do Load Balancer: ${{ env.LOAD_BALANCER_IP }}"
+        echo "   - Host para DNS: api.urbanadobrasil.com"
+        echo "============================================="
+        echo "⚠️ IMPORTANTE: Atualize seu DNS para apontar api.urbanadobrasil.com para o IP ${{ env.LOAD_BALANCER_IP }}"
+        echo "=============================================" 

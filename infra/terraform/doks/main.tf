@@ -4,6 +4,14 @@ terraform {
       source  = "digitalocean/digitalocean"
       version = "~> 2.30"
     }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "~> 2.11"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.23"
+    }
   }
   required_version = ">= 1.3"
 
@@ -17,6 +25,21 @@ terraform {
 }
 
 provider "digitalocean" {
+}
+
+# Novos providers para Kubernetes e Helm
+provider "kubernetes" {
+  host                   = digitalocean_kubernetes_cluster.primary.endpoint
+  token                  = digitalocean_kubernetes_cluster.primary.kube_config[0].token
+  cluster_ca_certificate = base64decode(digitalocean_kubernetes_cluster.primary.kube_config[0].cluster_ca_certificate)
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = digitalocean_kubernetes_cluster.primary.endpoint
+    token                  = digitalocean_kubernetes_cluster.primary.kube_config[0].token
+    cluster_ca_certificate = base64decode(digitalocean_kubernetes_cluster.primary.kube_config[0].cluster_ca_certificate)
+  }
 }
 
 variable "do_region" {
