@@ -65,8 +65,8 @@ jobs:
         kubectl get secret do-registry-credentials -n urbana-connect -o yaml | grep -v "token\|password"
         
         # Verificar a configuração do acesso ao registro DigitalOcean diretamente
-        echo "Testando acesso ao registro DigitalOcean..."
-        doctl registry repository list-tags urbana-connect-registry urbana-connect
+        echo "Listando repositórios no registro DigitalOcean..."
+        doctl registry repository list-v2
         
         # Aplicar também o manifesto gerado pelo doctl
         echo "Aplicando configuração do registro via doctl..."
@@ -75,12 +75,12 @@ jobs:
     - name: Verificar se a imagem existe no registro
       run: |
         echo "Verificando se a imagem existe no registro da DigitalOcean..."
-        if doctl registry repository list-tags urbana-connect-registry urbana-connect | grep -q "${{ inputs.version }}"; then
+        if doctl registry repository list-v2 --format Tag --no-header | grep -q "${{ inputs.version }}"; then
           echo "✅ Imagem urbana-connect:${{ inputs.version }} encontrada no registro!"
         else
           echo "⚠️ ATENÇÃO: A imagem urbana-connect:${{ inputs.version }} não foi encontrada no registro!"
           echo "Listando tags disponíveis:"
-          doctl registry repository list-tags urbana-connect-registry urbana-connect
+          doctl registry repository list-v2
           
           echo "Por favor, verifique se você já fez o build e push da imagem para o registro."
           echo "Exemplo de comando para push da imagem:"
@@ -122,7 +122,7 @@ jobs:
           --namespace=urbana-connect \
           --dry-run=client -o yaml | kubectl apply -f -
         
-        echo "Verificando se as secrets foram criadas..."
+        echo "Verificando as secrets criadas..."
         kubectl get secrets -n urbana-connect
         kubectl get secrets -n mongodb
 
