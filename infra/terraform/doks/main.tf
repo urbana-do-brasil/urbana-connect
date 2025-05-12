@@ -24,7 +24,15 @@ terraform {
   }
 }
 
+# Declaração da variável para o token de acesso da DigitalOcean
+variable "DIGITALOCEAN_ACCESS_TOKEN" {
+  description = "Token de acesso da DigitalOcean"
+  type        = string
+  sensitive   = true
+}
+
 provider "digitalocean" {
+  token = var.DIGITALOCEAN_ACCESS_TOKEN
 }
 
 # Novos providers para Kubernetes e Helm

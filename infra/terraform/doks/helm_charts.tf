@@ -43,7 +43,7 @@ resource "helm_release" "cert_manager" {
 
 # Aplicar o ClusterIssuer após a instalação do cert-manager
 resource "kubernetes_manifest" "cluster_issuer" {
-  manifest = yamldecode(file("${path.module}/../../k8s/cert-manager/cluster-issuer.yaml"))
+  manifest = yamldecode(file("${path.module}/../../../infra/k8s/cert-manager/cluster-issuer.yaml"))
   
   depends_on = [helm_release.cert_manager]
 }
