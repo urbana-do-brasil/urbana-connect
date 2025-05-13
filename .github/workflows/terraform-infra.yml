@@ -139,6 +139,47 @@ jobs:
       # Não precisa mais passar backend-config para o init
       run: terraform init
 
+    # Novo passo para importar recursos existentes para o estado do Terraform
+    - name: Importar recursos existentes (se necessário)
+      run: |
+        # Configura acesso ao cluster primeiro para verificar
+        if [ -f ~/.kube/config ]; then
+          echo "Usando configuração kubectl existente"
+        else
+          # Tenta obter acesso ao cluster via token DigitalOcean
+          # Isto só funcionará se o cluster já existir
+          echo "Tentando acessar cluster existente..."
+          
+          # Instalar doctl se necessário
+          curl -sL https://github.com/digitalocean/doctl/releases/download/v1.104.0/doctl-1.104.0-linux-amd64.tar.gz | tar -xzv
+          sudo mv doctl /usr/local/bin
+          
+          # Autenticar doctl
+          doctl auth init -t ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          
+          # Tentar obter cluster_id do estado remoto ou output
+          CLUSTER_ID=$(terraform output -raw cluster_id 2>/dev/null || echo "")
+          
+          if [ -n "$CLUSTER_ID" ]; then
+            echo "Encontrado cluster ID: $CLUSTER_ID"
+            # Obter kubeconfig
+            doctl kubernetes cluster kubeconfig save $CLUSTER_ID
+          else
+            echo "Não foi possível obter cluster_id, prosseguindo sem verificação"
+          fi
+        fi
+        
+        # Verifica se o namespace já existe e importa para o Terraform
+        if kubectl get namespace urbana-connect 2>/dev/null; then
+          echo "Namespace urbana-connect já existe, importando para o estado do Terraform..."
+          terraform state list kubernetes_namespace.urbana_connect 2>/dev/null || \
+          terraform import kubernetes_namespace.urbana_connect urbana-connect || \
+          echo "Importação falhou ou não foi necessária (namespace possivelmente já no estado)"
+        else
+          echo "Namespace urbana-connect não existe, será criado pelo Terraform"
+        fi
+      continue-on-error: true  # Continua mesmo se a importação falhar
+
     - name: Terraform Apply
       id: apply
       run: terraform apply -auto-approve -no-color
@@ -204,7 +245,7 @@ jobs:
         echo "Verificando status do ClusterIssuer..."
         sleep 15  # Aguardar a aplicação do recurso
         kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} get clusterissuer letsencrypt-prod -o wide
-      
+    
     - name: Obter IP do Load Balancer
       id: get_lb_ip
       run: |
