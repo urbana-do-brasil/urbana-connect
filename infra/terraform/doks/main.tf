@@ -90,4 +90,10 @@ output "kube_endpoint" {
 output "cluster_id" {
   description = "O ID do cluster DOKS."
   value       = digitalocean_kubernetes_cluster.primary.id
+}
+
+output "kubeconfig" {
+  description = "Kubeconfig completo para acesso ao cluster"
+  value       = digitalocean_kubernetes_cluster.primary.kube_config[0].raw_config
+  sensitive   = true
 } 

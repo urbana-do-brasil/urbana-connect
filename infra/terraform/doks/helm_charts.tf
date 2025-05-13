@@ -41,13 +41,6 @@ resource "helm_release" "cert_manager" {
   depends_on = [helm_release.nginx_ingress]
 }
 
-# Aplicar o ClusterIssuer após a instalação do cert-manager
-resource "kubernetes_manifest" "cluster_issuer" {
-  manifest = yamldecode(file("${path.module}/../../../infra/k8s/cert-manager/cluster-issuer.yaml"))
-  
-  depends_on = [helm_release.cert_manager]
-}
-
 # Criar namespace para a aplicação
 resource "kubernetes_namespace" "urbana_connect" {
   metadata {

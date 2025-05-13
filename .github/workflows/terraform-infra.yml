@@ -6,12 +6,14 @@ on:
       - main
     paths:
       - 'infra/terraform/doks/**'
+      - 'infra/k8s/cert-manager/**'  # Adicionado path dos recursos Kubernetes
 
   push:
     branches:
       - main
     paths:
       - 'infra/terraform/doks/**'
+      - 'infra/k8s/cert-manager/**'  # Adicionado path dos recursos Kubernetes
 
 permissions:
   contents: read # Necessário para actions/checkout
@@ -141,12 +143,74 @@ jobs:
       id: apply
       run: terraform apply -auto-approve -no-color
       
+    # Novos passos para aplicar recursos Kubernetes
+    - name: Obter Kubeconfig
+      id: get_kubeconfig
+      run: |
+        # Aguarda a criação do cluster (pode ser necessário ajustar o tempo)
+        sleep 30
+        
+        # Exporta o kubeconfig do Terraform
+        terraform output -raw kubeconfig > kubeconfig.yaml || \
+        echo "Não foi possível obter kubeconfig diretamente, tentando com cluster_id"
+        
+        # Se não conseguir diretamente, tenta com cluster_id via doctl
+        if [ ! -s kubeconfig.yaml ]; then
+          # Instala doctl se necessário
+          CLUSTER_ID=$(terraform output -raw cluster_id)
+          echo "Usando cluster_id: $CLUSTER_ID"
+          
+          # Instalar doctl
+          curl -sL https://github.com/digitalocean/doctl/releases/download/v1.104.0/doctl-1.104.0-linux-amd64.tar.gz | tar -xzv
+          sudo mv doctl /usr/local/bin
+          
+          # Autenticar doctl
+          doctl auth init -t ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          
+          # Obter kubeconfig
+          doctl kubernetes cluster kubeconfig save $CLUSTER_ID
+          cp ~/.kube/config kubeconfig.yaml
+        fi
+        
+        echo "KUBECONFIG_PATH=${PWD}/kubeconfig.yaml" >> $GITHUB_ENV
+        echo "Kubeconfig gerado em ${PWD}/kubeconfig.yaml"
+    
+    - name: Instalar kubectl
+      uses: azure/setup-kubectl@v3
+      
+    - name: Aguardar disponibilidade do cert-manager
+      run: |
+        echo "Aguardando disponibilidade do cert-manager..."
+        # Tenta por até 5 minutos (30 tentativas com 10s de intervalo)
+        for i in {1..30}; do
+          if kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} get deployment cert-manager -n cert-manager 2>/dev/null; then
+            echo "Cert-manager encontrado, aguardando disponibilidade..."
+            kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} wait --for=condition=available --timeout=30s deployment/cert-manager -n cert-manager && \
+            kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} wait --for=condition=available --timeout=30s deployment/cert-manager-webhook -n cert-manager && \
+            break
+          fi
+          echo "Tentativa $i: Aguardando cert-manager ser instalado..."
+          sleep 10
+        done
+      
+    - name: Aplicar ClusterIssuer
+      run: |
+        echo "Aplicando ClusterIssuer..."
+        kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} apply -f ${GITHUB_WORKSPACE}/infra/k8s/cert-manager/cluster-issuer.yaml
+        echo "ClusterIssuer aplicado com sucesso!"
+      
+    - name: Verificar status do ClusterIssuer
+      run: |
+        echo "Verificando status do ClusterIssuer..."
+        sleep 15  # Aguardar a aplicação do recurso
+        kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} get clusterissuer letsencrypt-prod -o wide
+      
     - name: Obter IP do Load Balancer
       id: get_lb_ip
       run: |
-        # Aguarda até que o Load Balancer seja provisionado (pode levar alguns minutos)
+        # Continua com a obtenção do IP como antes
         echo "Aguardando provisionamento do Load Balancer..."
-        sleep 120  # Tempo de espera para garantir que o terraform output tenha o IP
+        sleep 60  # Tempo de espera para garantir que o Load Balancer esteja pronto
         
         # Tenta obter o IP
         LB_IP=$(terraform output -raw load_balancer_ip || echo "não disponível")
