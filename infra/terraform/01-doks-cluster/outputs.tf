@@ -11,6 +11,7 @@ output "cluster_id" {
 output "cluster_ca_certificate" {
   description = "O certificado CA do cluster Kubernetes."
   value       = digitalocean_kubernetes_cluster.primary.kube_config[0].cluster_ca_certificate
+  sensitive   = true
 }
 
 output "client_token" {

@@ -5,8 +5,8 @@ data "digitalocean_kubernetes_versions" "latest" {
 }
 
 resource "digitalocean_kubernetes_cluster" "primary" {
-  name    = var.cluster_name
-  region  = var.do_region
+  name   = var.cluster_name
+  region = var.do_region
   # Usar a versão mais recente recomendada obtida pelo data source
   version = data.digitalocean_kubernetes_versions.latest.latest_version
 
