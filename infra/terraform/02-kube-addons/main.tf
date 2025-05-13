@@ -5,7 +5,7 @@ resource "helm_release" "nginx_ingress" {
   chart            = "ingress-nginx"
   namespace        = "ingress-nginx"
   create_namespace = true
-  version          = "4.7.1"  # Especifique a versão desejada
+  version          = var.nginx_ingress_version
   
   # Configurações importantes para DigitalOcean
   set {
@@ -17,9 +17,6 @@ resource "helm_release" "nginx_ingress" {
     name  = "controller.publishService.enabled"
     value = "true"
   }
-  
-  # Garante que o Nginx Ingress só seja instalado após o cluster estar totalmente pronto
-  depends_on = [digitalocean_kubernetes_cluster.primary]
 }
 
 # Instalação do cert-manager
@@ -29,7 +26,7 @@ resource "helm_release" "cert_manager" {
   chart            = "cert-manager"
   namespace        = "cert-manager"
   create_namespace = true
-  version          = "v1.13.1"  # Especifique a versão desejada
+  version          = var.cert_manager_version
   
   # Habilita CRDs (Custom Resource Definitions)
   set {
@@ -41,15 +38,6 @@ resource "helm_release" "cert_manager" {
   depends_on = [helm_release.nginx_ingress]
 }
 
-# Criar namespace para a aplicação
-resource "kubernetes_namespace" "urbana_connect" {
-  metadata {
-    name = "urbana-connect"
-  }
-  
-  depends_on = [digitalocean_kubernetes_cluster.primary]
-}
-
 # Data source para obter o IP do Load Balancer após sua criação
 data "kubernetes_service" "nginx_ingress_controller" {
   metadata {
@@ -58,11 +46,4 @@ data "kubernetes_service" "nginx_ingress_controller" {
   }
   
   depends_on = [helm_release.nginx_ingress]
-}
-
-# Novo output para o IP do Load Balancer do Nginx Ingress
-output "load_balancer_ip" {
-  description = "IP do Load Balancer do Nginx Ingress Controller"
-  value       = data.kubernetes_service.nginx_ingress_controller.status.0.load_balancer.0.ingress.0.ip
-  depends_on  = [helm_release.nginx_ingress]
 } 

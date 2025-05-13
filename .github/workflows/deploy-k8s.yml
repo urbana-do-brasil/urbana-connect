@@ -36,21 +36,23 @@ jobs:
 
     - name: Configurar credenciais do registro DigitalOcean
       run: |
-        echo "Configurando acesso ao registro DigitalOcean..."
+        echo "Verificando acesso ao registro DigitalOcean..."
         
         # Verificar se o namespace existe
         echo "Verificando namespace urbana-connect..."
-        kubectl get namespace urbana-connect || kubectl create namespace urbana-connect
+        kubectl get namespace urbana-connect || { 
+          echo "ERRO: Namespace urbana-connect não existe!"; 
+          echo "Verifique se o workflow de infraestrutura (terraform-infra.yml) foi executado com sucesso."; 
+          exit 1; 
+        }
         
-        # Criar o secret com as credenciais do registro DigitalOcean
-        echo "Criando secret do-registry-credentials..."
-        kubectl create secret docker-registry do-registry-credentials \
-          --docker-server=registry.digitalocean.com \
-          --docker-username=do-access-token \
-          --docker-password=${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }} \
-          --docker-email=noreply@digitalocean.com \
-          --namespace=urbana-connect \
-          --dry-run=client -o yaml | kubectl apply -f -
+        # Verificar se o secret do registro existe
+        echo "Verificando se o secret do-registry-credentials existe..."
+        kubectl get secret do-registry-credentials -n urbana-connect || {
+          echo "ERRO: Secret do-registry-credentials não existe!"; 
+          echo "Verifique se o workflow de infraestrutura (terraform-infra.yml) foi executado com sucesso."; 
+          exit 1;
+        }
 
     - name: Verificar se a imagem existe no registro
       run: |

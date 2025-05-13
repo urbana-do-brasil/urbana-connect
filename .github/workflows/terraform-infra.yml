@@ -1,42 +1,35 @@
-name: Terraform CI/CD for DOKS Infra
+name: Terraform CI/CD para Infraestrutura Modular
 
 on:
   pull_request:
     branches:
       - main
     paths:
-      - 'infra/terraform/doks/**'
-      - 'infra/k8s/cert-manager/**'  # Adicionado path dos recursos Kubernetes
+      - 'infra/terraform/**'
 
   push:
     branches:
       - main
     paths:
-      - 'infra/terraform/doks/**'
-      - 'infra/k8s/cert-manager/**'  # Adicionado path dos recursos Kubernetes
+      - 'infra/terraform/**'
 
 permissions:
   contents: read # Necessário para actions/checkout
   # pull-requests: write # Descomente se precisar que o bot comente o plano no PR
 
 jobs:
-  terraform_plan:
-    name: 'Terraform Plan'
+  terraform_cluster:
+    name: 'Terraform - DOKS Cluster'
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' # Executa apenas em Pull Requests
-
     env:
-      # DIGITALOCEAN_ACCESS_TOKEN removido daqui, será pego do TF Cloud
       TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
-      # Garante que o Terraform não peça input interativo
       TF_INPUT: false
-      # Informa ao provider que está rodando em automação
       TF_IN_AUTOMATION: true
 
     defaults:
       run:
         shell: bash
-        working-directory: ./infra/terraform/doks # Define o diretório de trabalho
+        working-directory: ./infra/terraform/01-doks-cluster
 
     steps:
     - name: Checkout code
@@ -45,77 +38,38 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
-        terraform_version: 1.7.x # Especifique a versão do Terraform ou deixe "latest"
-        # terraform_wrapper: true # Opcional: pode ajudar com output
+        terraform_version: 1.7.x
 
     - name: Terraform Format Check
       id: fmt
       run: terraform fmt -check
-      continue-on-error: true # Permite continuar mesmo se houver erro de formatação
+      continue-on-error: true
 
     - name: Terraform Init
       id: init
-      # Não precisa mais passar backend-config para o init
       run: terraform init
 
     - name: Terraform Validate
       id: validate
       run: terraform validate -no-color
 
-    - name: Run Terraform Plan
+    - name: Terraform Plan
       id: plan
+      if: github.event_name == 'pull_request'
       run: terraform plan -no-color
-      continue-on-error: true # Permite que o workflow continue se o plan falhar (para reportar erro)
+      continue-on-error: true
 
-    # Opcional: Adicionar um passo para comentar o plano no PR
-    # - name: Comment Plan on PR
-    #   uses: actions/github-script@v6
-    #   if: github.event_name == 'pull_request'
-    #   with:
-    #     github-token: ${{ secrets.GITHUB_TOKEN }} # Precisa da permissão pull-requests: write
-    #     script: |-
-    #       const output = `#### Terraform Format and Style 🖌\\\`\\\`\\\`
-    #       ${{ steps.fmt.outcome }} 
-    #       \\\`\\\`\\\`
-    #       #### Terraform Initialization ⚙️\\\`\\\`\\\`
-    #       ${{ steps.init.outcome }}
-    #       \\\`\\\`\\\`
-    #       #### Terraform Validation 🤖\\\`\\\`\\\`
-    #       ${{ steps.validate.outcome }}
-    #       \\\`\\\`\\\`
-    #       <details><summary>Validation Output</summary>
-    #       \\\`\\\`\\\`
-    #       ${{ steps.validate.outputs.stdout }}
-    #       \\\`\\\`\\\`
-    #       </details>
-    #       #### Terraform Plan 📖\\\`\\\`\\\`
-    #       ${{ steps.plan.outcome }}
-    #       \\\`\\\`\\\`
-    #       <details><summary>Show Plan</summary>
-    #       \\\`\\\`\\\`terraform
-    #       ${{ steps.plan.outputs.stdout }}
-    #       \\\`\\\`\\\`
-    #       </details>
-    #       *Pusher: @${{ github.actor }}, Action: \\\`\\\`${{ github.event_name }}\\\`\\\`, Working Directory: \\\`\\\`${{ env.tf_actions_working_dir }}\\\`\\\`, Workflow: \\\`\\\`${{ github.workflow }}\\\`\\\`*`;
-    #       github.rest.issues.createComment({
-    #         issue_number: context.issue.number,
-    #         owner: context.repo.owner,
-    #         repo: context.repo.repo,
-    #         body: output
-    #       })
+    - name: Terraform Apply
+      id: apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: terraform apply -auto-approve -no-color
 
-    - name: Check Plan Status
-      if: steps.plan.outcome == 'failure'
-      run: exit 1 # Falha o workflow se o plan falhar
-
-  terraform_apply:
-    name: 'Terraform Apply'
+  terraform_kube_addons:
+    name: 'Terraform - Kubernetes Addons'
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' # Executa apenas em push para main
-    timeout-minutes: 30   # Aumentar timeout para dar tempo suficiente ao Helm
-
+    needs: terraform_cluster
+    if: always() && (needs.terraform_cluster.result == 'success' || github.event_name == 'pull_request')
     env:
-      # DIGITALOCEAN_ACCESS_TOKEN removido daqui, será pego do TF Cloud
       TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
       TF_INPUT: false
       TF_IN_AUTOMATION: true
@@ -123,7 +77,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ./infra/terraform/doks
+        working-directory: ./infra/terraform/02-kube-addons
 
     steps:
     - name: Checkout code
@@ -132,139 +86,93 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
-        terraform_version: 1.7.x # Use a mesma versão do job de plan
+        terraform_version: 1.7.x
+
+    - name: Terraform Format Check
+      id: fmt
+      run: terraform fmt -check
+      continue-on-error: true
 
     - name: Terraform Init
       id: init
-      # Não precisa mais passar backend-config para o init
       run: terraform init
 
-    # Novo passo para importar recursos existentes para o estado do Terraform
-    - name: Importar recursos existentes (se necessário)
-      run: |
-        # Configura acesso ao cluster primeiro para verificar
-        if [ -f ~/.kube/config ]; then
-          echo "Usando configuração kubectl existente"
-        else
-          # Tenta obter acesso ao cluster via token DigitalOcean
-          # Isto só funcionará se o cluster já existir
-          echo "Tentando acessar cluster existente..."
-          
-          # Instalar doctl se necessário
-          curl -sL https://github.com/digitalocean/doctl/releases/download/v1.104.0/doctl-1.104.0-linux-amd64.tar.gz | tar -xzv
-          sudo mv doctl /usr/local/bin
-          
-          # Autenticar doctl
-          doctl auth init -t ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          
-          # Tentar obter cluster_id do estado remoto ou output
-          CLUSTER_ID=$(terraform output -raw cluster_id 2>/dev/null || echo "")
-          
-          if [ -n "$CLUSTER_ID" ]; then
-            echo "Encontrado cluster ID: $CLUSTER_ID"
-            # Obter kubeconfig
-            doctl kubernetes cluster kubeconfig save $CLUSTER_ID
-          else
-            echo "Não foi possível obter cluster_id, prosseguindo sem verificação"
-          fi
-        fi
-        
-        # Verifica se o namespace já existe e importa para o Terraform
-        if kubectl get namespace urbana-connect 2>/dev/null; then
-          echo "Namespace urbana-connect já existe, importando para o estado do Terraform..."
-          terraform state list kubernetes_namespace.urbana_connect 2>/dev/null || \
-          terraform import kubernetes_namespace.urbana_connect urbana-connect || \
-          echo "Importação falhou ou não foi necessária (namespace possivelmente já no estado)"
-        else
-          echo "Namespace urbana-connect não existe, será criado pelo Terraform"
-        fi
-      continue-on-error: true  # Continua mesmo se a importação falhar
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate -no-color
+
+    - name: Terraform Plan
+      id: plan
+      if: github.event_name == 'pull_request'
+      run: terraform plan -no-color
+      continue-on-error: true
 
     - name: Terraform Apply
       id: apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: terraform apply -auto-approve -no-color
-      
-    # Novos passos para aplicar recursos Kubernetes
-    - name: Obter Kubeconfig
-      id: get_kubeconfig
+
+    - name: Wait for Load Balancer
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.apply.outcome == 'success'
       run: |
-        # Aguarda a criação do cluster (pode ser necessário ajustar o tempo)
-        sleep 30
-        
-        # Exporta o kubeconfig do Terraform
-        terraform output -raw kubeconfig > kubeconfig.yaml || \
-        echo "Não foi possível obter kubeconfig diretamente, tentando com cluster_id"
-        
-        # Se não conseguir diretamente, tenta com cluster_id via doctl
-        if [ ! -s kubeconfig.yaml ]; then
-          # Instala doctl se necessário
-          CLUSTER_ID=$(terraform output -raw cluster_id)
-          echo "Usando cluster_id: $CLUSTER_ID"
-          
-          # Instalar doctl
-          curl -sL https://github.com/digitalocean/doctl/releases/download/v1.104.0/doctl-1.104.0-linux-amd64.tar.gz | tar -xzv
-          sudo mv doctl /usr/local/bin
-          
-          # Autenticar doctl
-          doctl auth init -t ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
-          
-          # Obter kubeconfig
-          doctl kubernetes cluster kubeconfig save $CLUSTER_ID
-          cp ~/.kube/config kubeconfig.yaml
-        fi
-        
-        echo "KUBECONFIG_PATH=${PWD}/kubeconfig.yaml" >> $GITHUB_ENV
-        echo "Kubeconfig gerado em ${PWD}/kubeconfig.yaml"
-    
-    - name: Instalar kubectl
-      uses: azure/setup-kubectl@v3
-      
-    - name: Aguardar disponibilidade do cert-manager
-      run: |
-        echo "Aguardando disponibilidade do cert-manager..."
-        # Tenta por até 5 minutos (30 tentativas com 10s de intervalo)
-        for i in {1..30}; do
-          if kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} get deployment cert-manager -n cert-manager 2>/dev/null; then
-            echo "Cert-manager encontrado, aguardando disponibilidade..."
-            kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} wait --for=condition=available --timeout=30s deployment/cert-manager -n cert-manager && \
-            kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} wait --for=condition=available --timeout=30s deployment/cert-manager-webhook -n cert-manager && \
-            break
-          fi
-          echo "Tentativa $i: Aguardando cert-manager ser instalado..."
-          sleep 10
-        done
-      
-    - name: Aplicar ClusterIssuer
-      run: |
-        echo "Aplicando ClusterIssuer..."
-        kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} apply -f ${GITHUB_WORKSPACE}/infra/k8s/cert-manager/cluster-issuer.yaml
-        echo "ClusterIssuer aplicado com sucesso!"
-      
-    - name: Verificar status do ClusterIssuer
-      run: |
-        echo "Verificando status do ClusterIssuer..."
-        sleep 15  # Aguardar a aplicação do recurso
-        kubectl --kubeconfig=${{ env.KUBECONFIG_PATH }} get clusterissuer letsencrypt-prod -o wide
-    
-    - name: Obter IP do Load Balancer
-      id: get_lb_ip
-      run: |
-        # Continua com a obtenção do IP como antes
         echo "Aguardando provisionamento do Load Balancer..."
         sleep 60  # Tempo de espera para garantir que o Load Balancer esteja pronto
-        
-        # Tenta obter o IP
-        LB_IP=$(terraform output -raw load_balancer_ip || echo "não disponível")
-        echo "LOAD_BALANCER_IP=${LB_IP}" >> $GITHUB_ENV
-        echo "Load Balancer IP: ${LB_IP}"
-    
+
+  terraform_app_platform:
+    name: 'Terraform - Application Platform'
+    runs-on: ubuntu-latest
+    needs: terraform_kube_addons
+    if: always() && (needs.terraform_kube_addons.result == 'success' || github.event_name == 'pull_request')
+    env:
+      TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      TF_INPUT: false
+      TF_IN_AUTOMATION: true
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./infra/terraform/03-app-platform
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.7.x
+
+    - name: Terraform Format Check
+      id: fmt
+      run: terraform fmt -check
+      continue-on-error: true
+
+    - name: Terraform Init
+      id: init
+      run: terraform init
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate -no-color
+
+    - name: Terraform Plan
+      id: plan
+      if: github.event_name == 'pull_request'
+      run: terraform plan -no-color
+      continue-on-error: true
+
+    - name: Terraform Apply
+      id: apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: terraform apply -auto-approve -no-color
+
     - name: Exibir informações importantes
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.apply.outcome == 'success'
       run: |
         echo "============================================="
-        echo "🚀 Cluster criado/atualizado com sucesso!"
-        echo "📋 Informações importantes:"
-        echo "   - IP do Load Balancer: ${{ env.LOAD_BALANCER_IP }}"
-        echo "   - Host para DNS: api.urbanadobrasil.com"
+        echo "🚀 Infraestrutura atualizada com sucesso!"
+        echo "📋 Execute 'terraform output load_balancer_ip' no módulo 03-app-platform"
+        echo "   para obter o IP do Load Balancer para configuração de DNS"
         echo "============================================="
-        echo "⚠️ IMPORTANTE: Atualize seu DNS para apontar api.urbanadobrasil.com para o IP ${{ env.LOAD_BALANCER_IP }}"
+        echo "⚠️ IMPORTANTE: Atualize seu DNS para apontar api.urbanadobrasil.com para o IP do Load Balancer"
         echo "=============================================" 
