@@ -19,7 +19,7 @@ terraform {
 # Obtém os dados do módulo do cluster DOKS
 data "terraform_remote_state" "cluster" {
   backend = "remote"
-  
+
   config = {
     organization = "urbana-do-brasil"
     workspaces = {
@@ -31,7 +31,7 @@ data "terraform_remote_state" "cluster" {
 # Obtém os dados do módulo de kube-addons
 data "terraform_remote_state" "kube_addons" {
   backend = "remote"
-  
+
   config = {
     organization = "urbana-do-brasil"
     workspaces = {

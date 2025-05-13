@@ -6,13 +6,13 @@ resource "helm_release" "nginx_ingress" {
   namespace        = "ingress-nginx"
   create_namespace = true
   version          = var.nginx_ingress_version
-  
+
   # Configurações importantes para DigitalOcean
   set {
     name  = "controller.service.type"
     value = "LoadBalancer"
   }
-  
+
   set {
     name  = "controller.publishService.enabled"
     value = "true"
@@ -27,13 +27,13 @@ resource "helm_release" "cert_manager" {
   namespace        = "cert-manager"
   create_namespace = true
   version          = var.cert_manager_version
-  
+
   # Habilita CRDs (Custom Resource Definitions)
   set {
     name  = "installCRDs"
     value = "true"
   }
-  
+
   # Instala cert-manager somente após o Nginx Ingress
   depends_on = [helm_release.nginx_ingress]
 }
@@ -44,6 +44,6 @@ data "kubernetes_service" "nginx_ingress_controller" {
     name      = "ingress-nginx-controller"
     namespace = "ingress-nginx"
   }
-  
+
   depends_on = [helm_release.nginx_ingress]
 } 
