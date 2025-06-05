@@ -109,6 +109,7 @@ terraform.rc
 
 # Arquivos de chaves e credenciais
 *.json
+!app/src/test/resources/wiremock/**/*.json
 *.pem
 *.key
 

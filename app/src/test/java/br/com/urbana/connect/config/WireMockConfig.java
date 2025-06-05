@@ -14,7 +14,9 @@ public class WireMockConfig {
      */
     public static void startServer() {
         if (wireMockServer == null || !wireMockServer.isRunning()) {
-            wireMockServer = new WireMockServer(WireMockConfiguration.options().port(WIREMOCK_PORT));
+            wireMockServer = new WireMockServer(WireMockConfiguration.options()
+                .port(WIREMOCK_PORT)
+                .usingFilesUnderClasspath("wiremock"));
             wireMockServer.start();
             // Configura o cliente HTTP para usar a URL do WireMock globalmente para os testes, se necessário
             // System.setProperty("whatsapp.api.base-url", wireMockServer.baseUrl());
