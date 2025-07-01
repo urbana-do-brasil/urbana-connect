@@ -1,0 +1,44 @@
+server:
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  persistentVolume:
+    enabled: true
+    storageClass: "do-block-storage"
+    size: 8Gi
+
+alertmanager:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+pushgateway:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+extraScrapeConfigs: |
+  - job_name: 'urbana-connect'
+    metrics_path: '/actuator/prometheus'
+    kubernetes_sd_configs:
+      - role: service
+        namespaces:
+          names:
+            - urbana-connect
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name]
+        action: keep
+        regex: 'urbana-connect'
