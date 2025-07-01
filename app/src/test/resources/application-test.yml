@@ -15,7 +15,7 @@ openai:
 
 # Configurações do WhatsApp para testes
 whatsapp:
-  api-url: http://localhost:8089
+  api-url: https://test-api.example.com
   phone-number-id: test-phone-id
   access-token: test-access-token
   verify-token: urbana-connect-webhook-token
