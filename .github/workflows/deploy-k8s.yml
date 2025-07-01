@@ -28,11 +28,8 @@ jobs:
       with:
         version: 'latest'
 
-    - name: Configurar KUBECONFIG
-      run: |
-        mkdir -p $HOME/.kube
-        echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 -d > $HOME/.kube/config
-        chmod 600 $HOME/.kube/config
+    - name: Salvar kubeconfig do cluster
+      run: doctl kubernetes cluster kubeconfig save urbana-connect-cluster
 
     - name: Configurar credenciais do registro DigitalOcean
       run: |
