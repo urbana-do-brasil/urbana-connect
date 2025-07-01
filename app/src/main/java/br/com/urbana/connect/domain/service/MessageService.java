@@ -462,7 +462,7 @@ public class MessageService implements MessageProcessingUseCase {
         conversationService.updateConversation(conversation);
         
         // Enviar pelo WhatsApp
-        Customer customer = customerService.findByPhoneNumber(customerId)
+        Customer customer = customerService.findById(customerId)
                 .orElseThrow(() -> new IllegalArgumentException("Cliente não encontrado"));
         
         String whatsappMessageId = whatsappService.sendTextMessage(

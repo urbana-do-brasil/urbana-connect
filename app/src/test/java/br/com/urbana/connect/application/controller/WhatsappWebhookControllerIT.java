@@ -4,7 +4,6 @@ import br.com.urbana.connect.application.config.AbstractIntegrationTest;
 import br.com.urbana.connect.application.config.TestWhatsappConfig;
 import br.com.urbana.connect.domain.enums.ConversationStatus;
 import br.com.urbana.connect.domain.enums.MessageDirection;
-import br.com.urbana.connect.domain.enums.MessageStatus;
 import br.com.urbana.connect.domain.model.Conversation;
 import br.com.urbana.connect.domain.model.Customer;
 import br.com.urbana.connect.domain.model.Message;
@@ -27,7 +26,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
