@@ -83,6 +83,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Copiar arquivos de configuração K8s
+      run: cp -r ${{ github.workspace }}/infra/k8s/prometheus ./prometheus
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
@@ -175,4 +178,4 @@ jobs:
         echo "   para obter o IP do Load Balancer para configuração de DNS"
         echo "============================================="
         echo "⚠️ IMPORTANTE: Atualize seu DNS para apontar api.urbanadobrasil.com para o IP do Load Balancer"
-        echo "=============================================" 
+        echo "============================================="
