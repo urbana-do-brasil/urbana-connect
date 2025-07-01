@@ -32,7 +32,7 @@ resource "kubernetes_manifest" "cluster_issuer" {
       }
     }
   }
-
+  
   # Assegura que o cert-manager esteja instalado antes (implícito pelo ordem dos módulos)
   # Se necessário, adicione um wait/delay aqui se as CRDs do cert-manager não estiverem prontas
 }
