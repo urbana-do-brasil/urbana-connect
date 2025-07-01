@@ -45,4 +45,9 @@ provider "helm" {
     token                  = data.terraform_remote_state.cluster.outputs.client_token
     cluster_ca_certificate = base64decode(data.terraform_remote_state.cluster.outputs.cluster_ca_certificate)
   }
+
+  repository_config {
+    name = "prometheus-community"
+    url  = "https://prometheus-community.github.io/helm-charts"
+  }
 } 
