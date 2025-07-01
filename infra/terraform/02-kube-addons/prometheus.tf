@@ -6,7 +6,7 @@ resource "helm_release" "prometheus" {
   version    = "25.20.0" # Versão estável para evitar atualizações inesperadas
 
   values = [
-    file("${path.module}/../../k8s/prometheus/values.yaml")
+    file("${path.root}/infra/k8s/prometheus/values.yaml")
   ]
 
   depends_on = [
