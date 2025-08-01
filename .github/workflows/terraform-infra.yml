@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      TF_VAR_DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_INPUT: false
       TF_IN_AUTOMATION: true
 
@@ -73,6 +74,7 @@ jobs:
     if: always() && (needs.terraform_cluster.result == 'success' || github.event_name == 'pull_request')
     env:
       TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      TF_VAR_DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_INPUT: false
       TF_IN_AUTOMATION: true
 
@@ -130,6 +132,7 @@ jobs:
     if: always() && (needs.terraform_kube_addons.result == 'success' || github.event_name == 'pull_request')
     env:
       TF_TOKEN_app_terraform_io: ${{ secrets.TF_API_TOKEN }}
+      TF_VAR_DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
       TF_INPUT: false
       TF_IN_AUTOMATION: true
 
