@@ -6,10 +6,15 @@ metadata:
   labels:
     app: urbana-connect
 spec:
-  type: ClusterIP # Expõe o serviço internamente no cluster
+  type: ClusterIP
   selector:
-    app: urbana-connect # Seleciona os Pods gerenciados pelo Deployment com esta label
+    app: urbana-connect
   ports:
-    - protocol: TCP
-      port: 80         # Porta pela qual o Service será acessado dentro do cluster
-      targetPort: 8080 # Porta que o container está expondo (definida no Deployment) 
+    - name: http-web
+      protocol: TCP
+      port: 80
+      targetPort: 8080
+    - name: http-metrics
+      protocol: TCP
+      port: 8080
+      targetPort: 8080 

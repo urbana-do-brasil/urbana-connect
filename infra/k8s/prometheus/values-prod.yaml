@@ -1,0 +1,102 @@
+# Arquivo de valores de produção para a stack kube-prometheus.
+
+# Configuração do Alertmanager
+alertmanager:
+  alertmanagerSpec:
+    # 1 réplica para ambiente mínimo
+    replicas: 1
+    # Requisições e limites de recursos
+    resources:
+      requests:
+        cpu: "25m"
+        memory: "32Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+
+# Configuração do Grafana
+grafana:
+  # Habilita o armazenamento persistente para dashboards e configurações
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: "do-block-storage" # StorageClass da DigitalOcean
+    accessModes:
+      - ReadWriteOnce
+    size: 2Gi
+  # Requisições e limites de recursos
+  resources:
+    requests:
+      cpu: "25m"
+      memory: "32Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  # Configuração do Ingress para acesso externo seguro
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - "grafana.urbanadobrasil.com"
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - "grafana.urbanadobrasil.com"
+    # Anotações para usar o ClusterIssuer do cert-manager
+    annotations:
+      cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  # Provisionamento de dashboards via ConfigMaps
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+
+# Configuração do Prometheus
+prometheus:
+  prometheusSpec:
+    # 1 réplica para ambiente mínimo
+    replicas: 1
+    # Anti-afinidade para garantir que as réplicas rodem em nós diferentes
+    podAntiAffinity: "hard"
+    # Habilita o armazenamento persistente para dados de métricas
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: "do-block-storage" # StorageClass da DigitalOcean
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    # Requisições e limites de recursos (perfil "Mínimo")
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+    # Seletor para descobrir ServiceMonitors em todos os namespaces
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorSelector:
+      matchLabels:
+        release: prometheus-stack
+
+# Configurações para outros componentes
+kubeStateMetrics:
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"

@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: urbana-connect-sm
+  namespace: monitoring
+  labels:
+    release: prometheus-stack # Rótulo para ser descoberto pela stack padrão
+spec:
+  selector:
+    matchLabels:
+      app: urbana-connect # Corresponde ao rótulo do Service da aplicação
+  namespaceSelector:
+    matchNames:
+      - urbana-connect # Procura pelo Service neste namespace
+  endpoints:
+    - port: http-metrics # Corresponde ao nome da porta no Service
+      path: /actuator/prometheus # Caminho padrão de métricas do Spring Boot
+      interval: 15s # Intervalo de coleta
