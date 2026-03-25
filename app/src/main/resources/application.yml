@@ -24,3 +24,7 @@ management:
 logging:
   level:
     br.com.urbana: INFO
+
+whatsapp:
+  webhook:
+    verify-token: ${WHATSAPP_VERIFY_TOKEN:}
