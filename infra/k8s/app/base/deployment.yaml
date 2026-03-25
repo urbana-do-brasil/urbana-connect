@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: urbana-connect
-          image: registry.digitalocean.com/urbana-connect-registry/urbana-connect:latest
+          image: ghcr.io/urbana-do-brasil/urbana-connect:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

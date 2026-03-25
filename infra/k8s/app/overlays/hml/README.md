@@ -6,7 +6,7 @@ Inclui:
 - `Deployment` da aplicação
 - `Service` interno
 - `ConfigMap` com perfil `hml`
-- referência aos secrets e ao registry privado
+- referência aos secrets e ao GHCR privado
 
 Não inclui:
 - `Ingress` público
@@ -23,7 +23,7 @@ kubectl apply -k infra/k8s/app/overlays/hml
 
 ## Pré-requisitos
 
-- secret `do-registry-credentials`
+- secret `container-registry-credentials`
 - secret `urbana-connect-mongodb-uri`
 - secret `urbana-connect-openai`
 - secret `urbana-connect-whatsapp`

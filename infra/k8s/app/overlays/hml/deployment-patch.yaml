@@ -6,7 +6,7 @@ spec:
   template:
     spec:
       imagePullSecrets:
-        - name: do-registry-credentials
+        - name: container-registry-credentials
       containers:
         - name: urbana-connect
           envFrom:

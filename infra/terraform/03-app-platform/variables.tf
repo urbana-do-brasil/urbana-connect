@@ -1,6 +1,18 @@
-# Declaração da variável para o token de acesso da DigitalOcean (utilizado para o secret do registry)
-variable "DIGITALOCEAN_ACCESS_TOKEN" {
-  description = "Token de acesso da DigitalOcean para autenticação no registry"
+# Credenciais do container registry usadas para pull da imagem em homolog
+variable "container_registry_server" {
+  description = "Servidor do container registry"
+  type        = string
+  default     = "ghcr.io"
+}
+
+variable "container_registry_username" {
+  description = "Usuário para autenticação no container registry"
+  type        = string
+  sensitive   = true
+}
+
+variable "container_registry_password" {
+  description = "Token/senha para autenticação no container registry"
   type        = string
   sensitive   = true
 }
@@ -8,7 +20,7 @@ variable "DIGITALOCEAN_ACCESS_TOKEN" {
 variable "namespace_name" {
   description = "Nome do namespace da aplicação"
   type        = string
-  default     = "urbana-connect"
+  default     = "urbana-connect-hml"
 }
 
 variable "domain" {
