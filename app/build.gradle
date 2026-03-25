@@ -86,6 +86,7 @@ jacocoTestReport {
     afterEvaluate {
         classDirectories.setFrom(files(classDirectories.files.collect {
             fileTree(dir: it, exclude: [
+                "**/*Application.class",
                 "**/config/**",
                 "**/model/**",
                 "**/dto/**",
@@ -94,3 +95,29 @@ jacocoTestReport {
         }))
     }
 }
+
+jacocoTestCoverageVerification {
+    dependsOn jacocoTestReport
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                value = 'COVEREDRATIO'
+                minimum = 0.60
+            }
+        }
+    }
+    afterEvaluate {
+        classDirectories.setFrom(files(classDirectories.files.collect {
+            fileTree(dir: it, exclude: [
+                "**/*Application.class",
+                "**/config/**",
+                "**/model/**",
+                "**/dto/**",
+                "**/exception/**"
+            ])
+        }))
+    }
+}
+
+check.dependsOn jacocoTestCoverageVerification
