@@ -37,10 +37,10 @@ resource "kubernetes_manifest" "cluster_issuer" {
   # Se necessário, adicione um wait/delay aqui se as CRDs do cert-manager não estiverem prontas
 }
 
-# Criar o secret para autenticação no registry da DigitalOcean
-resource "kubernetes_secret" "do_registry_credentials" {
+# Criar o secret para autenticação no container registry
+resource "kubernetes_secret" "container_registry_credentials" {
   metadata {
-    name      = "do-registry-credentials"
+    name      = "container-registry-credentials"
     namespace = kubernetes_namespace.urbana_connect.metadata[0].name
   }
 
@@ -49,10 +49,10 @@ resource "kubernetes_secret" "do_registry_credentials" {
   data = {
     ".dockerconfigjson" = jsonencode({
       auths = {
-        "registry.digitalocean.com" = {
-          auth = base64encode("token:${var.DIGITALOCEAN_ACCESS_TOKEN}")
+        var.container_registry_server = {
+          auth = base64encode("${var.container_registry_username}:${var.container_registry_password}")
         }
       }
     })
   }
-} 
+}

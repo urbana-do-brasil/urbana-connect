@@ -26,11 +26,11 @@ spec:
         app: urbana-connect
     spec:
       imagePullSecrets:
-      - name: do-registry-credentials
+      - name: container-registry-credentials
       containers:
       - name: urbana-connect
-        image: registry.digitalocean.com/urbana-connect-registry/urbana-connect:latest
-        imagePullPolicy: IfNotPresent # Ou Always, se necessário
+        image: ghcr.io/urbana-do-brasil/urbana-connect:latest
+        imagePullPolicy: Always # Manifesto legado; usar a overlay de homolog para novos deploys
         ports:
         - containerPort: 8080 # Porta que a aplicação expõe
         resources:

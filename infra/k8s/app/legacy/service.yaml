@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: urbana-connect
+  namespace: urbana-connect
+  labels:
+    app: urbana-connect
+spec:
+  type: ClusterIP
+  selector:
+    app: urbana-connect
+  ports:
+    - name: http-web
+      protocol: TCP
+      port: 80
+      targetPort: 8080
+    - name: http-metrics
+      protocol: TCP
+      port: 8080
+      targetPort: 8080 

@@ -22,7 +22,7 @@ secrets/
 Por motivos de segurança, os arquivos contendo dados sensíveis não são versionados diretamente.
 Em vez disso, são fornecidos templates para criar os arquivos reais:
 
-- `templates/registry-secret-template.yaml` → `prod/registry-secret.yaml` (Credenciais do registro Docker)
+- `templates/registry-secret-template.yaml` → `prod/registry-secret.yaml` (Credenciais do container registry)
 - `templates/openai-secret-template.yaml` → `prod/openai-secret.yaml` (Chave API OpenAI)
 - `templates/whatsapp-secret-template.yaml` → `prod/whatsapp-secret.yaml` (Credenciais WhatsApp)
 - `templates/secret-template.yaml` → `prod/[seu-secret].yaml` (Template genérico para outros secrets)
@@ -47,10 +47,10 @@ Em vez disso, são fornecidos templates para criar os arquivos reais:
 
 ## Implantação dos Recursos
 
-Para implantar a aplicação principal:
+Para implantar a aplicação principal em homolog:
 
 ```bash
-kubectl apply -k ../app
+kubectl apply -k ../app/overlays/hml
 ```
 
 Para implantar o ClusterIssuer para certificados:

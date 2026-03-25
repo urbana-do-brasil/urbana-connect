@@ -6,11 +6,11 @@ Este diretório contém os manifestos Kubernetes para a infraestrutura da aplica
 
 ```
 k8s/
-├── app/                      # Aplicação principal
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   ├── ingress.yaml
-│   ├── configmap.yaml
+├── app/                      # Estrutura de execução da aplicação
+│   ├── base/
+│   ├── legacy/
+│   ├── overlays/
+│   │   └── hml/
 │   └── kustomization.yaml
 ├── cert-manager/
 │   ├── cluster-issuer.yaml
@@ -30,15 +30,16 @@ k8s/
 
 ### App
 
-Contém os recursos principais da aplicação Urbana Connect:
-- Deployment
-- Service
-- Ingress
-- ConfigMap
+Contém a estrutura de execução da aplicação Urbana Connect.
 
-Para implantar:
+Nova organização:
+- `base/`: recursos comuns do runtime em container
+- `overlays/hml/`: customizações de homolog
+- `legacy/`: manifestos monolíticos antigos, mantidos apenas como referência
+
+Para homolog:
 ```bash
-kubectl apply -k app
+kubectl apply -k app/overlays/hml
 ```
 
 ### Cert-Manager
@@ -71,6 +72,6 @@ Contém templates para os secrets e instruções de gerenciamento. Para mais det
 3. Aplique os componentes:
    ```bash
    kubectl apply -k cert-manager
-   kubectl apply -k app
+   kubectl apply -k app/overlays/hml
    kubectl apply -k mongodb
-   ``` 
+   ```

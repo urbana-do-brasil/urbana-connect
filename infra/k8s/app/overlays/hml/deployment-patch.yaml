@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urbana-connect
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: container-registry-credentials
+      containers:
+        - name: urbana-connect
+          envFrom:
+            - configMapRef:
+                name: urbana-connect-config
+            - secretRef:
+                name: urbana-connect-mongodb-uri
+            - secretRef:
+                name: urbana-connect-whatsapp

@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urbana-connect
+  labels:
+    app: urbana-connect
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: urbana-connect
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: urbana-connect
+    spec:
+      containers:
+        - name: urbana-connect
+          image: ghcr.io/urbana-do-brasil/urbana-connect:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
