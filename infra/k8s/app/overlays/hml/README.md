@@ -11,6 +11,7 @@ Inclui:
 Não inclui:
 - `Ingress` público
 - probes de health/readiness
+- integração com OpenAI
 - configuração de secrets reais
 
 Esses pontos ficam para subtarefas seguintes da `PEE-30`.
@@ -25,5 +26,4 @@ kubectl apply -k infra/k8s/app/overlays/hml
 
 - secret `container-registry-credentials`
 - secret `urbana-connect-mongodb-uri`
-- secret `urbana-connect-openai`
 - secret `urbana-connect-whatsapp`

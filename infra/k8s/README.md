@@ -8,12 +8,9 @@ Este diretório contém os manifestos Kubernetes para a infraestrutura da aplica
 k8s/
 ├── app/                      # Estrutura de execução da aplicação
 │   ├── base/
+│   ├── legacy/
 │   ├── overlays/
 │   │   └── hml/
-│   ├── deployment.yaml
-│   ├── service.yaml
-│   ├── ingress.yaml
-│   ├── configmap.yaml
 │   └── kustomization.yaml
 ├── cert-manager/
 │   ├── cluster-issuer.yaml
@@ -38,8 +35,7 @@ Contém a estrutura de execução da aplicação Urbana Connect.
 Nova organização:
 - `base/`: recursos comuns do runtime em container
 - `overlays/hml/`: customizações de homolog
-
-Estrutura legada ainda está presente em `app/` e pode ser migrada aos poucos.
+- `legacy/`: manifestos monolíticos antigos, mantidos apenas como referência
 
 Para homolog:
 ```bash

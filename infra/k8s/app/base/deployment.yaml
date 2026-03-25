@@ -22,7 +22,7 @@ spec:
       containers:
         - name: urbana-connect
           image: ghcr.io/urbana-do-brasil/urbana-connect:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - name: http
               containerPort: 8080
