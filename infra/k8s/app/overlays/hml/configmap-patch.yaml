@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urbana-connect-config
+data:
+  SPRING_PROFILES_ACTIVE: "hml"
+  LOGGING_LEVEL_ROOT: "INFO"

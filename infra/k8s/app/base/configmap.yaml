@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urbana-connect-config
+data:
+  SPRING_APPLICATION_NAME: "urbana-connect"
+  SPRING_PROFILES_ACTIVE: "default"
+  SERVER_PORT: "8080"
+  LOGGING_LEVEL_ROOT: "INFO"
