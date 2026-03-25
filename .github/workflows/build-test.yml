@@ -38,8 +38,18 @@ jobs:
     - name: Build e teste com Gradle
       run: ./gradlew build jacocoTestReport
       working-directory: ./app
+
+    - name: Detectar disponibilidade do SONAR_TOKEN
+      run: |
+        if [ -n "${{ secrets.SONAR_TOKEN }}" ]; then
+          echo "HAS_SONAR_TOKEN=true" >> "$GITHUB_ENV"
+        else
+          echo "HAS_SONAR_TOKEN=false" >> "$GITHUB_ENV"
+          echo "SONAR_TOKEN ausente; análise SonarCloud ignorada temporariamente."
+        fi
       
     - name: Cache SonarCloud packages
+      if: ${{ env.HAS_SONAR_TOKEN == 'true' }}
       uses: actions/cache@v4
       with:
         path: ~/.sonar/cache
@@ -47,6 +57,7 @@ jobs:
         restore-keys: ${{ runner.os }}-sonar
 
     - name: Análise SonarCloud
+      if: ${{ env.HAS_SONAR_TOKEN == 'true' }}
       uses: SonarSource/sonarcloud-github-action@master
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
