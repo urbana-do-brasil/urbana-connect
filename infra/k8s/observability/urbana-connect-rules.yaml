@@ -9,11 +9,11 @@ spec:
   groups:
   - name: urbana-connect.rules
     rules:
-    - alert: UrbanaConnectDown
-      expr: kube_deployment_status_replicas_available{deployment="urbana-connect", namespace="urbana-connect"} == 0
-      for: 1m
-      labels:
-        severity: critical
-      annotations:
-        summary: "Aplicação Urbana Connect está fora do ar!"
-        description: "Nenhuma réplica do deployment 'urbana-connect' no namespace 'urbana-connect' está disponível."
+      - alert: UrbanaConnectDown
+        expr: kube_deployment_status_replicas_available{deployment="urbana-connect", namespace="urbana-connect-hml"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Aplicação Urbana Connect está fora do ar!"
+          description: "Nenhuma réplica do deployment 'urbana-connect' no namespace 'urbana-connect-hml' está disponível."

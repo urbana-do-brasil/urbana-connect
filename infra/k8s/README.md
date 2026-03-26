@@ -18,6 +18,10 @@ k8s/
 │   ├── overlays/
 │   │   └── hml/
 │   └── kustomization.yaml
+├── observability/            # ServiceMonitor, rules e namespace de monitoramento
+├── prometheus/               # Values Helm do kube-prometheus-stack
+├── loki/                     # Values Helm do Loki
+├── promtail/                 # Values Helm do Promtail
 ├── cert-manager/
 │   ├── cluster-issuer.yaml
 │   └── kustomization.yaml
@@ -74,6 +78,21 @@ kubectl apply -k mongodb/overlays/hml
 
 Contém templates para os secrets e instruções de gerenciamento. Para mais detalhes, consulte o [README.md](./secrets/README.md) no diretório de secrets.
 
+### Observabilidade
+
+Contém a configuração de observabilidade de homolog para `k3s/Contabo`.
+
+Inclui:
+- `kube-prometheus-stack` via Helm
+- `Loki` e `Promtail` via Helm
+- `ServiceMonitor` e `PrometheusRule` da aplicação
+
+Para detalhes de instalação:
+
+```bash
+cat observability/README.md
+```
+
 ## Fluxo de Implantação Completo
 
 1. Crie os secrets a partir dos templates (veja as instruções em `secrets/README.md`)
@@ -84,3 +103,5 @@ Contém templates para os secrets e instruções de gerenciamento. Para mais det
    kubectl apply -k app/overlays/hml
    kubectl apply -k mongodb/overlays/hml
    ```
+
+4. Instale a observabilidade de homolog seguindo `observability/README.md`
