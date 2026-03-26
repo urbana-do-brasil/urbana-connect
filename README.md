@@ -45,7 +45,8 @@ urbana-connect/
 │       ├── promtail/        # Helm values do Promtail
 │       └── secrets/         # Templates de Secrets (não commitados)
 └── .github/workflows/
-    └── build-test.yml       # CI: build + testes + quality gate
+    ├── build-test.yml       # CI: build + testes + quality gate
+    └── deploy-hml.yml       # CD: build/push/deploy via branch hml
 ```
 
 ## Pré-requisitos de Desenvolvimento
@@ -115,6 +116,12 @@ kubectl apply -k infra/k8s/app/overlays/hml/
 kubectl apply -k infra/k8s/mongodb/overlays/hml/
 kubectl apply -k infra/k8s/observability/
 ```
+
+Pipeline de deploy para homolog:
+
+- branch de deploy: `hml`
+- workflow: `.github/workflows/deploy-hml.yml`
+- estratégia: build da imagem no GHCR + apply da overlay `infra/k8s/app/overlays/hml`
 
 ## Contato
 

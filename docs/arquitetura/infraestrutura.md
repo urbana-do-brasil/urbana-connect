@@ -467,6 +467,40 @@ jobs:
         working-directory: ./app
 ```
 
+### CD para Homolog
+
+A entrega contínua para homolog fica separada da CI e usa uma branch dedicada de deploy:
+
+- branch de deploy: `hml`
+- workflow: `.github/workflows/deploy-hml.yml`
+- registry: `ghcr.io/urbana-do-brasil/urbana-connect`
+- alvo de deploy: `infra/k8s/app/overlays/hml`
+
+Fluxo:
+
+1. Push na branch `hml` ou execução manual do workflow.
+2. Build da imagem Docker da aplicação.
+3. Push da imagem para o GHCR com tag `hml-<sha>` ou tag informada manualmente.
+4. Carregamento do kubeconfig da homolog via secret `KUBE_CONFIG_HML`.
+5. Validação dos pré-requisitos do cluster:
+   - namespace `urbana-connect-hml`
+   - secret `container-registry-credentials`
+   - secret `urbana-connect-mongodb-uri`
+   - secret `urbana-connect-whatsapp`
+6. Atualização da tag da overlay `hml`.
+7. `kubectl apply -k infra/k8s/app/overlays/hml`
+8. Verificação de rollout do deployment `urbana-connect`
+
+Segredos esperados nesta etapa:
+
+- `KUBE_CONFIG_HML` no GitHub Actions
+
+Dependências operacionais fora deste workflow:
+
+- credenciais do GHCR já provisionadas no cluster
+- secrets de runtime da aplicação já criados em homolog
+- MongoDB e observabilidade já implantados
+
 ## Estratégia de Escalabilidade
 
 ### Escalabilidade Horizontal
