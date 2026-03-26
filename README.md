@@ -122,6 +122,7 @@ Pipeline de deploy para homolog:
 - branch de deploy: `hml`
 - workflow: `.github/workflows/deploy-hml.yml`
 - estratégia: build da imagem no GHCR + apply da overlay `infra/k8s/app/overlays/hml`
+- secrets do GitHub Actions: `docs/github-actions-secrets-hml.md`
 
 ## Contato
 
