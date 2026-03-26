@@ -1,0 +1,100 @@
+name: Deploy para homolog
+
+on:
+  push:
+    branches:
+      - hml
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag da imagem no GHCR. Quando vazio, usa hml-<sha>."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-hml
+  cancel-in-progress: true
+
+jobs:
+  deploy_hml:
+    name: Build, Push e Deploy em homolog
+    runs-on: ubuntu-latest
+    environment: homolog
+    env:
+      IMAGE_NAME: ghcr.io/urbana-do-brasil/urbana-connect
+      KUSTOMIZE_DIR: infra/k8s/app/overlays/hml
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Definir tag da imagem
+        run: |
+          IMAGE_TAG="${{ inputs.image_tag }}"
+          if [ -z "$IMAGE_TAG" ]; then
+            IMAGE_TAG="hml-${GITHUB_SHA}"
+          fi
+
+          echo "IMAGE_TAG=$IMAGE_TAG" >> "$GITHUB_ENV"
+          echo "IMAGE_REF=${IMAGE_NAME}:$IMAGE_TAG" >> "$GITHUB_ENV"
+
+      - name: Validar kubeconfig de homolog
+        run: |
+          if [ -z "${{ secrets.KUBE_CONFIG_HML }}" ]; then
+            echo "Secret KUBE_CONFIG_HML ausente."
+            echo "Configure o kubeconfig da homolog antes de usar a pipeline de CD."
+            exit 1
+          fi
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build e push da imagem
+        uses: docker/build-push-action@v6
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          push: true
+          tags: ${{ env.IMAGE_REF }}
+
+      - name: Configurar kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+
+      - name: Carregar kubeconfig da homolog
+        run: |
+          mkdir -p "$HOME/.kube"
+          printf '%s' "${{ secrets.KUBE_CONFIG_HML }}" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Validar pré-requisitos do cluster
+        run: |
+          kubectl get namespace urbana-connect-hml >/dev/null
+          kubectl get secret container-registry-credentials -n urbana-connect-hml >/dev/null
+          kubectl get secret urbana-connect-mongodb-uri -n urbana-connect-hml >/dev/null
+          kubectl get secret urbana-connect-whatsapp -n urbana-connect-hml >/dev/null
+
+      - name: Atualizar tag da overlay de homolog
+        run: |
+          sed -i "s|newTag: latest|newTag: ${IMAGE_TAG}|g" "${KUSTOMIZE_DIR}/kustomization.yaml"
+
+      - name: Renderizar manifests da app
+        run: kubectl kustomize "${KUSTOMIZE_DIR}" >/tmp/urbana-connect-hml.yaml
+
+      - name: Aplicar manifests da app em homolog
+        run: kubectl apply -k "${KUSTOMIZE_DIR}"
+
+      - name: Aguardar rollout da app
+        run: kubectl rollout status deployment/urbana-connect -n urbana-connect-hml --timeout=300s
