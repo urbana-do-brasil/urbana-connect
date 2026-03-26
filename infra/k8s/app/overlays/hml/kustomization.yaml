@@ -5,6 +5,7 @@ namespace: urbana-connect-hml
 
 resources:
   - namespace.yaml
+  - ingress.yaml
   - ../../base
 
 patches:
