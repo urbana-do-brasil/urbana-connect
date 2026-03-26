@@ -495,6 +495,10 @@ Segredos esperados nesta etapa:
 
 - `KUBE_CONFIG_HML` no GitHub Actions
 
+Runbook operacional:
+
+- `docs/github-actions-secrets-hml.md`
+
 Dependências operacionais fora deste workflow:
 
 - credenciais do GHCR já provisionadas no cluster
