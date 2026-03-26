@@ -12,6 +12,7 @@ secrets/
 │   ├── openai-secret-template.yaml
 │   ├── whatsapp-secret-template.yaml
 │   ├── mongodb-secret-template.yaml
+│   ├── mongodb-uri-secret-template.yaml
 │   └── secret-template.yaml
 └── prod/                   # Diretório para armazenar os secrets reais (não versionado)
     └── .gitkeep
@@ -26,7 +27,8 @@ Em vez disso, são fornecidos templates para criar os arquivos reais:
 - `templates/openai-secret-template.yaml` → `prod/openai-secret.yaml` (Chave API OpenAI)
 - `templates/whatsapp-secret-template.yaml` → `prod/whatsapp-secret.yaml` (Credenciais WhatsApp)
 - `templates/secret-template.yaml` → `prod/[seu-secret].yaml` (Template genérico para outros secrets)
-- `templates/mongodb-secret-template.yaml` → `prod/mongodb-secret.yaml` (Credenciais do MongoDB)
+- `templates/mongodb-secret-template.yaml` → `prod/mongodb-secret.yaml` (Credenciais base do MongoDB)
+- `templates/mongodb-uri-secret-template.yaml` → `prod/mongodb-uri-secret.yaml` (URI consumida pela aplicação)
 
 ## Como usar os templates
 
@@ -63,7 +65,8 @@ Para o MongoDB (após criar os arquivos a partir dos templates):
 
 ```bash
 kubectl apply -f prod/mongodb-secret.yaml
-kubectl apply -f ../mongodb/mongodb-simple.yaml
+kubectl apply -f prod/mongodb-uri-secret.yaml
+kubectl apply -k ../mongodb/overlays/hml
 ```
 
 **Importante**: Lembre-se de que o diretório `prod` não é versionado. Faça backup dos seus arquivos de secret em um local seguro! 

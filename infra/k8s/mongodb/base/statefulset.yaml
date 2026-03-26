@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: urbana-connect-mongodb
+  labels:
+    app.kubernetes.io/name: urbana-connect-mongodb
+spec:
+  serviceName: urbana-connect-mongodb
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: urbana-connect-mongodb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: urbana-connect-mongodb
+    spec:
+      containers:
+        - name: mongodb
+          image: mongo:6.0.5
+          args:
+            - --config=/etc/mongod.conf
+          ports:
+            - containerPort: 27017
+              name: mongodb
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: urbana-connect-mongodb
+                  key: username
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: urbana-connect-mongodb
+                  key: password
+            - name: MONGO_INITDB_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: urbana-connect-mongodb
+                  key: database
+          volumeMounts:
+            - name: mongodb-data
+              mountPath: /data/db
+            - name: mongodb-config
+              mountPath: /etc/mongod.conf
+              subPath: mongod.conf
+      volumes:
+        - name: mongodb-config
+          configMap:
+            name: urbana-connect-mongodb-config
+  volumeClaimTemplates:
+    - metadata:
+        name: mongodb-data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        storageClassName: local-path

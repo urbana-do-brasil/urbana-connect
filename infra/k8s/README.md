@@ -12,11 +12,14 @@ k8s/
 │   ├── overlays/
 │   │   └── hml/
 │   └── kustomization.yaml
+├── mongodb/                  # Estrutura de execução do MongoDB
+│   ├── base/
+│   ├── legacy/
+│   ├── overlays/
+│   │   └── hml/
+│   └── kustomization.yaml
 ├── cert-manager/
 │   ├── cluster-issuer.yaml
-│   └── kustomization.yaml
-├── mongodb/                  # Componente MongoDB
-│   ├── mongodb-simple-template.yaml
 │   └── kustomization.yaml
 ├── secrets/                  # Diretório para templates e secrets reais
 │   ├── README.md
@@ -53,12 +56,18 @@ kubectl apply -k cert-manager
 
 ### MongoDB
 
-Recursos para implantação do MongoDB. Observe que a implantação completa requer a criação prévia dos secrets.
+Contém a estrutura de execução do MongoDB para homolog.
 
-Para implantar (após configurar o secret):
+Nova organização:
+- `base/`: recursos comuns do MongoDB
+- `overlays/hml/`: customizações de homolog
+- `legacy/`: manifestos antigos, mantidos apenas como referência
+
+Para implantar:
 ```bash
 kubectl apply -f secrets/prod/mongodb-secret.yaml
-kubectl apply -k mongodb
+kubectl apply -f secrets/prod/mongodb-uri-secret.yaml
+kubectl apply -k mongodb/overlays/hml
 ```
 
 ### Secrets
@@ -73,5 +82,5 @@ Contém templates para os secrets e instruções de gerenciamento. Para mais det
    ```bash
    kubectl apply -k cert-manager
    kubectl apply -k app/overlays/hml
-   kubectl apply -k mongodb
+   kubectl apply -k mongodb/overlays/hml
    ```
