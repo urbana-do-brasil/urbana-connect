@@ -399,96 +399,72 @@ spec:
 
 ### CI/CD Pipeline
 
-Para um único desenvolvedor, um pipeline CI/CD simples e eficiente:
+O repositório utiliza GitHub Actions para executar a esteira mínima de integração contínua.
 
-1. **GitHub Actions:**
-   - Trigger: Push para branches específicas
-   - Etapas: Build, Test, Deploy
+Pipeline atual:
 
-2. **Processo:**
-   - Testes automatizados em cada commit
-   - Build de imagens Docker
-   - Push para registry privado
-   - Deploy automatizado para staging
-   - Deploy manual para produção
+- Trigger em `pull_request` para `main`
+- Trigger em `push` para `main`
+- Trigger manual via `workflow_dispatch`
+- Build Gradle da aplicação em `app/`
+- Execução de testes automatizados
+- Geração do relatório JaCoCo
+- Análise SonarCloud quando `SONAR_TOKEN` estiver configurado
+- Publicação dos artefatos de teste e cobertura mesmo em caso de falha
 
-### Exemplo de GitHub Actions Workflow
+Objetivo da CI atual:
+
+- proteger o merge para `main`
+- validar build, testes e quality gate básico
+- fornecer evidência operacional por meio dos artefatos publicados
+- manter a pipeline independente do fluxo de deploy, que fica para subtarefas específicas de CD
+
+### Workflow Atual de CI
+
+Arquivo:
+
+```text
+.github/workflows/build-test.yml
+```
+
+Resumo do fluxo:
+
+1. Checkout com histórico completo para suportar SonarCloud.
+2. Configuração do JDK 21.
+3. Setup de cache e ambiente Gradle.
+4. Execução de `./gradlew build jacocoTestReport`.
+5. Detecção condicional do `SONAR_TOKEN`.
+6. Análise SonarCloud apenas quando o secret existir.
+7. Upload dos relatórios de teste e cobertura como artifacts do workflow.
+
+Exemplo simplificado:
 
 ```yaml
-name: CI/CD Pipeline
+name: Build, Test e Análise de Qualidade
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 jobs:
-  test:
+  build_test_analyze:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '16'
-    - name: Install dependencies
-      run: npm ci
-    - name: Run tests
-      run: npm test
-
-  build:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    steps:
-    - uses: actions/checkout@v2
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
-    - name: Login to DockerHub
-      uses: docker/login-action@v1
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-    - name: Build and push API Gateway
-      uses: docker/build-push-action@v2
-      with:
-        context: ./api-gateway
-        push: true
-        tags: urbana-connect/api-gateway:latest
-
-  deploy-staging:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/develop'
-    steps:
-    - uses: actions/checkout@v2
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v1
-    - name: Set Kubernetes context
-      uses: azure/k8s-set-context@v1
-      with:
-        kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
-    - name: Deploy to staging
-      run: |
-        kubectl apply -f k8s/staging/
-
-  deploy-production:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    environment: production
-    steps:
-    - uses: actions/checkout@v2
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v1
-    - name: Set Kubernetes context
-      uses: azure/k8s-set-context@v1
-      with:
-        kubeconfig: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
-    - name: Deploy to production
-      run: |
-        kubectl apply -f k8s/production/
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v3
+      - run: chmod +x ./gradlew
+        working-directory: ./app
+      - run: ./gradlew build jacocoTestReport
+        working-directory: ./app
 ```
 
 ## Estratégia de Escalabilidade
@@ -582,4 +558,4 @@ jobs:
 3. **Procedimentos Documentados:**
    - Runbooks para cenários comuns
    - Checklist de verificação pós-recuperação
-   - Testes regulares de recuperação 
+   - Testes regulares de recuperação
