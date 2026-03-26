@@ -57,6 +57,7 @@ done
 
 echo "Validando secrets obrigatórios no namespace $APP_NAMESPACE..."
 for secret in "${required_secrets[@]}"; do
+  echo "Verificando secret: $secret..."
   kubectl get secret "$secret" -n "$APP_NAMESPACE" >/dev/null
 done
 

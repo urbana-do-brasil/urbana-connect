@@ -89,6 +89,10 @@ terraform-sa-key.json
 # Kubernetes
 kubeconfig
 
+# Secrets reais de homolog (nunca versionar)
+infra/k8s/secrets/prod/*.yaml
+!infra/k8s/secrets/prod/.gitkeep
+
 # OS specific
 .DS_Store
 Thumbs.db
@@ -136,4 +140,4 @@ vendor/
 !terraform/environments/prod/terraform.tfvars
 
 # Permitir o versionamento do Gradle Wrapper JAR
-!app/gradle/wrapper/gradle-wrapper.jar 
+!app/gradle/wrapper/gradle-wrapper.jar
