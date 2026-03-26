@@ -11,8 +11,8 @@ spec:
       app: urbana-connect # Corresponde ao rótulo do Service da aplicação
   namespaceSelector:
     matchNames:
-      - urbana-connect # Procura pelo Service neste namespace
+      - urbana-connect-hml # Procura pelo Service neste namespace
   endpoints:
-    - port: http-metrics # Corresponde ao nome da porta no Service
+    - port: http # Corresponde ao nome da porta no Service
       path: /actuator/prometheus # Caminho padrão de métricas do Spring Boot
       interval: 15s # Intervalo de coleta
