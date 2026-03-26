@@ -357,40 +357,39 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: api-gateway-service
-  namespace: urbana-connect
+  name: urbana-connect
+  namespace: urbana-connect-hml
 spec:
   selector:
-    app: api-gateway
+    app: urbana-connect
   ports:
   - port: 80
-    targetPort: 3000
+    targetPort: 8080
   type: ClusterIP
 
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: api-gateway-ingress
-  namespace: urbana-connect
+  name: urbana-connect
+  namespace: urbana-connect-hml
   annotations:
-    kubernetes.io/ingress.class: nginx
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
+  ingressClassName: traefik
   tls:
   - hosts:
-    - api.urbana-connect.com
-    secretName: urbana-connect-tls
+    - api-hml.urbanadobrasil.com
+    secretName: urbana-connect-hml-tls
   rules:
-  - host: api.urbana-connect.com
+  - host: api-hml.urbanadobrasil.com
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: api-gateway-service
+            name: urbana-connect
             port:
               number: 80
 ```

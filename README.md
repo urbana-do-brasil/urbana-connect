@@ -112,10 +112,17 @@ Ambiente de homologação (`api-hml.urbanadobrasil.com`) rodando em **k3s no Con
 Os manifestos em `infra/k8s/` seguem o padrão Kustomize com `base/` + `overlays/hml/`. Para aplicar:
 
 ```bash
+kubectl apply -k infra/k8s/cert-manager/
 kubectl apply -k infra/k8s/app/overlays/hml/
 kubectl apply -k infra/k8s/mongodb/overlays/hml/
 kubectl apply -k infra/k8s/observability/
 ```
+
+Para exposição pública do webhook em homolog:
+- host: `api-hml.urbanadobrasil.com`
+- `Ingress`: `infra/k8s/app/overlays/hml/ingress.yaml`
+- TLS automático via `cert-manager`
+- requisito externo: DNS `A` do subdomínio apontando para a VPS
 
 Pipeline de deploy para homolog:
 
