@@ -1,5 +1,6 @@
 package br.com.urbana.connect.interfaces.rest;
 
+import br.com.urbana.connect.application.health.MongoConnectivityVerifier;
 import org.springframework.boot.availability.ApplicationAvailability;
 import org.springframework.boot.availability.ReadinessState;
 import org.springframework.http.ResponseEntity;
@@ -15,9 +16,13 @@ public class HealthController {
     private static final String NOT_READY = "NOT_READY";
 
     private final ApplicationAvailability applicationAvailability;
+    private final MongoConnectivityVerifier mongoConnectivityVerifier;
 
-    public HealthController(ApplicationAvailability applicationAvailability) {
+    public HealthController(
+            ApplicationAvailability applicationAvailability,
+            MongoConnectivityVerifier mongoConnectivityVerifier) {
         this.applicationAvailability = applicationAvailability;
+        this.mongoConnectivityVerifier = mongoConnectivityVerifier;
     }
 
     @GetMapping("/health")
@@ -29,7 +34,7 @@ public class HealthController {
     public ResponseEntity<String> readiness() {
         ReadinessState readinessState = applicationAvailability.getReadinessState();
 
-        if (readinessState == ReadinessState.ACCEPTING_TRAFFIC) {
+        if (readinessState == ReadinessState.ACCEPTING_TRAFFIC && mongoConnectivityVerifier.isAvailable()) {
             return ResponseEntity.ok(READY);
         }
 

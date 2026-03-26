@@ -1,5 +1,6 @@
 package br.com.urbana.connect.interfaces.rest;
 
+import br.com.urbana.connect.application.health.MongoConnectivityVerifier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.availability.ApplicationAvailability;
@@ -26,6 +27,9 @@ class HealthControllerTest {
     @MockitoBean
     private ApplicationAvailability applicationAvailability;
 
+    @MockitoBean
+    private MongoConnectivityVerifier mongoConnectivityVerifier;
+
     @Test
     void shouldReturnOk() throws Exception {
         mockMvc.perform(get("/api/v1/health"))
@@ -36,6 +40,7 @@ class HealthControllerTest {
     @Test
     void shouldReturnReadyWhenApplicationAcceptsTraffic() throws Exception {
         given(applicationAvailability.getReadinessState()).willReturn(ReadinessState.ACCEPTING_TRAFFIC);
+        given(mongoConnectivityVerifier.isAvailable()).willReturn(true);
 
         mockMvc.perform(get("/api/v1/readiness"))
             .andExpect(status().isOk())
@@ -45,6 +50,16 @@ class HealthControllerTest {
     @Test
     void shouldReturnServiceUnavailableWhenApplicationIsNotReady() throws Exception {
         given(applicationAvailability.getReadinessState()).willReturn(ReadinessState.REFUSING_TRAFFIC);
+
+        mockMvc.perform(get("/api/v1/readiness"))
+            .andExpect(status().isServiceUnavailable())
+            .andExpect(content().string("NOT_READY"));
+    }
+
+    @Test
+    void shouldReturnServiceUnavailableWhenMongoIsUnavailable() throws Exception {
+        given(applicationAvailability.getReadinessState()).willReturn(ReadinessState.ACCEPTING_TRAFFIC);
+        given(mongoConnectivityVerifier.isAvailable()).willReturn(false);
 
         mockMvc.perform(get("/api/v1/readiness"))
             .andExpect(status().isServiceUnavailable())

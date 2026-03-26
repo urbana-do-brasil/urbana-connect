@@ -1,5 +1,6 @@
 package br.com.urbana.connect.application.config;
 
+import br.com.urbana.connect.application.health.MongoConnectivityVerifier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.availability.ApplicationAvailability;
@@ -25,6 +26,9 @@ class CorrelationIdFilterTest {
 
     @MockitoBean
     private ApplicationAvailability applicationAvailability;
+
+    @MockitoBean
+    private MongoConnectivityVerifier mongoConnectivityVerifier;
 
     @Test
     void shouldReuseIncomingCorrelationId() throws Exception {
