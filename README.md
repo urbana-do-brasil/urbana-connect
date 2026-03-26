@@ -1,279 +1,121 @@
-# Urbana Connect - Chatbot WhatsApp com IA
+# Urbana Connect
 
-Este repositório contém a infraestrutura e documentação para o Urbana Connect, um chatbot para WhatsApp que utiliza GPT-4 para atendimento ao cliente da Urbana do Brasil.
+Agente de atendimento via WhatsApp com IA para a Urbana do Brasil (Urba).
 
-## Status do Projeto
+## Stack
 
-**[MARÇO 2024]** - Fase Inicial
-- ✅ Infraestrutura básica implementada
-- ✅ Documentação arquitetural
-- 🔄 Implementação gradual em andamento
+| Camada | Tecnologia |
+|--------|-----------|
+| Linguagem | Java 21 LTS |
+| Framework | Spring Boot 3.4.x |
+| Build | Gradle 8.x |
+| Banco de dados | MongoDB |
+| Testes | JUnit 5 + Testcontainers |
+| Infra | k3s (Contabo VPS) |
+| Manifestos | Kustomize (base + overlays) |
+| Observabilidade | Prometheus + Grafana + Loki + Promtail |
+
+## Arquitetura
+
+Clean Architecture com 4 camadas:
+
+```
+app/src/main/java/br/com/urbana/connect/
+├── domain/          # Entidades e contratos (sem dependências externas)
+├── application/     # Casos de uso, serviços e configurações
+├── infrastructure/  # Implementações: MongoDB, WhatsApp API, etc.
+└── interfaces/      # Entrada: REST controllers, webhooks
+```
 
 ## Estrutura do Repositório
 
 ```
 urbana-connect/
-├── docs/                    # Documentação do projeto
-│   └── arquitetura/         # Especificações da arquitetura
 ├── app/                     # Código da aplicação Spring Boot
-│   ├── src/                 # Código-fonte Java
-│   ├── dev-env.sh           # Script para ambiente de desenvolvimento
-│   └── docker-compose.yml   # Configuração do Docker Compose
-├── infra/                   # Código de infraestrutura
-│   └── terraform/           # Configuração do Terraform para DOKS
+│   ├── src/                 # Código-fonte Java e testes
+│   ├── build.gradle         # Dependências e configuração de build
+│   └── Dockerfile           # Imagem da aplicação
+├── infra/
+│   └── k8s/                 # Manifestos Kubernetes (Kustomize)
+│       ├── app/             # Deployment, Service, ConfigMap
+│       ├── mongodb/         # StatefulSet do MongoDB
+│       ├── observability/   # ServiceMonitor e PrometheusRules
+│       ├── prometheus/      # Helm values do kube-prometheus-stack
+│       ├── loki/            # Helm values do Loki
+│       ├── promtail/        # Helm values do Promtail
+│       └── secrets/         # Templates de Secrets (não commitados)
+└── .github/workflows/
+    └── build-test.yml       # CI: build + testes + quality gate
 ```
 
-## Configuração do Ambiente de Desenvolvimento
+## Pré-requisitos de Desenvolvimento
 
-### Pré-requisitos
+- JDK 21
+- Docker (para Testcontainers)
 
-- JDK 17 ou superior
-- Docker e Docker Compose
-- MongoDB (rodando via Docker)
-- Chaves de API (OpenAI e WhatsApp Business API)
+## Executando os testes
 
-### Inicialização do Ambiente
+```bash
+cd app
+./gradlew test
+```
 
-O projeto inclui um script automatizado que configura o ambiente de desenvolvimento. Para utilizá-lo:
+O quality gate exige **60% de cobertura de linha** (JaCoCo). O build falha se o threshold não for atingido.
 
-1. Navegue até a pasta da aplicação:
-   ```bash
-   cd app
-   ```
+## Endpoints
 
-2. Configure as permissões e execute o script de ambiente:
-   ```bash
-   chmod +x dev-env.sh
-   ./dev-env.sh start
-   ```
+| Método | Path | Descrição |
+|--------|------|-----------|
+| `GET` | `/api/v1/health` | Health check |
+| `GET` | `/api/v1/readiness` | Readiness check (verifica MongoDB) |
+| `GET` | `/api/webhook` | Verificação de webhook Meta (challenge) |
+| `POST` | `/api/webhook` | Recebimento de eventos WhatsApp |
+| `GET` | `/actuator/prometheus` | Métricas Prometheus |
 
-3. Configure as variáveis de ambiente:
-   ```bash
-   ./dev-env.sh env
-   ```
-   
-   Isso criará um arquivo `.env.dev` com as variáveis necessárias.
+## Testando o Webhook Localmente
 
-4. Edite o arquivo `.env.dev` e adicione suas chaves de API:
-   ```bash
-   nano .env.dev
-   ```
+```bash
+# Verificação de challenge (simulando Meta)
+curl "http://localhost:8080/api/webhook?hub.mode=subscribe&hub.verify_token=SEU_TOKEN&hub.challenge=12345"
 
-5. Carregue as variáveis de ambiente:
-   ```bash
-   source ./dev-env.sh load-env
-   ```
-
-6. Execute a aplicação:
-   ```bash
-   ./gradlew bootRun
-   ```
-
-### Variáveis de Ambiente
-
-As seguintes variáveis de ambiente são necessárias:
-
-| Variável | Descrição | Padrão |
-|----------|-----------|--------|
-| `OPENAI_API_KEY` | Chave da API da OpenAI | (obrigatório) |
-| `OPENAI_MODEL` | Modelo GPT a ser utilizado | gpt-4o-mini |
-| `WHATSAPP_PHONE_NUMBER_ID` | ID do número de telefone no WhatsApp Business API | (obrigatório) |
-| `WHATSAPP_ACCESS_TOKEN` | Token de acesso à API do WhatsApp | (obrigatório) |
-| `MONGODB_URI` | URI de conexão com o MongoDB | mongodb://localhost:27017/urbana-connect |
-
-### Comandos do Script de Ambiente
-
-O script `dev-env.sh` oferece vários comandos:
-
-- `./dev-env.sh start` - Inicia o MongoDB e configura o ambiente
-- `./dev-env.sh stop` - Para todos os contêineres Docker
-- `./dev-env.sh env` - Configura o arquivo de variáveis de ambiente
-- `./dev-env.sh load-env` - Carrega as variáveis de ambiente (deve ser usado com `source`)
-- `./dev-env.sh help` - Exibe ajuda sobre os comandos disponíveis
+# Evento de mensagem recebida
+curl -X POST http://localhost:8080/api/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "object": "whatsapp_business_account",
+    "entry": [{
+      "id": "123456789",
+      "changes": [{
+        "value": {
+          "messaging_product": "whatsapp",
+          "metadata": {"display_phone_number": "5511111111111", "phone_number_id": "123456789"},
+          "contacts": [{"profile": {"name": "Usuário Teste"}, "wa_id": "5511999999999"}],
+          "messages": [{
+            "from": "5511999999999",
+            "id": "wamid.123456789",
+            "timestamp": "1677587365",
+            "text": {"body": "Olá!"},
+            "type": "text"
+          }]
+        },
+        "field": "messages"
+      }]
+    }]
+  }'
+```
 
 ## Infraestrutura
 
-O projeto está atualmente hospedado em um cluster Kubernetes gerenciado na Digital Ocean (DOKS) com as seguintes características:
+Ambiente de homologação (`api-hml.urbanadobrasil.com`) rodando em **k3s no Contabo VPS** (Ubuntu 24.04 LTS).
 
-- Região: NYC1 (Nova York)
-- Nós: 1 nó do tipo s-2vcpu-2gb (2 vCPUs, 2GB RAM)
-- Auto-scaling: Configurado para 1-3 nós
-- Custo mensal estimado: $18 (com 1 nó)
-
-A infraestrutura é gerenciada como código utilizando Terraform, o que permite fácil reprodução, versionamento e expansão do ambiente.
-
-## Documentação
-
-A pasta `docs/arquitetura/` contém a documentação completa da arquitetura do sistema, incluindo:
-
-- Diagrama de alto nível
-- Especificações detalhadas dos componentes
-- Fluxos de dados
-- Estruturas de dados
-- Configurações de infraestrutura
-
-## Testes Manuais com cURL
-
-### Testando Webhook
-
-Para testar o webhook manualmente, você pode usar os seguintes comandos cURL:
-
-#### Saudações
+Os manifestos em `infra/k8s/` seguem o padrão Kustomize com `base/` + `overlays/hml/`. Para aplicar:
 
 ```bash
-# Testar saudação simples (deve acionar o fluxo de boas-vindas)
-curl -X POST http://localhost:8080/api/webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "object": "whatsapp_business_account",
-    "entry": [{
-        "id": "123456789",
-        "changes": [{
-            "value": {
-                "messaging_product": "whatsapp",
-                "metadata": {
-                    "display_phone_number": "5511111111111",
-                    "phone_number_id": "123456789"
-                },
-                "contacts": [{
-                    "profile": {
-                        "name": "Usuário Teste"
-                    },
-                    "wa_id": "5511999999999"
-                }],
-                "messages": [{
-                    "from": "5511999999999",
-                    "id": "wamid.123456789",
-                    "timestamp": "1677587365",
-                    "text": {
-                        "body": "Olá, bom dia!"
-                    },
-                    "type": "text"
-                }]
-            },
-            "field": "messages"
-        }]
-    }]
-}'
+kubectl apply -k infra/k8s/app/overlays/hml/
+kubectl apply -k infra/k8s/mongodb/overlays/hml/
+kubectl apply -k infra/k8s/observability/
 ```
-
-#### Perguntas Frequentes (FAQ)
-
-```bash
-# Testar pergunta sobre serviços oferecidos
-curl -X POST http://localhost:8080/api/webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "object": "whatsapp_business_account",
-    "entry": [{
-        "id": "123456789",
-        "changes": [{
-            "value": {
-                "messaging_product": "whatsapp",
-                "metadata": {
-                    "display_phone_number": "5511111111111",
-                    "phone_number_id": "123456789"
-                },
-                "contacts": [{
-                    "profile": {
-                        "name": "Usuário Teste"
-                    },
-                    "wa_id": "5511999999999"
-                }],
-                "messages": [{
-                    "from": "5511999999999",
-                    "id": "wamid.123456789",
-                    "timestamp": "1677587365",
-                    "text": {
-                        "body": "Quais serviços vocês oferecem?"
-                    },
-                    "type": "text"
-                }]
-            },
-            "field": "messages"
-        }]
-    }]
-}'
-
-# Testar pergunta sobre preços
-curl -X POST http://localhost:8080/api/webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "object": "whatsapp_business_account",
-    "entry": [{
-        "id": "123456789",
-        "changes": [{
-            "value": {
-                "messaging_product": "whatsapp",
-                "metadata": {
-                    "display_phone_number": "5511111111111",
-                    "phone_number_id": "123456789"
-                },
-                "contacts": [{
-                    "profile": {
-                        "name": "Usuário Teste"
-                    },
-                    "wa_id": "5511999999999"
-                }],
-                "messages": [{
-                    "from": "5511999999999",
-                    "id": "wamid.123456789",
-                    "timestamp": "1677587365",
-                    "text": {
-                        "body": "Qual o preço do Decor Interiores?"
-                    },
-                    "type": "text"
-                }]
-            },
-            "field": "messages"
-        }]
-    }]
-}'
-
-# Testar pergunta sobre "faça você mesmo"
-curl -X POST http://localhost:8080/api/webhook \
-  -H "Content-Type: application/json" \
-  -d '{
-    "object": "whatsapp_business_account",
-    "entry": [{
-        "id": "123456789",
-        "changes": [{
-            "value": {
-                "messaging_product": "whatsapp",
-                "metadata": {
-                    "display_phone_number": "5511111111111",
-                    "phone_number_id": "123456789"
-                },
-                "contacts": [{
-                    "profile": {
-                        "name": "Usuário Teste"
-                    },
-                    "wa_id": "5511999999999"
-                }],
-                "messages": [{
-                    "from": "5511999999999",
-                    "id": "wamid.123456789",
-                    "timestamp": "1677587365",
-                    "text": {
-                        "body": "Como funciona o faça você mesmo?"
-                    },
-                    "type": "text"
-                }]
-            },
-            "field": "messages"
-        }]
-    }]
-}'
-```
-
-## Próximos Passos
-
-1. Implementação dos componentes básicos da aplicação
-2. Configuração do sistema de mensageria
-3. Integração com WhatsApp Business API
-4. Integração com GPT-4
-5. Testes e implantação incremental
 
 ## Contato
 
-Para mais informações, entre em contato com a equipe de desenvolvimento. 
+Dúvidas: equipe de engenharia da Urbana do Brasil.
