@@ -6,11 +6,13 @@ Inclui:
 - `Deployment` da aplicação
 - `Service` interno
 - `Ingress` público em `api-hml.urbanadobrasil.com`
+- exposição pública apenas dos paths necessários da integração
+- `readinessProbe` e `livenessProbe` para homolog
 - `ConfigMap` com perfil `hml`
 - referência aos secrets e ao GHCR privado
+- tag da imagem pinada no `kustomization.yaml`, atualizada pela pipeline de deploy
 
 Não inclui:
-- probes de health/readiness
 - integração com OpenAI
 - configuração de secrets reais
 
@@ -35,10 +37,17 @@ kubectl apply -k infra/k8s/app/overlays/hml
 O `Ingress` desta overlay assume o stack atual de homolog:
 - `k3s` com `Traefik` como ingress controller
 - `cert-manager` emitindo certificado TLS via Let's Encrypt
+- apenas `/api/webhook`, `/api/v1/health` e `/api/v1/readiness` ficam expostos publicamente
 
 Depois de aplicar a overlay:
 
 ```bash
 kubectl get ingress urbana-connect -n urbana-connect-hml
 kubectl describe certificate urbana-connect-hml-tls -n urbana-connect-hml
+```
+
+Para validar o host publicamente depois do deploy e da propagacao do DNS:
+
+```bash
+bash infra/k8s/app/overlays/hml/validate-public-webhook.sh
 ```

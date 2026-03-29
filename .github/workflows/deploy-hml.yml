@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 concurrency:
@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - name: Definir tag da imagem
         run: |
@@ -88,7 +90,7 @@ jobs:
 
       - name: Atualizar tag da overlay de homolog
         run: |
-          sed -i "s|newTag: latest|newTag: ${IMAGE_TAG}|g" "${KUSTOMIZE_DIR}/kustomization.yaml"
+          sed -Ei "s|(newTag:) .*|\\1 ${IMAGE_TAG}|" "${KUSTOMIZE_DIR}/kustomization.yaml"
 
       - name: Renderizar manifests da app
         run: kubectl kustomize "${KUSTOMIZE_DIR}" >/tmp/urbana-connect-hml.yaml
@@ -98,3 +100,17 @@ jobs:
 
       - name: Aguardar rollout da app
         run: kubectl rollout status deployment/urbana-connect -n urbana-connect-hml --timeout=300s
+
+      - name: Persistir tag implantada na branch hml
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          if git diff --quiet -- "${KUSTOMIZE_DIR}/kustomization.yaml"; then
+            echo "Overlay ja estava atualizada com ${IMAGE_TAG}."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${KUSTOMIZE_DIR}/kustomization.yaml"
+          git commit -m "chore: registrar tag de homolog ${IMAGE_TAG} [skip ci]"
+          git push origin HEAD:hml

@@ -16,3 +16,19 @@ spec:
                 name: urbana-connect-mongodb-uri
             - secretRef:
                 name: urbana-connect-whatsapp
+          readinessProbe:
+            httpGet:
+              path: /api/v1/readiness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3

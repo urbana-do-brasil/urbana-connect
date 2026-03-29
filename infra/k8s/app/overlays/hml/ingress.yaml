@@ -14,7 +14,21 @@ spec:
     - host: api-hml.urbanadobrasil.com
       http:
         paths:
-          - path: /
+          - path: /api/webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: urbana-connect
+                port:
+                  number: 80
+          - path: /api/v1/health
+            pathType: Prefix
+            backend:
+              service:
+                name: urbana-connect
+                port:
+                  number: 80
+          - path: /api/v1/readiness
             pathType: Prefix
             backend:
               service:
