@@ -42,3 +42,9 @@ Depois de aplicar a overlay:
 kubectl get ingress urbana-connect -n urbana-connect-hml
 kubectl describe certificate urbana-connect-hml-tls -n urbana-connect-hml
 ```
+
+Para validar o host publicamente depois do deploy e da propagacao do DNS:
+
+```bash
+bash infra/k8s/app/overlays/hml/validate-public-webhook.sh
+```

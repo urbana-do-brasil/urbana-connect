@@ -123,6 +123,7 @@ Para exposição pública do webhook em homolog:
 - `Ingress`: `infra/k8s/app/overlays/hml/ingress.yaml`
 - TLS automático via `cert-manager`
 - requisito externo: DNS `A` do subdomínio apontando para a VPS
+- validação operacional: `docs/validacao-webhook-publico-hml.md`
 
 Pipeline de deploy para homolog:
 
