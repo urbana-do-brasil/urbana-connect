@@ -6,6 +6,7 @@ Inclui:
 - `Deployment` da aplicação
 - `Service` interno
 - `Ingress` público em `api-hml.urbanadobrasil.com`
+- exposição pública apenas dos paths necessários da integração
 - `ConfigMap` com perfil `hml`
 - referência aos secrets e ao GHCR privado
 
@@ -35,6 +36,7 @@ kubectl apply -k infra/k8s/app/overlays/hml
 O `Ingress` desta overlay assume o stack atual de homolog:
 - `k3s` com `Traefik` como ingress controller
 - `cert-manager` emitindo certificado TLS via Let's Encrypt
+- apenas `/api/webhook`, `/api/v1/health` e `/api/v1/readiness` ficam expostos publicamente
 
 Depois de aplicar a overlay:
 
