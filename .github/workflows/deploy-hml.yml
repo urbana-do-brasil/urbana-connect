@@ -88,7 +88,7 @@ jobs:
 
       - name: Atualizar tag da overlay de homolog
         run: |
-          sed -i "s|newTag: latest|newTag: ${IMAGE_TAG}|g" "${KUSTOMIZE_DIR}/kustomization.yaml"
+          sed -Ei "s|(newTag:) .*|\\1 ${IMAGE_TAG}|" "${KUSTOMIZE_DIR}/kustomization.yaml"
 
       - name: Renderizar manifests da app
         run: kubectl kustomize "${KUSTOMIZE_DIR}" >/tmp/urbana-connect-hml.yaml
