@@ -10,6 +10,7 @@ Inclui:
 - `readinessProbe` e `livenessProbe` para homolog
 - `ConfigMap` com perfil `hml`
 - referência aos secrets e ao GHCR privado
+- tag da imagem pinada no `kustomization.yaml`, atualizada pela pipeline de deploy
 
 Não inclui:
 - integração com OpenAI
