@@ -14,4 +14,4 @@ patches:
 
 images:
   - name: ghcr.io/urbana-do-brasil/urbana-connect
-    newTag: hml-c0bd67996e1cdf625bc57f28f45a701fded13774
+    newTag: hml-523eb5fab49cf8ba1813c0ce90c436ccd64f39f9
