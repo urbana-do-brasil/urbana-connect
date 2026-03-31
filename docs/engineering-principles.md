@@ -150,13 +150,16 @@ O projeto já opera com uma distinção clara entre desenvolvimento e deploy de 
 
 Regras atuais:
 
-- `main` concentra o histórico principal de desenvolvimento
-- `hml` é a branch de deploy para homolog
-- o workflow de deploy publica imagem versionada no GHCR e aplica a tag em homolog
-- a própria `hml` passa a refletir a tag efetivamente implantada
+- `main` é a branch mais protegida e representa o estado mais estável do produto
+- `hml` é a branch de integração e validação em homolog
+- homolog é o ambiente para teste funcional e operacional antes de promover mudanças para o ramo mais protegido
+- o workflow de deploy publica imagem versionada no GHCR e aplica a tag em homolog a partir da `hml`
+- a própria `hml` passa a refletir a tag efetivamente implantada em homolog
 
 Implicações:
 
+- features devem ser validadas em `hml` antes de serem consideradas prontas para promoção ao ramo mais protegido
+- `main` não deve ser usada como branch de experimento ou validação de homolog
 - não usar `latest` como base operacional de deploy
 - deploy em homolog deve ser rastreável por SHA/tag
 - mudanças de aplicação e de infraestrutura precisam preservar esse modelo
