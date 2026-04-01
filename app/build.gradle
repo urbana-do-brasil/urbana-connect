@@ -3,6 +3,7 @@ plugins {
     id 'io.spring.dependency-management' version '1.1.7'
     id 'java'
     id 'jacoco'
+    id 'org.sonarqube' version '6.0.1.5171'
 }
 
 group = 'br.com.urbana.connect'
@@ -121,3 +122,13 @@ jacocoTestCoverageVerification {
 }
 
 check.dependsOn jacocoTestCoverageVerification
+
+sonarqube {
+    properties {
+        property "sonar.projectKey", "urbana-do-brasil_urbana-connect"
+        property "sonar.organization", "urbana-do-brasil"
+        property "sonar.host.url", "https://sonarcloud.io"
+        property "sonar.coverage.jacoco.xmlReportPaths", "${project.buildDir}/reports/jacoco/test/jacocoTestReport.xml"
+        property "sonar.exclusions", "**/*Application.java,**/config/**"
+    }
+}

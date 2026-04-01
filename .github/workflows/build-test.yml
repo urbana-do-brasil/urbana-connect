@@ -3,9 +3,9 @@ name: Build, Test e Análise de Qualidade
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, hml ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, hml ]
 
 permissions:
   contents: read
@@ -40,31 +40,13 @@ jobs:
       run: ./gradlew build jacocoTestReport
       working-directory: ./app
 
-    - name: Detectar disponibilidade do SONAR_TOKEN
-      run: |
-        if [ -n "${{ secrets.SONAR_TOKEN }}" ]; then
-          echo "HAS_SONAR_TOKEN=true" >> "$GITHUB_ENV"
-        else
-          echo "HAS_SONAR_TOKEN=false" >> "$GITHUB_ENV"
-          echo "SONAR_TOKEN ausente; análise SonarCloud ignorada temporariamente."
-        fi
-      
-    - name: Cache SonarCloud packages
-      if: ${{ env.HAS_SONAR_TOKEN == 'true' }}
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
-      with:
-        path: ~/.sonar/cache
-        key: ${{ runner.os }}-sonar
-        restore-keys: ${{ runner.os }}-sonar
-
     - name: Análise SonarCloud
-      if: ${{ env.HAS_SONAR_TOKEN == 'true' }}
-      uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8  # v5.0.0
+      if: ${{ env.SONAR_TOKEN != '' }}
+      run: ./gradlew sonar
+      working-directory: ./app
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      with:
-        projectBaseDir: app
 
     - name: Publicar resultados de testes
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -72,10 +54,10 @@ jobs:
       with:
         name: test-results
         path: app/build/reports/tests/
-        
+
     - name: Publicar relatório de cobertura
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
       if: always()  # Executa mesmo se passos anteriores falharem
       with:
         name: coverage-report
-        path: app/build/reports/jacoco/test/html/ 
+        path: app/build/reports/jacoco/test/html/
