@@ -1,0 +1,19 @@
+# CODEOWNERS — Revisões automáticas por área de responsabilidade
+#
+# Regra: ao abrir um PR que toca esses caminhos, Emanuel é adicionado
+# automaticamente como reviewer obrigatório.
+#
+# Formato: <padrão>  <@github-username ou @org/team>
+
+# Responsável global — toda mudança passa por Emanuel
+*                          @emanuelguimaraes
+
+# Pipelines e segurança — revisão humana obrigatória
+.github/                   @emanuelguimaraes
+
+# Infraestrutura Kubernetes e Docker — revisão humana obrigatória
+infra/                     @emanuelguimaraes
+
+# Código da aplicação — revisão humana obrigatória em prod
+src/                       @emanuelguimaraes
+app/src/                   @emanuelguimaraes
