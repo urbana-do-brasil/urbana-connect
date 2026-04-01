@@ -42,6 +42,7 @@ jobs:
 
     - name: Análise SonarCloud
       if: ${{ env.SONAR_TOKEN != '' }}
+      continue-on-error: true  # Sonar não bloqueia o build — análise é best-effort
       run: ./gradlew sonar
       working-directory: ./app
       env:
