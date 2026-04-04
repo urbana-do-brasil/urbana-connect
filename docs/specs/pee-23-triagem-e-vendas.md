@@ -24,6 +24,11 @@ A integração com IA deve ser desacoplada via porta `AiGateway`, permitindo tro
 - MongoDB → rodando em `urbana-connect-hml` namespace
 - Endpoint público `api-hml.urbanadobrasil.com` → ativo com TLS
 
+**Nova dependência — e-mail (handoff humano):**
+- Quando o cliente solicitar atendimento humano, a Urba envia e-mail de alerta para `comunicacao@urbanadobrasil.com`
+- Requer configuração de SMTP (Spring Mail) com credenciais em k8s secret (`MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`)
+- Credenciais a serem provisionadas antes da implementação desta funcionalidade
+
 ---
 
 ## 2. State Machine
@@ -240,6 +245,7 @@ A nova camada deve extrair de `entry[].changes[].value.messages[]`:
 10. Dado qualquer etapa, quando o cliente enviar texto fora do fluxo que a IA não consiga interpretar, então o sistema deve responder "Não entendi 😊 Por favor, use as opções abaixo:" e repetir o passo atual.
 11. Dado conversa com `expiresAt` no passado, quando chegar nova mensagem, então o sistema deve marcar a conversa como `EXPIRED`, criar nova conversa e reiniciar do zero.
 12. Dado conversa ativa e incompleta, quando chegar nova mensagem dentro da janela de 24h, então o sistema deve retomar do passo atual sem reiniciar.
+13. Dado qualquer etapa, quando o cliente expressar intenção de falar com humano ("HUMANO", "quero falar com alguém" ou equivalente), então o sistema deve: (a) responder *"Iremos repassar sua dúvida para nossa equipe, que entrará em contato logo mais"*; (b) enviar e-mail para `comunicacao@urbanadobrasil.com` com número do cliente, etapa atual e últimas mensagens como contexto; (c) manter o estado da conversa inalterado.
 
 ---
 
@@ -263,7 +269,7 @@ A nova camada deve extrair de `entry[].changes[].value.messages[]`:
 
 - Mensagem chegando para número com conversa `EXPIRED` → reinicia, não retoma
 - Cliente envia texto livre em qualquer etapa → IA tenta interpretar; se `UNKNOWN` → reorienta
-- Cliente responde "HUMANO" ou "falar com alguém" → mensagem de fallback + manter estado atual *(handoff humano formal é fora de escopo desta história)*
+- Cliente responde "HUMANO", "falar com alguém" ou intenção equivalente → Urba responde *"Iremos repassar sua dúvida para nossa equipe, que entrará em contato logo mais"* + envia e-mail de alerta para `comunicacao@urbanadobrasil.com` com número do cliente e resumo do contexto da conversa + mantém estado atual (conversa não é encerrada)
 - WhatsApp Cloud API retorna erro no envio → logar com número e etapa, não travar o fluxo de recebimento
 - Serviço não encontrado no catálogo para o `ServiceType` selecionado → logar erro e retornar ao menu
 - Payload de webhook com `messages` vazio ou `type` desconhecido → ignorar silenciosamente (já coberto pelo WebhookController)
@@ -298,4 +304,4 @@ A nova camada deve extrair de `entry[].changes[].value.messages[]`:
 - [x] **Link de pagamento do Decor Reforma** — serviço recém-criado, link ainda não existe. Tratado com `available: false` no catálogo; habilitado quando o link for criado.
 - [x] **Provedor de IA inicial** — decisão adiada intencionalmente. A porta `AiGateway` está definida; o adapter começa como stub. Uma subtask dedicada fará a pesquisa de modelos (consolidados, chineses e open source) antes da integração real.
 - [x] **Mensagem de encerramento** — confirmada: *"Perfeito! Assim que o pagamento for confirmado, daremos os próximos passos 😊"*
-- [ ] **Fallback "HUMANO"** — ainda em aberto. Definir canal de handoff (WhatsApp pessoal, e-mail) e texto exato da mensagem.
+- [x] **Fallback "HUMANO"** — Urba responde *"Iremos repassar sua dúvida para nossa equipe, que entrará em contato logo mais"* e envia e-mail de alerta para `comunicacao@urbanadobrasil.com` com contexto da conversa. Conversa permanece ativa. Requer configuração de SMTP via k8s secret.
