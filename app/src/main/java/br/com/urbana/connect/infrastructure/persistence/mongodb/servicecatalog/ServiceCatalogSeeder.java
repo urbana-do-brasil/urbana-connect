@@ -1,8 +1,6 @@
-package br.com.urbana.connect.application.catalog;
+package br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog;
 
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
-import br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog.ServiceCatalogDocument;
-import br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog.SpringDataServiceCatalogRepository;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;

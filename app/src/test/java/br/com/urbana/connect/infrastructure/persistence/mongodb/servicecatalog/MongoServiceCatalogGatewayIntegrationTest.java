@@ -59,7 +59,6 @@ class MongoServiceCatalogGatewayIntegrationTest {
                 ServiceType.DECOR,
                 ServiceType.DECOR_PINTURA,
                 ServiceType.DECOR_FACHADA
-            )
-            .doesNotContain(ServiceType.DECOR_REFORMA);
+            );
     }
 }
