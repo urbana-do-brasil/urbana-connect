@@ -97,14 +97,14 @@ Os dados de serviço **não devem ser hardcoded**. Devem ser carregados de uma c
 
 ### Valores iniciais do catálogo
 
-| Tipo | Nome | Preço | Link Pagamento |
-|------|------|-------|----------------|
-| `DECOR` | Decor 🛋️ | R$400 | `https://mpago.la/1TbJFYx` |
-| `DECOR_PINTURA` | Decor Pintura 🎨 | R$250 | `https://mpago.la/32aNZUw` |
-| `DECOR_FACHADA` | Decor Fachada 🏡 | R$350 | `https://mpago.la/1Qeg34y` |
-| `DECOR_REFORMA` | Decor Reforma 🧱 | R$450 | *(confirmar link — ausente no script)* |
+| Tipo | Nome | Preço | Link Pagamento | Disponível |
+|------|------|-------|----------------|------------|
+| `DECOR` | Decor 🛋️ | R$400 | `https://mpago.la/1TbJFYx` | ✅ |
+| `DECOR_PINTURA` | Decor Pintura 🎨 | R$250 | `https://mpago.la/32aNZUw` | ✅ |
+| `DECOR_FACHADA` | Decor Fachada 🏡 | R$350 | `https://mpago.la/1Qeg34y` | ✅ |
+| `DECOR_REFORMA` | Decor Reforma 🧱 | R$450 | *(a criar)* | ❌ |
 
-> **Ponto em aberto:** o link de pagamento do Decor Reforma não consta no script original. Confirmar com Emanuel antes da implementação.
+> **Decor Reforma sem link de pagamento:** serviço recém-criado. O campo `available: false` no catálogo mantém o serviço fora do fluxo até o link ser configurado — sem impacto no desenvolvimento dos demais serviços. Quando o link estiver pronto, basta atualizar o documento no MongoDB e mudar para `available: true`.
 
 ---
 
@@ -295,7 +295,7 @@ A nova camada deve extrair de `entry[].changes[].value.messages[]`:
 
 ## 12. Dúvidas em Aberto
 
-- [ ] **Link de pagamento do Decor Reforma** — ausente no script original. Confirmar com Emanuel/Yohanna antes da implementação.
-- [ ] **Provedor de IA inicial** — Claude (Anthropic) é o candidato natural dado o ecossistema, mas confirmar modelo (Haiku para latência vs Sonnet para qualidade).
-- [ ] **Conteúdo exato da mensagem de encerramento** — o script não detalha o texto final após o link de pagamento. Sugestão: *"Perfeito! Assim que o pagamento for confirmado, daremos os próximos passos 😊"*. Validar com Yohanna.
-- [ ] **Fallback "HUMANO"** — definir se existe canal de handoff (WhatsApp pessoal, e-mail) e qual mensagem exibir.
+- [x] **Link de pagamento do Decor Reforma** — serviço recém-criado, link ainda não existe. Tratado com `available: false` no catálogo; habilitado quando o link for criado.
+- [x] **Provedor de IA inicial** — decisão adiada intencionalmente. A porta `AiGateway` está definida; o adapter começa como stub. Uma subtask dedicada fará a pesquisa de modelos (consolidados, chineses e open source) antes da integração real.
+- [x] **Mensagem de encerramento** — confirmada: *"Perfeito! Assim que o pagamento for confirmado, daremos os próximos passos 😊"*
+- [ ] **Fallback "HUMANO"** — ainda em aberto. Definir canal de handoff (WhatsApp pessoal, e-mail) e texto exato da mensagem.
