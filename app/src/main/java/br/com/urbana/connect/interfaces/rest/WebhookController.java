@@ -1,5 +1,6 @@
 package br.com.urbana.connect.interfaces.rest;
 
+import br.com.urbana.connect.application.conversation.GreetingFlowService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,6 +13,8 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.time.Instant;
+
 @RestController
 public class WebhookController {
 
@@ -19,9 +22,13 @@ public class WebhookController {
     private static final Logger log = LoggerFactory.getLogger(WebhookController.class);
 
     private final String verifyToken;
+    private final GreetingFlowService greetingFlowService;
 
-    public WebhookController(@Value("${whatsapp.webhook.verify-token:}") String verifyToken) {
+    public WebhookController(
+            @Value("${whatsapp.webhook.verify-token:}") String verifyToken,
+            GreetingFlowService greetingFlowService) {
         this.verifyToken = verifyToken;
+        this.greetingFlowService = greetingFlowService;
     }
 
     @GetMapping("/api/webhook")
@@ -49,6 +56,35 @@ public class WebhookController {
         }
 
         log.info("Webhook recebido: object={} entries={}", object, entriesCount);
+        dispatchIncomingMessages(payload, Instant.now());
         return ResponseEntity.ok().build();
+    }
+
+    private void dispatchIncomingMessages(JsonNode payload, Instant receivedAt) {
+        JsonNode entries = payload.path("entry");
+        if (!entries.isArray()) {
+            return;
+        }
+
+        for (JsonNode entry : entries) {
+            JsonNode changes = entry.path("changes");
+            if (!changes.isArray()) {
+                continue;
+            }
+
+            for (JsonNode change : changes) {
+                JsonNode messages = change.path("value").path("messages");
+                if (!messages.isArray()) {
+                    continue;
+                }
+
+                for (JsonNode message : messages) {
+                    String phoneNumber = message.path("from").asText("");
+                    if (!phoneNumber.isBlank()) {
+                        greetingFlowService.handleIncomingMessage(phoneNumber, receivedAt);
+                    }
+                }
+            }
+        }
     }
 }
