@@ -44,6 +44,9 @@ public class ConversationFlowService {
             case GREETING -> handleGreeting(conversation, inboundMessage, availableServices, receivedAt);
             case TRIAGE_GUIDED -> handleGuidedTriage(conversation, inboundMessage, availableServices, receivedAt);
             case TRIAGE_DIRECT -> handleDirectTriage(conversation, inboundMessage, availableServices, receivedAt);
+            case AWAITING_CONFIRMATION -> handleAwaitingConfirmation(conversation, inboundMessage, availableServices, receivedAt);
+            case AWAITING_TERMS -> handleAwaitingTerms(conversation, inboundMessage, receivedAt);
+            case AWAITING_PAYMENT_METHOD -> handleAwaitingPaymentMethod(conversation, inboundMessage, receivedAt);
             default -> conversation;
         };
     }
@@ -136,6 +139,92 @@ public class ConversationFlowService {
         return updated;
     }
 
+    private Conversation handleAwaitingConfirmation(
+            Conversation conversation,
+            InboundWhatsAppMessage inboundMessage,
+            List<ServiceCatalogItem> availableServices,
+            Instant receivedAt) {
+        String replyId = inboundMessage.interactiveReplyId();
+
+        if ("CONFIRM_SERVICE".equals(replyId)) {
+            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.AWAITING_TERMS, receivedAt));
+            sendSafely(
+                inboundMessage.phoneNumber(),
+                updated.currentStep(),
+                () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
+            );
+            return updated;
+        }
+
+        if ("RESELECT_SERVICE".equals(replyId)) {
+            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt));
+            sendSafely(
+                inboundMessage.phoneNumber(),
+                updated.currentStep(),
+                () -> whatsAppMessageGateway.sendDirectTriageOptions(inboundMessage.phoneNumber(), availableServices)
+            );
+            return updated;
+        }
+
+        return serviceCatalogGateway.findByType(conversation.selectedService())
+            .map(service -> {
+                sendSafely(
+                    inboundMessage.phoneNumber(),
+                    conversation.currentStep(),
+                    () -> whatsAppMessageGateway.sendServicePresentation(inboundMessage.phoneNumber(), service)
+                );
+                return conversation;
+            })
+            .orElse(conversation);
+    }
+
+    private Conversation handleAwaitingTerms(
+            Conversation conversation,
+            InboundWhatsAppMessage inboundMessage,
+            Instant receivedAt) {
+        if (containsTermsAcceptance(inboundMessage.textBody())) {
+            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.AWAITING_PAYMENT_METHOD, receivedAt));
+            sendSafely(
+                inboundMessage.phoneNumber(),
+                updated.currentStep(),
+                () -> whatsAppMessageGateway.sendPaymentMethodOptions(inboundMessage.phoneNumber())
+            );
+            return updated;
+        }
+
+        sendSafely(
+            inboundMessage.phoneNumber(),
+            conversation.currentStep(),
+            () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
+        );
+        return conversation;
+    }
+
+    private Conversation handleAwaitingPaymentMethod(
+            Conversation conversation,
+            InboundWhatsAppMessage inboundMessage,
+            Instant receivedAt) {
+        String paymentMethod = resolvePaymentMethod(inboundMessage.interactiveReplyId());
+        if (paymentMethod != null) {
+            Conversation updated = conversationGateway.save(
+                conversation.selectPaymentMethod(paymentMethod, ConversationStep.AWAITING_PAYMENT_METHOD, receivedAt)
+            );
+            sendSafely(
+                inboundMessage.phoneNumber(),
+                updated.currentStep(),
+                () -> whatsAppMessageGateway.sendPaymentMethodAcknowledgement(inboundMessage.phoneNumber(), paymentMethod)
+            );
+            return updated;
+        }
+
+        sendSafely(
+            inboundMessage.phoneNumber(),
+            conversation.currentStep(),
+            () -> whatsAppMessageGateway.sendPaymentMethodOptions(inboundMessage.phoneNumber())
+        );
+        return conversation;
+    }
+
     private Optional<ServiceCatalogItem> resolveSelectedService(List<ServiceCatalogItem> availableServices, String replyId) {
         if (replyId == null || replyId.isBlank()) {
             return Optional.empty();
@@ -162,5 +251,21 @@ public class ConversationFlowService {
                 exception.getMessage()
             );
         }
+    }
+
+    private boolean containsTermsAcceptance(String textBody) {
+        if (textBody == null || textBody.isBlank()) {
+            return false;
+        }
+
+        return textBody.toLowerCase().contains("aceito");
+    }
+
+    private String resolvePaymentMethod(String replyId) {
+        return switch (replyId) {
+            case "PAYMENT_PIX" -> "PIX";
+            case "PAYMENT_CARD" -> "CARTÃO";
+            default -> null;
+        };
     }
 }

@@ -13,4 +13,10 @@ public interface WhatsAppMessageGateway {
     void sendDirectTriageOptions(String phoneNumber, List<ServiceCatalogItem> availableServices);
 
     void sendServicePresentation(String phoneNumber, ServiceCatalogItem selectedService);
+
+    void sendTermsOfUse(String phoneNumber);
+
+    void sendPaymentMethodOptions(String phoneNumber);
+
+    void sendPaymentMethodAcknowledgement(String phoneNumber, String paymentMethod);
 }

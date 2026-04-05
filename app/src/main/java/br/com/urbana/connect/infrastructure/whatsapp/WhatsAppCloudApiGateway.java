@@ -15,6 +15,8 @@ import java.util.Map;
 public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     private static final String GREETING_TEXT = "Precisando de ajuda para encontrar o serviço perfeito?";
+    private static final String TERMS_OF_USE_LINK =
+        "https://drive.google.com/file/d/10ZFSwmVHybvuaYTYE4lW5XspLN7tZa67/view?usp=sharing";
 
     private final RestClient restClient;
     private final String phoneNumberId;
@@ -44,6 +46,45 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     @Override
     public void sendServicePresentation(String phoneNumber, ServiceCatalogItem selectedService) {
         sendPayload(buildServicePresentationPayload(phoneNumber, selectedService));
+    }
+
+    @Override
+    public void sendTermsOfUse(String phoneNumber) {
+        sendPayload(textPayload(
+            phoneNumber,
+            "Pra gente iniciar a Decor, o último check é no nosso Termo de Uso 🤝.\n\n"
+                + "Assim deixamos tudo transparente e zero dor de cabeça.\n\n"
+                + "Dá uma olhadinha nele: 👇🏾\n\n"
+                + TERMS_OF_USE_LINK
+                + "\n\nDepois da leitura, é só nos responder com a palavra \"Aceito\" e vamos lá começar os trabalhos! 🚀"
+        ));
+    }
+
+    @Override
+    public void sendPaymentMethodOptions(String phoneNumber) {
+        sendPayload(Map.of(
+            "messaging_product", "whatsapp",
+            "to", phoneNumber,
+            "type", "interactive",
+            "interactive", Map.of(
+                "type", "button",
+                "body", Map.of("text", "Você irá realizar o pagamento via PIX ou cartão de crédito?"),
+                "action", Map.of(
+                    "buttons", List.of(
+                        replyButton("PAYMENT_PIX", "PIX"),
+                        replyButton("PAYMENT_CARD", "Cartão")
+                    )
+                )
+            )
+        ));
+    }
+
+    @Override
+    public void sendPaymentMethodAcknowledgement(String phoneNumber, String paymentMethod) {
+        sendPayload(textPayload(
+            phoneNumber,
+            "Perfeito! Registramos " + paymentMethod + " como sua forma de pagamento."
+        ));
     }
 
     private void sendPayload(Map<String, Object> payload) {
@@ -125,6 +166,15 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                     )
                 )
             )
+        );
+    }
+
+    private Map<String, Object> textPayload(String phoneNumber, String body) {
+        return Map.of(
+            "messaging_product", "whatsapp",
+            "to", phoneNumber,
+            "type", "text",
+            "text", Map.of("body", body)
         );
     }
 

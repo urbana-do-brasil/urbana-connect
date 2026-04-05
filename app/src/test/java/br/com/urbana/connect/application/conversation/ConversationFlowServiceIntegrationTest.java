@@ -144,6 +144,71 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
+    void shouldMoveToAwaitingTermsWhenCustomerConfirmsService() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583333333333";
+
+        advanceToAwaitingConfirmation(phoneNumber, now);
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "CONFIRM_SERVICE"),
+            now.plusSeconds(180)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
+        verify(whatsAppMessageGateway).sendTermsOfUse(phoneNumber);
+    }
+
+    @Test
+    void shouldReturnToDirectTriageWhenCustomerRejectsSuggestedService() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583222222222";
+
+        advanceToAwaitingConfirmation(phoneNumber, now);
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "RESELECT_SERVICE"),
+            now.plusSeconds(180)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
+        verify(whatsAppMessageGateway, times(2)).sendDirectTriageOptions(eq(phoneNumber), anyList());
+    }
+
+    @Test
+    void shouldMoveToAwaitingPaymentMethodWhenTermsAreAccepted() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583111111111";
+
+        advanceToAwaitingTerms(phoneNumber, now);
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "sim aceito", ""),
+            now.plusSeconds(240)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
+        verify(whatsAppMessageGateway).sendPaymentMethodOptions(phoneNumber);
+    }
+
+    @Test
+    void shouldPersistPaymentMethodWhenCustomerChoosesPix() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583000000000";
+
+        advanceToAwaitingPaymentMethod(phoneNumber, now);
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "PAYMENT_PIX"),
+            now.plusSeconds(300)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
+        assertThat(updated.context().paymentMethod()).isEqualTo("PIX");
+        verify(whatsAppMessageGateway).sendPaymentMethodAcknowledgement(phoneNumber, "PIX");
+    }
+
+    @Test
     void shouldLogErrorAndNotThrowWhenGreetingSendFails(CapturedOutput output) {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583444444444";
@@ -165,6 +230,34 @@ class ConversationFlowServiceIntegrationTest {
         return mongoTemplate.count(
             Query.query(Criteria.where("phoneNumber").is(phoneNumber)),
             ConversationDocument.class
+        );
+    }
+
+    private void advanceToAwaitingConfirmation(String phoneNumber, Instant now) {
+        conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "NO_HELP"),
+            now.plusSeconds(60)
+        );
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "DECOR"),
+            now.plusSeconds(120)
+        );
+    }
+
+    private void advanceToAwaitingTerms(String phoneNumber, Instant now) {
+        advanceToAwaitingConfirmation(phoneNumber, now);
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "CONFIRM_SERVICE"),
+            now.plusSeconds(180)
+        );
+    }
+
+    private void advanceToAwaitingPaymentMethod(String phoneNumber, Instant now) {
+        advanceToAwaitingTerms(phoneNumber, now);
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "aceito", ""),
+            now.plusSeconds(240)
         );
     }
 }
