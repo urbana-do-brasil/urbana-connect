@@ -94,8 +94,8 @@ class WhatsAppCloudApiGatewayTest {
                           "rows": [
                             {
                               "id": "DECOR",
-                              "title": "🛋️ Quero renovar meu espaço interno sem gastar muito, nada de quebra-quebra.",
-                              "description": ""
+                              "title": "🛋️ Decor",
+                              "description": "Quero renovar meu espaço interno sem gastar muito, nada de quebra-quebra."
                             }
                           ]
                         }

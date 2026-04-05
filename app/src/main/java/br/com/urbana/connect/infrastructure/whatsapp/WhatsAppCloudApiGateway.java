@@ -80,7 +80,11 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             "Das opções abaixo, qual você se identifica mais?",
             "Ver opções",
             availableServices.stream()
-                .map(service -> listRow(service.type().name(), service.emoji() + " " + service.scenarioText(), ""))
+                .map(service -> listRow(
+                    service.type().name(),
+                    service.emoji() + " " + service.name(),
+                    service.scenarioText()
+                ))
                 .toList()
         );
     }
