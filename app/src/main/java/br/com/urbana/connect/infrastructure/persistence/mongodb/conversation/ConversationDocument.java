@@ -27,6 +27,6 @@ public class ConversationDocument {
     private Instant createdAt;
     private Instant updatedAt;
 
-    @Indexed
+    @Indexed(expireAfter = "0s")
     private Instant expiresAt;
 }

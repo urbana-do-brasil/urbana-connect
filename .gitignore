@@ -45,7 +45,7 @@ build/
 *.iws
 *.iml
 *.ipr
-out/
+/out/
 
 # Eclipse
 .apt_generated
