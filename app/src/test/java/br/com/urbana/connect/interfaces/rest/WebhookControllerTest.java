@@ -1,6 +1,7 @@
 package br.com.urbana.connect.interfaces.rest;
 
-import br.com.urbana.connect.application.conversation.GreetingFlowService;
+import br.com.urbana.connect.application.conversation.ConversationFlowService;
+import br.com.urbana.connect.application.conversation.InboundWhatsAppMessage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +32,7 @@ class WebhookControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private GreetingFlowService greetingFlowService;
+    private ConversationFlowService conversationFlowService;
 
     @Test
     void shouldAcceptWebhookPayload(CapturedOutput output) throws Exception {
@@ -63,7 +64,10 @@ class WebhookControllerTest {
                     """))
             .andExpect(status().isOk());
 
-        verify(greetingFlowService).handleIncomingMessage(eq("+5583999999999"), any());
+        verify(conversationFlowService).handleIncomingMessage(
+            eq(new InboundWhatsAppMessage("+5583999999999", "oi", "")),
+            any()
+        );
 
         org.assertj.core.api.Assertions.assertThat(output)
             .contains("Webhook recebido: object=whatsapp_business_account entries=1");

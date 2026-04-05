@@ -1,6 +1,7 @@
 package br.com.urbana.connect.interfaces.rest;
 
-import br.com.urbana.connect.application.conversation.GreetingFlowService;
+import br.com.urbana.connect.application.conversation.ConversationFlowService;
+import br.com.urbana.connect.application.conversation.InboundWhatsAppMessage;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,13 +23,13 @@ public class WebhookController {
     private static final Logger log = LoggerFactory.getLogger(WebhookController.class);
 
     private final String verifyToken;
-    private final GreetingFlowService greetingFlowService;
+    private final ConversationFlowService conversationFlowService;
 
     public WebhookController(
             @Value("${whatsapp.webhook.verify-token:}") String verifyToken,
-            GreetingFlowService greetingFlowService) {
+            ConversationFlowService conversationFlowService) {
         this.verifyToken = verifyToken;
-        this.greetingFlowService = greetingFlowService;
+        this.conversationFlowService = conversationFlowService;
     }
 
     @GetMapping("/api/webhook")
@@ -81,10 +82,27 @@ public class WebhookController {
                 for (JsonNode message : messages) {
                     String phoneNumber = message.path("from").asText("");
                     if (!phoneNumber.isBlank()) {
-                        greetingFlowService.handleIncomingMessage(phoneNumber, receivedAt);
+                        conversationFlowService.handleIncomingMessage(
+                            new InboundWhatsAppMessage(
+                                phoneNumber,
+                                message.path("text").path("body").asText(""),
+                                resolveInteractiveReplyId(message)
+                            ),
+                            receivedAt
+                        );
                     }
                 }
             }
         }
+    }
+
+    private String resolveInteractiveReplyId(JsonNode message) {
+        JsonNode interactive = message.path("interactive");
+        String buttonReplyId = interactive.path("button_reply").path("id").asText("");
+        if (!buttonReplyId.isBlank()) {
+            return buttonReplyId;
+        }
+
+        return interactive.path("list_reply").path("id").asText("");
     }
 }
