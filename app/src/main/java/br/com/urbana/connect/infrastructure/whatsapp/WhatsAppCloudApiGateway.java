@@ -1,11 +1,15 @@
 package br.com.urbana.connect.infrastructure.whatsapp;
 
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
+import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 
+import java.math.BigDecimal;
+import java.text.NumberFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
@@ -24,11 +28,30 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     @Override
     public void sendGreeting(String phoneNumber) {
+        sendPayload(buildGreetingPayload(phoneNumber));
+    }
+
+    @Override
+    public void sendGuidedTriageOptions(String phoneNumber, List<ServiceCatalogItem> availableServices) {
+        sendPayload(buildGuidedTriagePayload(phoneNumber, availableServices));
+    }
+
+    @Override
+    public void sendDirectTriageOptions(String phoneNumber, List<ServiceCatalogItem> availableServices) {
+        sendPayload(buildDirectTriagePayload(phoneNumber, availableServices));
+    }
+
+    @Override
+    public void sendServicePresentation(String phoneNumber, ServiceCatalogItem selectedService) {
+        sendPayload(buildServicePresentationPayload(phoneNumber, selectedService));
+    }
+
+    private void sendPayload(Map<String, Object> payload) {
         restClient.post()
             .uri("/v18.0/{phoneNumberId}/messages", phoneNumberId)
             .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
             .contentType(MediaType.APPLICATION_JSON)
-            .body(buildGreetingPayload(phoneNumber))
+            .body(payload)
             .retrieve()
             .toBodilessEntity();
     }
@@ -51,6 +74,84 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
         );
     }
 
+    private Map<String, Object> buildGuidedTriagePayload(String phoneNumber, List<ServiceCatalogItem> availableServices) {
+        return interactiveListPayload(
+            phoneNumber,
+            "Das opções abaixo, qual você se identifica mais?",
+            "Ver opções",
+            availableServices.stream()
+                .map(service -> listRow(service.type().name(), service.emoji() + " " + service.scenarioText(), ""))
+                .toList()
+        );
+    }
+
+    private Map<String, Object> buildDirectTriagePayload(String phoneNumber, List<ServiceCatalogItem> availableServices) {
+        return interactiveListPayload(
+            phoneNumber,
+            "Então conta pra gente, para qual opção deseja atendimento:",
+            "Ver serviços",
+            availableServices.stream()
+                .map(service -> listRow(
+                    service.type().name(),
+                    service.emoji() + " " + service.name(),
+                    formatPrice(service.price()) + " por ambiente"
+                ))
+                .toList()
+        );
+    }
+
+    private Map<String, Object> buildServicePresentationPayload(String phoneNumber, ServiceCatalogItem selectedService) {
+        String body = "Acho que encontramos o serviço certo para você! 😃\n\n"
+            + selectedService.presentationText()
+            + "\n\n"
+            + formatPrice(selectedService.price()) + " por ambiente"
+            + "\n\nEra isso que você estava buscando?";
+
+        return Map.of(
+            "messaging_product", "whatsapp",
+            "to", phoneNumber,
+            "type", "interactive",
+            "interactive", Map.of(
+                "type", "button",
+                "body", Map.of("text", body),
+                "action", Map.of(
+                    "buttons", List.of(
+                        replyButton("CONFIRM_SERVICE", "✅ Sim, acertou em cheio"),
+                        replyButton("RESELECT_SERVICE", "🚫 Não, foi quase")
+                    )
+                )
+            )
+        );
+    }
+
+    private Map<String, Object> interactiveListPayload(
+            String phoneNumber,
+            String bodyText,
+            String buttonText,
+            List<Map<String, Object>> rows) {
+        return Map.of(
+            "messaging_product", "whatsapp",
+            "to", phoneNumber,
+            "type", "interactive",
+            "interactive", Map.of(
+                "type", "list",
+                "body", Map.of("text", bodyText),
+                "action", Map.of(
+                    "button", buttonText,
+                    "sections", List.of(Map.of("rows", rows))
+                )
+            )
+        );
+    }
+
+    private Map<String, Object> listRow(String id, String title, String description) {
+        return Map.of(
+            "id", id,
+            "title", title,
+            "description", description
+        );
+    }
+
     private Map<String, Object> replyButton(String id, String title) {
         return Map.of(
             "type", "reply",
@@ -59,5 +160,10 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 "title", title
             )
         );
+    }
+
+    private String formatPrice(BigDecimal price) {
+        NumberFormat formatter = NumberFormat.getCurrencyInstance(new Locale("pt", "BR"));
+        return formatter.format(price);
     }
 }

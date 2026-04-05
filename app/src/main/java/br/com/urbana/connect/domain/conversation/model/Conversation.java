@@ -47,4 +47,32 @@ public record Conversation(
             expiresAt
         );
     }
+
+    public Conversation moveTo(ConversationStep step, Instant now) {
+        return new Conversation(
+            id,
+            phoneNumber,
+            status,
+            step,
+            selectedService,
+            context,
+            createdAt,
+            now,
+            expiresAt
+        );
+    }
+
+    public Conversation selectService(ServiceType serviceType, ConversationStep nextStep, Instant now) {
+        return new Conversation(
+            id,
+            phoneNumber,
+            status,
+            nextStep,
+            serviceType,
+            context,
+            createdAt,
+            now,
+            expiresAt
+        );
+    }
 }
