@@ -207,7 +207,7 @@ public class ConversationFlowService {
         String paymentMethod = resolvePaymentMethod(inboundMessage.interactiveReplyId());
         if (paymentMethod != null) {
             Conversation updated = conversationGateway.save(
-                conversation.selectPaymentMethod(paymentMethod, ConversationStep.PAYMENT_LINK_SENT, receivedAt)
+                conversation.selectPaymentMethod(paymentMethod, ConversationStep.AWAITING_PAYMENT_METHOD, receivedAt)
             );
             sendSafely(
                 inboundMessage.phoneNumber(),
@@ -264,7 +264,7 @@ public class ConversationFlowService {
     private String resolvePaymentMethod(String replyId) {
         return switch (replyId) {
             case "PAYMENT_PIX" -> "PIX";
-            case "PAYMENT_CARD" -> "CARTAO";
+            case "PAYMENT_CARD" -> "CARTÃO";
             default -> null;
         };
     }

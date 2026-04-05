@@ -52,11 +52,11 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     public void sendTermsOfUse(String phoneNumber) {
         sendPayload(textPayload(
             phoneNumber,
-            "Pra gente iniciar a Decor, o ultimo check e no nosso Termo de Uso 🤝.\n\n"
-                + "Assim deixamos tudo transparente e zero dor de cabeca.\n\n"
-                + "Da uma olhadinha nele: 👇🏾\n\n"
+            "Pra gente iniciar a Decor, o último check é no nosso Termo de Uso 🤝.\n\n"
+                + "Assim deixamos tudo transparente e zero dor de cabeça.\n\n"
+                + "Dá uma olhadinha nele: 👇🏾\n\n"
                 + TERMS_OF_USE_LINK
-                + "\n\nDepois da leitura, e so nos responder com a palavra \"Aceito\" e vamos la comecar os trabalhos! 🚀"
+                + "\n\nDepois da leitura, é só nos responder com a palavra \"Aceito\" e vamos lá começar os trabalhos! 🚀"
         ));
     }
 
@@ -68,11 +68,11 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             "type", "interactive",
             "interactive", Map.of(
                 "type", "button",
-                "body", Map.of("text", "Voce ira realizar o pagamento via PIX ou cartao de credito?"),
+                "body", Map.of("text", "Você irá realizar o pagamento via PIX ou cartão de crédito?"),
                 "action", Map.of(
                     "buttons", List.of(
                         replyButton("PAYMENT_PIX", "PIX"),
-                        replyButton("PAYMENT_CARD", "Cartao")
+                        replyButton("PAYMENT_CARD", "Cartão")
                     )
                 )
             )

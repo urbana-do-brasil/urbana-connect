@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClient;
 import java.math.BigDecimal;
 import java.util.List;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -169,13 +170,10 @@ class WhatsAppCloudApiGatewayTest {
             .andExpect(method(HttpMethod.POST))
             .andExpect(header("Authorization", "Bearer access-token"))
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(content().json("""
-                {
-                  "messaging_product": "whatsapp",
-                  "to": "+5583999999999",
-                  "type": "text"
-                }
-                """, false))
+            .andExpect(content().string(containsString("\"type\":\"text\"")))
+            .andExpect(content().string(containsString("o último check é no nosso Termo de Uso")))
+            .andExpect(content().string(containsString("Dá uma olhadinha nele")))
+            .andExpect(content().string(containsString("é só nos responder com a palavra \\\"Aceito\\\"")))
             .andRespond(withSuccess());
 
         gateway.sendTermsOfUse("+5583999999999");
@@ -201,7 +199,7 @@ class WhatsAppCloudApiGatewayTest {
                   "interactive": {
                     "type": "button",
                     "body": {
-                      "text": "Voce ira realizar o pagamento via PIX ou cartao de credito?"
+                      "text": "Você irá realizar o pagamento via PIX ou cartão de crédito?"
                     },
                     "action": {
                       "buttons": [
@@ -216,7 +214,7 @@ class WhatsAppCloudApiGatewayTest {
                           "type": "reply",
                           "reply": {
                             "id": "PAYMENT_CARD",
-                            "title": "Cartao"
+                            "title": "Cartão"
                           }
                         }
                       ]
