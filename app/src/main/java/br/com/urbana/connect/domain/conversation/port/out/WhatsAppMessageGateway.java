@@ -18,5 +18,7 @@ public interface WhatsAppMessageGateway {
 
     void sendPaymentMethodOptions(String phoneNumber);
 
-    void sendPaymentMethodAcknowledgement(String phoneNumber, String paymentMethod);
+    void sendPaymentLink(String phoneNumber, ServiceCatalogItem selectedService);
+
+    void sendClosingMessage(String phoneNumber);
 }

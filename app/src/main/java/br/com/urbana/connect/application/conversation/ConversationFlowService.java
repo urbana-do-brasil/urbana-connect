@@ -206,13 +206,19 @@ public class ConversationFlowService {
             Instant receivedAt) {
         String paymentMethod = resolvePaymentMethod(inboundMessage.interactiveReplyId());
         if (paymentMethod != null) {
+            Optional<ServiceCatalogItem> selectedService = serviceCatalogGateway.findByType(conversation.selectedService());
             Conversation updated = conversationGateway.save(
-                conversation.selectPaymentMethod(paymentMethod, ConversationStep.AWAITING_PAYMENT_METHOD, receivedAt)
+                conversation.selectPaymentMethod(paymentMethod, ConversationStep.PAYMENT_LINK_SENT, receivedAt)
             );
+            selectedService.ifPresent(service -> sendSafely(
+                inboundMessage.phoneNumber(),
+                updated.currentStep(),
+                () -> whatsAppMessageGateway.sendPaymentLink(inboundMessage.phoneNumber(), service)
+            ));
             sendSafely(
                 inboundMessage.phoneNumber(),
                 updated.currentStep(),
-                () -> whatsAppMessageGateway.sendPaymentMethodAcknowledgement(inboundMessage.phoneNumber(), paymentMethod)
+                () -> whatsAppMessageGateway.sendClosingMessage(inboundMessage.phoneNumber())
             );
             return updated;
         }

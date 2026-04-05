@@ -228,6 +228,45 @@ class WhatsAppCloudApiGatewayTest {
 
         server.verify();
     }
+
+    @Test
+    void shouldSendPaymentLinkMessage() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(builder.build(), "phone-number-id", "access-token");
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(header("Authorization", "Bearer access-token"))
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().string(containsString("\"type\":\"text\"")))
+            .andExpect(content().string(containsString("Para efetuar o pagamento para a")))
+            .andExpect(content().string(containsString("Decor")))
+            .andExpect(content().string(containsString("https://mpago.la/1TbJFYx")))
+            .andRespond(withSuccess());
+
+        gateway.sendPaymentLink("+5583999999999", decor());
+
+        server.verify();
+    }
+
+    @Test
+    void shouldSendClosingMessage() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(builder.build(), "phone-number-id", "access-token");
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(header("Authorization", "Bearer access-token"))
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().string(containsString("Assim que o pagamento for confirmado")))
+            .andRespond(withSuccess());
+
+        gateway.sendClosingMessage("+5583999999999");
+
+        server.verify();
+    }
     private ServiceCatalogItem decor() {
         return new ServiceCatalogItem(
             ServiceType.DECOR,

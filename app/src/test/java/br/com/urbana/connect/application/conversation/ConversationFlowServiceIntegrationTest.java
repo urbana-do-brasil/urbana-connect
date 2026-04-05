@@ -203,9 +203,13 @@ class ConversationFlowServiceIntegrationTest {
             now.plusSeconds(300)
         );
 
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.PAYMENT_LINK_SENT);
         assertThat(updated.context().paymentMethod()).isEqualTo("PIX");
-        verify(whatsAppMessageGateway).sendPaymentMethodAcknowledgement(phoneNumber, "PIX");
+        verify(whatsAppMessageGateway).sendPaymentLink(
+            eq(phoneNumber),
+            argThat(service -> service.type() == br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR)
+        );
+        verify(whatsAppMessageGateway).sendClosingMessage(phoneNumber);
     }
 
     @Test
