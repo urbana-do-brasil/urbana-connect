@@ -32,7 +32,7 @@ class WhatsAppCloudApiGatewayTest {
                   "interactive": {
                     "type": "button",
                     "body": {
-                      "text": "Precisando de ajuda para encontrar o servico perfeito?"
+                      "text": "Precisando de ajuda para encontrar o serviço perfeito?"
                     },
                     "action": {
                       "buttons": [
@@ -40,14 +40,14 @@ class WhatsAppCloudApiGatewayTest {
                           "type": "reply",
                           "reply": {
                             "id": "YES_HELP",
-                            "title": "Sim, estou precisando"
+                            "title": "✅ Sim, estou precisando"
                           }
                         },
                         {
                           "type": "reply",
                           "reply": {
                             "id": "NO_HELP",
-                            "title": "Nao, ja sei o que quero"
+                            "title": "🚫 Não, já sei o que quero"
                           }
                         }
                       ]

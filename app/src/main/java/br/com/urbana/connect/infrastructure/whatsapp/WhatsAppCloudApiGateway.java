@@ -10,7 +10,7 @@ import java.util.Map;
 
 public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
-    private static final String GREETING_TEXT = "Precisando de ajuda para encontrar o servico perfeito?";
+    private static final String GREETING_TEXT = "Precisando de ajuda para encontrar o serviço perfeito?";
 
     private final RestClient restClient;
     private final String phoneNumberId;
@@ -43,8 +43,8 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 "body", Map.of("text", GREETING_TEXT),
                 "action", Map.of(
                     "buttons", List.of(
-                        replyButton("YES_HELP", "Sim, estou precisando"),
-                        replyButton("NO_HELP", "Nao, ja sei o que quero")
+                        replyButton("YES_HELP", "✅ Sim, estou precisando"),
+                        replyButton("NO_HELP", "🚫 Não, já sei o que quero")
                     )
                 )
             )
