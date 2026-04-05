@@ -158,6 +158,78 @@ class WhatsAppCloudApiGatewayTest {
 
         server.verify();
     }
+
+    @Test
+    void shouldSendTermsOfUseTextMessage() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(builder.build(), "phone-number-id", "access-token");
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(header("Authorization", "Bearer access-token"))
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().json("""
+                {
+                  "messaging_product": "whatsapp",
+                  "to": "+5583999999999",
+                  "type": "text"
+                }
+                """, false))
+            .andRespond(withSuccess());
+
+        gateway.sendTermsOfUse("+5583999999999");
+
+        server.verify();
+    }
+
+    @Test
+    void shouldSendPaymentMethodButtons() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(builder.build(), "phone-number-id", "access-token");
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(header("Authorization", "Bearer access-token"))
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().json("""
+                {
+                  "messaging_product": "whatsapp",
+                  "to": "+5583999999999",
+                  "type": "interactive",
+                  "interactive": {
+                    "type": "button",
+                    "body": {
+                      "text": "Voce ira realizar o pagamento via PIX ou cartao de credito?"
+                    },
+                    "action": {
+                      "buttons": [
+                        {
+                          "type": "reply",
+                          "reply": {
+                            "id": "PAYMENT_PIX",
+                            "title": "PIX"
+                          }
+                        },
+                        {
+                          "type": "reply",
+                          "reply": {
+                            "id": "PAYMENT_CARD",
+                            "title": "Cartao"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+                """))
+            .andRespond(withSuccess());
+
+        gateway.sendPaymentMethodOptions("+5583999999999");
+
+        server.verify();
+    }
     private ServiceCatalogItem decor() {
         return new ServiceCatalogItem(
             ServiceType.DECOR,

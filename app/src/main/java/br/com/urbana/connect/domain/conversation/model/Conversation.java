@@ -75,4 +75,18 @@ public record Conversation(
             expiresAt
         );
     }
+
+    public Conversation selectPaymentMethod(String paymentMethod, ConversationStep nextStep, Instant now) {
+        return new Conversation(
+            id,
+            phoneNumber,
+            status,
+            nextStep,
+            selectedService,
+            context.withPaymentMethod(paymentMethod),
+            createdAt,
+            now,
+            expiresAt
+        );
+    }
 }

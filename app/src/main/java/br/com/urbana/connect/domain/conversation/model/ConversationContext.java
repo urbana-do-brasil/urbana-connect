@@ -5,4 +5,8 @@ public record ConversationContext(String paymentMethod) {
     public static ConversationContext empty() {
         return new ConversationContext(null);
     }
+
+    public ConversationContext withPaymentMethod(String paymentMethod) {
+        return new ConversationContext(paymentMethod);
+    }
 }
