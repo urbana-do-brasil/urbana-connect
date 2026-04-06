@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -428,7 +429,7 @@ public class ConversationFlowService {
             return false;
         }
 
-        String normalized = textBody.toLowerCase();
+        String normalized = textBody.toLowerCase(Locale.ROOT);
         return HUMAN_HANDOFF_PATTERN.matcher(normalized).find();
     }
 

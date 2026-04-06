@@ -34,12 +34,12 @@ public class SmtpHumanHandoffGateway implements HumanHandoffGateway {
         message.setText("""
             Um cliente solicitou atendimento humano na Urba.
 
-            Numero do cliente: %s
+            Número do cliente: %s
             Etapa atual: %s
-            Servico selecionado: %s
+            Serviço selecionado: %s
             Forma de pagamento: %s
-            Horario do evento: %s
-            Ultima mensagem recebida: %s
+            Horário do evento: %s
+            Última mensagem recebida: %s
             """.formatted(
             request.phoneNumber(),
             request.currentStep(),
