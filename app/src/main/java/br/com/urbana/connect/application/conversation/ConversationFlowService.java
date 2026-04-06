@@ -454,16 +454,14 @@ public class ConversationFlowService {
 
     private Conversation saveTransition(Conversation previous, Conversation next, String phoneNumber, String reason) {
         Conversation saved = conversationGateway.save(next);
-        if (previous.currentStep() != saved.currentStep()) {
-            if (log.isInfoEnabled()) {
-                log.info(
-                    "Transição de conversa: phoneNumber={} from={} to={} reason={}",
-                    maskPhoneNumber(phoneNumber),
-                    previous.currentStep(),
-                    saved.currentStep(),
-                    reason
-                );
-            }
+        if (previous.currentStep() != saved.currentStep() && log.isInfoEnabled()) {
+            log.info(
+                "Transição de conversa: phoneNumber={} from={} to={} reason={}",
+                maskPhoneNumber(phoneNumber),
+                previous.currentStep(),
+                saved.currentStep(),
+                reason
+            );
         }
         return saved;
     }
