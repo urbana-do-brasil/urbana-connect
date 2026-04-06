@@ -3,6 +3,7 @@ package br.com.urbana.connect.application.conversation;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.conversation.ConversationDocument;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog.ServiceCatalogDocument;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -210,6 +211,35 @@ class ConversationFlowServiceIntegrationTest {
             argThat(service -> service.type() == br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR)
         );
         verify(whatsAppMessageGateway).sendClosingMessage(phoneNumber);
+    }
+
+    @Test
+    void shouldLogErrorAndReturnToDirectTriageWhenServiceIsMissingForPayment(CapturedOutput output) {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583991111111";
+
+        advanceToAwaitingPaymentMethod(phoneNumber, now);
+        var removedService = mongoTemplate.findAndRemove(
+            Query.query(Criteria.where("type").is(br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR)),
+            ServiceCatalogDocument.class
+        );
+
+        try {
+            var updated = conversationFlowService.handleIncomingMessage(
+                new InboundWhatsAppMessage(phoneNumber, "", "PAYMENT_PIX"),
+                now.plusSeconds(300)
+            );
+
+            assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
+            verify(whatsAppMessageGateway, times(2)).sendDirectTriageOptions(eq(phoneNumber), anyList());
+            verify(whatsAppMessageGateway, times(0)).sendClosingMessage(phoneNumber);
+            assertThat(output)
+                .contains("Servico DECOR nao encontrado para enviar link de pagamento para +5583991111111");
+        } finally {
+            if (removedService != null) {
+                mongoTemplate.save(removedService);
+            }
+        }
     }
 
     @Test

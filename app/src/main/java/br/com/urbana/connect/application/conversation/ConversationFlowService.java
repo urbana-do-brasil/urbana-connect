@@ -46,7 +46,7 @@ public class ConversationFlowService {
             case TRIAGE_DIRECT -> handleDirectTriage(conversation, inboundMessage, availableServices, receivedAt);
             case AWAITING_CONFIRMATION -> handleAwaitingConfirmation(conversation, inboundMessage, availableServices, receivedAt);
             case AWAITING_TERMS -> handleAwaitingTerms(conversation, inboundMessage, receivedAt);
-            case AWAITING_PAYMENT_METHOD -> handleAwaitingPaymentMethod(conversation, inboundMessage, receivedAt);
+            case AWAITING_PAYMENT_METHOD -> handleAwaitingPaymentMethod(conversation, inboundMessage, availableServices, receivedAt);
             default -> conversation;
         };
     }
@@ -203,22 +203,38 @@ public class ConversationFlowService {
     private Conversation handleAwaitingPaymentMethod(
             Conversation conversation,
             InboundWhatsAppMessage inboundMessage,
+            List<ServiceCatalogItem> availableServices,
             Instant receivedAt) {
         String paymentMethod = resolvePaymentMethod(inboundMessage.interactiveReplyId());
         if (paymentMethod != null) {
             Optional<ServiceCatalogItem> selectedService = serviceCatalogGateway.findByType(conversation.selectedService());
-            Conversation updated = conversationGateway.save(
-                conversation.selectPaymentMethod(paymentMethod, ConversationStep.PAYMENT_LINK_SENT, receivedAt)
+            if (selectedService.isPresent()) {
+                Conversation updated = conversationGateway.save(
+                    conversation.selectPaymentMethod(paymentMethod, ConversationStep.PAYMENT_LINK_SENT, receivedAt)
+                );
+                sendSafely(
+                    inboundMessage.phoneNumber(),
+                    updated.currentStep(),
+                    () -> whatsAppMessageGateway.sendPaymentLink(inboundMessage.phoneNumber(), selectedService.get())
+                );
+                sendSafely(
+                    inboundMessage.phoneNumber(),
+                    updated.currentStep(),
+                    () -> whatsAppMessageGateway.sendClosingMessage(inboundMessage.phoneNumber())
+                );
+                return updated;
+            }
+
+            log.error(
+                "Servico {} nao encontrado para enviar link de pagamento para {}",
+                conversation.selectedService(),
+                inboundMessage.phoneNumber()
             );
-            selectedService.ifPresent(service -> sendSafely(
-                inboundMessage.phoneNumber(),
-                updated.currentStep(),
-                () -> whatsAppMessageGateway.sendPaymentLink(inboundMessage.phoneNumber(), service)
-            ));
+            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt));
             sendSafely(
                 inboundMessage.phoneNumber(),
                 updated.currentStep(),
-                () -> whatsAppMessageGateway.sendClosingMessage(inboundMessage.phoneNumber())
+                () -> whatsAppMessageGateway.sendDirectTriageOptions(inboundMessage.phoneNumber(), availableServices)
             );
             return updated;
         }
