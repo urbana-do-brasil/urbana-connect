@@ -80,10 +80,21 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     }
 
     @Override
-    public void sendPaymentMethodAcknowledgement(String phoneNumber, String paymentMethod) {
+    public void sendPaymentLink(String phoneNumber, ServiceCatalogItem selectedService) {
         sendPayload(textPayload(
             phoneNumber,
-            "Perfeito! Registramos " + paymentMethod + " como sua forma de pagamento."
+            "Vamos lá então!\n\nPara efetuar o pagamento para a *"
+                + selectedService.name() + "* " + selectedService.emoji()
+                + "\nClique no link abaixo 👇🏾\n"
+                + selectedService.paymentLink()
+        ));
+    }
+
+    @Override
+    public void sendClosingMessage(String phoneNumber) {
+        sendPayload(textPayload(
+            phoneNumber,
+            "Perfeito! Assim que o pagamento for confirmado, daremos os próximos passos 😊"
         ));
     }
 
