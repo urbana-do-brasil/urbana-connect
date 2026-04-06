@@ -3,14 +3,18 @@ package br.com.urbana.connect.infrastructure.whatsapp;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
@@ -19,6 +23,24 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class WhatsAppCloudApiGatewayTest {
+
+    @ExtendWith(OutputCaptureExtension.class)
+    @Test
+    void shouldLogSendFailureWithMessageTypeAndDestination(CapturedOutput output) {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(builder.build(), "phone-number-id", "access-token");
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withServerError());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> gateway.sendGreeting("+5583999999999"))
+            .isInstanceOf(org.springframework.web.client.RestClientException.class);
+
+        assertThat(output.getOut()).contains("Falha ao enviar mensagem WhatsApp: type=GREETING destination=+5583***9999");
+        server.verify();
+    }
 
     @Test
     void shouldSendGreetingButtonsToWhatsAppCloudApi() {

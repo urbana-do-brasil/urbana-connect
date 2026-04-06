@@ -104,6 +104,21 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
+    void shouldLogIncomingMessageAndTransitionWhenMovingFromGreetingToGuidedTriage(CapturedOutput output) {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583881212121";
+
+        conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "YES_HELP"),
+            now.plusSeconds(60)
+        );
+
+        assertThat(output.getOut()).contains("Mensagem recebida: phoneNumber=+5583***2121 type=interactive currentStep=GREETING");
+        assertThat(output.getOut()).contains("Transição de conversa: phoneNumber=+5583***2121 from=GREETING to=TRIAGE_GUIDED reason=greeting_yes_help");
+    }
+
+    @Test
     void shouldMoveGreetingToGuidedTriageWhenAiInterpretsAffirmation() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583880000000";
@@ -351,7 +366,7 @@ class ConversationFlowServiceIntegrationTest {
             verify(whatsAppMessageGateway, times(2)).sendDirectTriageOptions(eq(phoneNumber), anyList());
             verify(whatsAppMessageGateway, times(0)).sendClosingMessage(phoneNumber);
             assertThat(output)
-                .contains("Servico DECOR nao encontrado para enviar link de pagamento para +5583991111111");
+                    .contains("Servico DECOR nao encontrado para enviar link de pagamento para +5583***1111");
         } finally {
             if (removedService != null) {
                 mongoTemplate.save(removedService);
@@ -374,7 +389,7 @@ class ConversationFlowServiceIntegrationTest {
         )).doesNotThrowAnyException();
 
         assertThat(output)
-            .contains("Falha ao enviar mensagem para +5583444444444 na etapa GREETING: token invalido");
+            .contains("Falha ao enviar mensagem para +5583***4444 na etapa GREETING: token invalido");
     }
 
     private long countByPhoneNumber(String phoneNumber) {
