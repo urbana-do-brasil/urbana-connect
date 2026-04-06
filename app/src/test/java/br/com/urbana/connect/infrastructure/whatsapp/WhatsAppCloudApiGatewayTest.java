@@ -38,7 +38,7 @@ class WhatsAppCloudApiGatewayTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> gateway.sendGreeting("+5583999999999"))
             .isInstanceOf(org.springframework.web.client.RestClientException.class);
 
-        assertThat(output.getOut()).contains("Falha ao enviar mensagem WhatsApp: type=GREETING destination=+5583999999999");
+        assertThat(output.getOut()).contains("Falha ao enviar mensagem WhatsApp: type=GREETING destination=+5583***9999");
         server.verify();
     }
 

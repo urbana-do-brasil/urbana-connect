@@ -111,7 +111,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     }
 
     private void sendPayload(Map<String, Object> payload, String phoneNumber, String messageType) {
-        log.info("Enviando mensagem WhatsApp: type={} destination={}", messageType, phoneNumber);
+        log.info("Enviando mensagem WhatsApp: type={} destination={}", messageType, maskPhoneNumber(phoneNumber));
         try {
             restClient.post()
                 .uri("/v18.0/{phoneNumberId}/messages", phoneNumberId)
@@ -124,11 +124,23 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             log.error(
                 "Falha ao enviar mensagem WhatsApp: type={} destination={} error={}",
                 messageType,
-                phoneNumber,
+                maskPhoneNumber(phoneNumber),
                 exception.getMessage()
             );
             throw exception;
         }
+    }
+
+    private String maskPhoneNumber(String phoneNumber) {
+        if (phoneNumber == null || phoneNumber.isBlank()) {
+            return "***";
+        }
+        if (phoneNumber.length() <= 7) {
+            return "***";
+        }
+
+        int prefixLength = Math.min(5, phoneNumber.length() - 4);
+        return phoneNumber.substring(0, prefixLength) + "***" + phoneNumber.substring(phoneNumber.length() - 4);
     }
 
     private Map<String, Object> buildGreetingPayload(String phoneNumber) {

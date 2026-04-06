@@ -60,7 +60,7 @@ public class ConversationFlowService {
 
         log.info(
             "Mensagem recebida: phoneNumber={} type={} currentStep={}",
-            inboundMessage.phoneNumber(),
+            maskPhoneNumber(inboundMessage.phoneNumber()),
             resolveMessageType(inboundMessage),
             conversation.currentStep()
         );
@@ -382,7 +382,7 @@ public class ConversationFlowService {
             log.error(
                 "Servico {} nao encontrado para enviar link de pagamento para {}",
                 conversation.selectedService(),
-                inboundMessage.phoneNumber()
+                maskPhoneNumber(inboundMessage.phoneNumber())
             );
             Conversation updated = saveTransition(
                 conversation,
@@ -441,7 +441,7 @@ public class ConversationFlowService {
         } catch (RuntimeException exception) {
             log.error(
                 "Falha ao enviar mensagem para {} na etapa {}: {}",
-                phoneNumber,
+                maskPhoneNumber(phoneNumber),
                 step,
                 exception.getMessage()
             );
@@ -452,8 +452,8 @@ public class ConversationFlowService {
         Conversation saved = conversationGateway.save(next);
         if (previous.currentStep() != saved.currentStep()) {
             log.info(
-                "Transicao de conversa: phoneNumber={} from={} to={} reason={}",
-                phoneNumber,
+                "Transição de conversa: phoneNumber={} from={} to={} reason={}",
+                maskPhoneNumber(phoneNumber),
                 previous.currentStep(),
                 saved.currentStep(),
                 reason
@@ -465,7 +465,7 @@ public class ConversationFlowService {
     private void handleHumanHandoff(Conversation conversation, InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
         log.info(
             "Solicitacao de handoff humano recebida para {} na etapa {}",
-            inboundMessage.phoneNumber(),
+            maskPhoneNumber(inboundMessage.phoneNumber()),
             conversation.currentStep()
         );
         sendSafely(
@@ -486,7 +486,7 @@ public class ConversationFlowService {
         } catch (RuntimeException exception) {
             log.error(
                 "Falha ao notificar handoff humano para {} na etapa {}: {}",
-                inboundMessage.phoneNumber(),
+                maskPhoneNumber(inboundMessage.phoneNumber()),
                 conversation.currentStep(),
                 exception.getMessage()
             );
@@ -541,6 +541,18 @@ public class ConversationFlowService {
             return "interactive";
         }
         return "unknown";
+    }
+
+    private String maskPhoneNumber(String phoneNumber) {
+        if (phoneNumber == null || phoneNumber.isBlank()) {
+            return "***";
+        }
+        if (phoneNumber.length() <= 7) {
+            return "***";
+        }
+
+        int prefixLength = Math.min(5, phoneNumber.length() - 4);
+        return phoneNumber.substring(0, prefixLength) + "***" + phoneNumber.substring(phoneNumber.length() - 4);
     }
 
     private AiInterpretation interpret(

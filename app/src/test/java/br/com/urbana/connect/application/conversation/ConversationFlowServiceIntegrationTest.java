@@ -114,8 +114,8 @@ class ConversationFlowServiceIntegrationTest {
             now.plusSeconds(60)
         );
 
-        assertThat(output.getOut()).contains("Mensagem recebida: phoneNumber=" + phoneNumber + " type=interactive currentStep=GREETING");
-        assertThat(output.getOut()).contains("Transicao de conversa: phoneNumber=" + phoneNumber + " from=GREETING to=TRIAGE_GUIDED reason=greeting_yes_help");
+        assertThat(output.getOut()).contains("Mensagem recebida: phoneNumber=+5583***2121 type=interactive currentStep=GREETING");
+        assertThat(output.getOut()).contains("Transição de conversa: phoneNumber=+5583***2121 from=GREETING to=TRIAGE_GUIDED reason=greeting_yes_help");
     }
 
     @Test
@@ -366,7 +366,7 @@ class ConversationFlowServiceIntegrationTest {
             verify(whatsAppMessageGateway, times(2)).sendDirectTriageOptions(eq(phoneNumber), anyList());
             verify(whatsAppMessageGateway, times(0)).sendClosingMessage(phoneNumber);
             assertThat(output)
-                .contains("Servico DECOR nao encontrado para enviar link de pagamento para +5583991111111");
+                    .contains("Servico DECOR nao encontrado para enviar link de pagamento para +5583***1111");
         } finally {
             if (removedService != null) {
                 mongoTemplate.save(removedService);
@@ -389,7 +389,7 @@ class ConversationFlowServiceIntegrationTest {
         )).doesNotThrowAnyException();
 
         assertThat(output)
-            .contains("Falha ao enviar mensagem para +5583444444444 na etapa GREETING: token invalido");
+            .contains("Falha ao enviar mensagem para +5583***4444 na etapa GREETING: token invalido");
     }
 
     private long countByPhoneNumber(String phoneNumber) {
