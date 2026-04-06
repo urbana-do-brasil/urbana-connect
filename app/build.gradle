@@ -89,10 +89,7 @@ jacocoTestReport {
         classDirectories.setFrom(files(classDirectories.files.collect {
             fileTree(dir: it, exclude: [
                 "**/*Application.class",
-                "**/config/**",
-                "**/model/**",
-                "**/dto/**",
-                "**/exception/**"
+                "**/config/**"
             ])
         }))
     }
@@ -113,10 +110,7 @@ jacocoTestCoverageVerification {
         classDirectories.setFrom(files(classDirectories.files.collect {
             fileTree(dir: it, exclude: [
                 "**/*Application.class",
-                "**/config/**",
-                "**/model/**",
-                "**/dto/**",
-                "**/exception/**"
+                "**/config/**"
             ])
         }))
     }
