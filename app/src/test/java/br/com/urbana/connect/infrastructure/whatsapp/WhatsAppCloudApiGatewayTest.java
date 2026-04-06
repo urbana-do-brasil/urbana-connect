@@ -267,6 +267,24 @@ class WhatsAppCloudApiGatewayTest {
 
         server.verify();
     }
+
+    @Test
+    void shouldSendHumanHandoffAcknowledgement() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(builder.build(), "phone-number-id", "access-token");
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(header("Authorization", "Bearer access-token"))
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().string(containsString("Iremos repassar sua dúvida para nossa equipe")))
+            .andRespond(withSuccess());
+
+        gateway.sendHumanHandoffAcknowledgement("+5583999999999");
+
+        server.verify();
+    }
     private ServiceCatalogItem decor() {
         return new ServiceCatalogItem(
             ServiceType.DECOR,

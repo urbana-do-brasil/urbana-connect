@@ -6,6 +6,7 @@ import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
+import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
@@ -47,6 +48,9 @@ class ConversationFlowServiceTest {
 
     @Mock
     private AiGateway aiGateway;
+
+    @Mock
+    private HumanHandoffGateway humanHandoffGateway;
 
     @InjectMocks
     private ConversationFlowService conversationFlowService;
@@ -152,6 +156,25 @@ class ConversationFlowServiceTest {
         assertThat(updated.context().paymentMethod()).isEqualTo("PIX");
         verify(whatsAppMessageGateway).sendPaymentLink(eq(phoneNumber), any(ServiceCatalogItem.class));
         verify(whatsAppMessageGateway).sendClosingMessage(phoneNumber);
+    }
+
+    @Test
+    void shouldKeepCurrentStepAndNotifyHumanWhenCustomerRequestsHumanHandoff() {
+        Instant now = Instant.parse("2026-04-06T10:25:00Z");
+        String phoneNumber = "+5583444444444";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(240))
+            .moveTo(ConversationStep.TRIAGE_DIRECT, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "quero falar com alguém", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
+        verify(whatsAppMessageGateway).sendHumanHandoffAcknowledgement(phoneNumber);
+        verify(humanHandoffGateway).notifyTeam(any());
     }
 
     private ServiceCatalogItem decor() {

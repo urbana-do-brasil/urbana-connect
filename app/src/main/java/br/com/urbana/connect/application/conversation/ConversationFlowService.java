@@ -4,10 +4,12 @@ import br.com.urbana.connect.domain.conversation.model.AiContext;
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.Conversation;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
+import br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.model.ServiceSummary;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
+import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
@@ -19,34 +21,46 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 @Service
 public class ConversationFlowService {
 
     private static final Logger log = LoggerFactory.getLogger(ConversationFlowService.class);
+    private static final Pattern HUMAN_HANDOFF_PATTERN = Pattern.compile(
+        "(\\bhumano\\b|falar com algu[eé]m|atendimento humano|atendente|pessoa real)"
+    );
 
     private final ConversationLifecycleService conversationLifecycleService;
     private final ConversationGateway conversationGateway;
     private final ServiceCatalogGateway serviceCatalogGateway;
     private final WhatsAppMessageGateway whatsAppMessageGateway;
     private final AiGateway aiGateway;
+    private final HumanHandoffGateway humanHandoffGateway;
 
     public ConversationFlowService(
             ConversationLifecycleService conversationLifecycleService,
             ConversationGateway conversationGateway,
             ServiceCatalogGateway serviceCatalogGateway,
             WhatsAppMessageGateway whatsAppMessageGateway,
-            AiGateway aiGateway) {
+            AiGateway aiGateway,
+            HumanHandoffGateway humanHandoffGateway) {
         this.conversationLifecycleService = conversationLifecycleService;
         this.conversationGateway = conversationGateway;
         this.serviceCatalogGateway = serviceCatalogGateway;
         this.whatsAppMessageGateway = whatsAppMessageGateway;
         this.aiGateway = aiGateway;
+        this.humanHandoffGateway = humanHandoffGateway;
     }
 
     public Conversation handleIncomingMessage(InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
         Conversation conversation = conversationLifecycleService.resumeOrStart(inboundMessage.phoneNumber(), receivedAt);
         List<ServiceCatalogItem> availableServices = serviceCatalogGateway.findAvailable();
+
+        if (isHumanHandoffRequested(inboundMessage.textBody())) {
+            handleHumanHandoff(conversation, inboundMessage, receivedAt);
+            return conversation;
+        }
 
         return switch (conversation.currentStep()) {
             case GREETING -> handleGreeting(conversation, inboundMessage, availableServices, receivedAt);
@@ -370,12 +384,52 @@ public class ConversationFlowService {
         }
     }
 
+    private void handleHumanHandoff(Conversation conversation, InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
+        log.info(
+            "Solicitacao de handoff humano recebida para {} na etapa {}",
+            inboundMessage.phoneNumber(),
+            conversation.currentStep()
+        );
+        sendSafely(
+            inboundMessage.phoneNumber(),
+            conversation.currentStep(),
+            () -> whatsAppMessageGateway.sendHumanHandoffAcknowledgement(inboundMessage.phoneNumber())
+        );
+
+        try {
+            humanHandoffGateway.notifyTeam(new HumanHandoffRequest(
+                inboundMessage.phoneNumber(),
+                conversation.currentStep(),
+                conversation.selectedService(),
+                conversation.context().paymentMethod(),
+                inboundMessage.textBody(),
+                receivedAt
+            ));
+        } catch (RuntimeException exception) {
+            log.error(
+                "Falha ao notificar handoff humano para {} na etapa {}: {}",
+                inboundMessage.phoneNumber(),
+                conversation.currentStep(),
+                exception.getMessage()
+            );
+        }
+    }
+
     private boolean containsTermsAcceptance(String textBody) {
         if (textBody == null || textBody.isBlank()) {
             return false;
         }
 
         return textBody.toLowerCase().contains("aceito");
+    }
+
+    private boolean isHumanHandoffRequested(String textBody) {
+        if (textBody == null || textBody.isBlank()) {
+            return false;
+        }
+
+        String normalized = textBody.toLowerCase();
+        return HUMAN_HANDOFF_PATTERN.matcher(normalized).find();
     }
 
     private String resolvePaymentMethod(String replyId) {
