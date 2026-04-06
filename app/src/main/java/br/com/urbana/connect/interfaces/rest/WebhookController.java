@@ -20,6 +20,10 @@ import java.time.Instant;
 public class WebhookController {
 
     private static final String WHATSAPP_BUSINESS_ACCOUNT = "whatsapp_business_account";
+    private static final String ENTRY_FIELD = "entry";
+    private static final String CHANGES_FIELD = "changes";
+    private static final String VALUE_FIELD = "value";
+    private static final String MESSAGES_FIELD = "messages";
     private static final Logger log = LoggerFactory.getLogger(WebhookController.class);
 
     private final String verifyToken;
@@ -49,7 +53,7 @@ public class WebhookController {
     @PostMapping("/api/webhook")
     public ResponseEntity<Void> receive(@RequestBody JsonNode payload) {
         String object = payload.path("object").asText();
-        int entriesCount = payload.path("entry").isArray() ? payload.path("entry").size() : 0;
+        int entriesCount = payload.path(ENTRY_FIELD).isArray() ? payload.path(ENTRY_FIELD).size() : 0;
 
         if (!WHATSAPP_BUSINESS_ACCOUNT.equals(object)) {
             log.warn("Webhook rejeitado: object={} entries={}", object, entriesCount);
@@ -62,38 +66,52 @@ public class WebhookController {
     }
 
     private void dispatchIncomingMessages(JsonNode payload, Instant receivedAt) {
-        JsonNode entries = payload.path("entry");
+        JsonNode entries = payload.path(ENTRY_FIELD);
         if (!entries.isArray()) {
             return;
         }
 
         for (JsonNode entry : entries) {
-            JsonNode changes = entry.path("changes");
-            if (!changes.isArray()) {
-                continue;
-            }
-
-            for (JsonNode change : changes) {
-                JsonNode messages = change.path("value").path("messages");
-                if (!messages.isArray()) {
-                    continue;
-                }
-
-                for (JsonNode message : messages) {
-                    String phoneNumber = message.path("from").asText("");
-                    if (!phoneNumber.isBlank()) {
-                        conversationFlowService.handleIncomingMessage(
-                            new InboundWhatsAppMessage(
-                                phoneNumber,
-                                message.path("text").path("body").asText(""),
-                                resolveInteractiveReplyId(message)
-                            ),
-                            receivedAt
-                        );
-                    }
-                }
-            }
+            dispatchEntryMessages(entry, receivedAt);
         }
+    }
+
+    private void dispatchEntryMessages(JsonNode entry, Instant receivedAt) {
+        JsonNode changes = entry.path(CHANGES_FIELD);
+        if (!changes.isArray()) {
+            return;
+        }
+
+        for (JsonNode change : changes) {
+            dispatchChangeMessages(change, receivedAt);
+        }
+    }
+
+    private void dispatchChangeMessages(JsonNode change, Instant receivedAt) {
+        JsonNode messages = change.path(VALUE_FIELD).path(MESSAGES_FIELD);
+        if (!messages.isArray()) {
+            return;
+        }
+
+        for (JsonNode message : messages) {
+            dispatchMessage(message, receivedAt);
+        }
+    }
+
+    private void dispatchMessage(JsonNode message, Instant receivedAt) {
+        String phoneNumber = message.path("from").asText("");
+        if (phoneNumber.isBlank()) {
+            return;
+        }
+
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(
+                phoneNumber,
+                message.path("text").path("body").asText(""),
+                resolveInteractiveReplyId(message)
+            ),
+            receivedAt
+        );
     }
 
     private String resolveInteractiveReplyId(JsonNode message) {

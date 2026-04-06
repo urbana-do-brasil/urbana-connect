@@ -1,6 +1,7 @@
 package br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog;
 
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
+import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
 import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,7 +35,7 @@ class MongoServiceCatalogGatewayIntegrationTest {
 
         assertThat(catalog)
             .hasSize(4)
-            .extracting(service -> service.type())
+            .extracting(ServiceCatalogItem::type)
             .containsExactlyInAnyOrder(
                 ServiceType.DECOR,
                 ServiceType.DECOR_PINTURA,
@@ -45,7 +46,7 @@ class MongoServiceCatalogGatewayIntegrationTest {
         assertThat(serviceCatalogGateway.findByType(ServiceType.DECOR_REFORMA))
             .isPresent()
             .get()
-            .extracting(service -> service.available(), service -> service.paymentLink())
+            .extracting(ServiceCatalogItem::available, ServiceCatalogItem::paymentLink)
             .containsExactly(false, null);
     }
 
@@ -54,7 +55,7 @@ class MongoServiceCatalogGatewayIntegrationTest {
         var availableServices = serviceCatalogGateway.findAvailable();
 
         assertThat(availableServices)
-            .extracting(service -> service.type())
+            .extracting(ServiceCatalogItem::type)
             .containsExactlyInAnyOrder(
                 ServiceType.DECOR,
                 ServiceType.DECOR_PINTURA,

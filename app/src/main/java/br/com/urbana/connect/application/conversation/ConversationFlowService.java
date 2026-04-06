@@ -58,12 +58,14 @@ public class ConversationFlowService {
         Conversation conversation = conversationLifecycleService.resumeOrStart(inboundMessage.phoneNumber(), receivedAt);
         List<ServiceCatalogItem> availableServices = serviceCatalogGateway.findAvailable();
 
-        log.info(
-            "Mensagem recebida: phoneNumber={} type={} currentStep={}",
-            maskPhoneNumber(inboundMessage.phoneNumber()),
-            resolveMessageType(inboundMessage),
-            conversation.currentStep()
-        );
+        if (log.isInfoEnabled()) {
+            log.info(
+                "Mensagem recebida: phoneNumber={} type={} currentStep={}",
+                maskPhoneNumber(inboundMessage.phoneNumber()),
+                resolveMessageType(inboundMessage),
+                conversation.currentStep()
+            );
+        }
 
         if (isHumanHandoffRequested(inboundMessage.textBody())) {
             handleHumanHandoff(conversation, inboundMessage, receivedAt);
@@ -379,11 +381,13 @@ public class ConversationFlowService {
                 return updated;
             }
 
-            log.error(
-                "Servico {} nao encontrado para enviar link de pagamento para {}",
-                conversation.selectedService(),
-                maskPhoneNumber(inboundMessage.phoneNumber())
-            );
+            if (log.isErrorEnabled()) {
+                log.error(
+                    "Servico {} nao encontrado para enviar link de pagamento para {}",
+                    conversation.selectedService(),
+                    maskPhoneNumber(inboundMessage.phoneNumber())
+                );
+            }
             Conversation updated = saveTransition(
                 conversation,
                 conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt),
@@ -451,23 +455,27 @@ public class ConversationFlowService {
     private Conversation saveTransition(Conversation previous, Conversation next, String phoneNumber, String reason) {
         Conversation saved = conversationGateway.save(next);
         if (previous.currentStep() != saved.currentStep()) {
-            log.info(
-                "Transição de conversa: phoneNumber={} from={} to={} reason={}",
-                maskPhoneNumber(phoneNumber),
-                previous.currentStep(),
-                saved.currentStep(),
-                reason
-            );
+            if (log.isInfoEnabled()) {
+                log.info(
+                    "Transição de conversa: phoneNumber={} from={} to={} reason={}",
+                    maskPhoneNumber(phoneNumber),
+                    previous.currentStep(),
+                    saved.currentStep(),
+                    reason
+                );
+            }
         }
         return saved;
     }
 
     private void handleHumanHandoff(Conversation conversation, InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
-        log.info(
-            "Solicitacao de handoff humano recebida para {} na etapa {}",
-            maskPhoneNumber(inboundMessage.phoneNumber()),
-            conversation.currentStep()
-        );
+        if (log.isInfoEnabled()) {
+            log.info(
+                "Solicitacao de handoff humano recebida para {} na etapa {}",
+                maskPhoneNumber(inboundMessage.phoneNumber()),
+                conversation.currentStep()
+            );
+        }
         sendSafely(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
@@ -484,12 +492,14 @@ public class ConversationFlowService {
                 receivedAt
             ));
         } catch (RuntimeException exception) {
-            log.error(
-                "Falha ao notificar handoff humano para {} na etapa {}: {}",
-                maskPhoneNumber(inboundMessage.phoneNumber()),
-                conversation.currentStep(),
-                exception.getMessage()
-            );
+            if (log.isErrorEnabled()) {
+                log.error(
+                    "Falha ao notificar handoff humano para {} na etapa {}: {}",
+                    maskPhoneNumber(inboundMessage.phoneNumber()),
+                    conversation.currentStep(),
+                    exception.getMessage()
+                );
+            }
         }
     }
 
@@ -498,7 +508,7 @@ public class ConversationFlowService {
             return false;
         }
 
-        return textBody.toLowerCase().contains("aceito");
+        return textBody.toLowerCase(Locale.ROOT).contains("aceito");
     }
 
     private boolean isHumanHandoffRequested(String textBody) {
@@ -523,7 +533,7 @@ public class ConversationFlowService {
             return null;
         }
 
-        String normalized = textBody.toLowerCase();
+        String normalized = textBody.toLowerCase(Locale.ROOT);
         if (normalized.contains("pix")) {
             return "PIX";
         }

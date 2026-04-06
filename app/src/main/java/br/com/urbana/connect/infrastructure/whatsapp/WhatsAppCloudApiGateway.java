@@ -18,9 +18,17 @@ import java.util.Map;
 public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     private static final Logger log = LoggerFactory.getLogger(WhatsAppCloudApiGateway.class);
+    private static final Locale BRAZILIAN_PORTUGUESE = Locale.of("pt", "BR");
     private static final String GREETING_TEXT = "Precisando de ajuda para encontrar o serviço perfeito?";
     private static final String TERMS_OF_USE_LINK =
         "https://drive.google.com/file/d/10ZFSwmVHybvuaYTYE4lW5XspLN7tZa67/view?usp=sharing";
+    private static final String MESSAGING_PRODUCT = "messaging_product";
+    private static final String WHATSAPP = "whatsapp";
+    private static final String TYPE = "type";
+    private static final String INTERACTIVE = "interactive";
+    private static final String BUTTON = "button";
+    private static final String ACTION = "action";
+    private static final String BUTTONS = "buttons";
 
     private final RestClient restClient;
     private final String phoneNumberId;
@@ -67,14 +75,14 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     @Override
     public void sendPaymentMethodOptions(String phoneNumber) {
         sendPayload(Map.of(
-            "messaging_product", "whatsapp",
+            MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
-            "type", "interactive",
-            "interactive", Map.of(
-                "type", "button",
+            TYPE, INTERACTIVE,
+            INTERACTIVE, Map.of(
+                TYPE, BUTTON,
                 "body", Map.of("text", "Você irá realizar o pagamento via PIX ou cartão de crédito?"),
-                "action", Map.of(
-                    "buttons", List.of(
+                ACTION, Map.of(
+                    BUTTONS, List.of(
                         replyButton("PAYMENT_PIX", "PIX"),
                         replyButton("PAYMENT_CARD", "Cartão")
                     )
@@ -111,7 +119,9 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     }
 
     private void sendPayload(Map<String, Object> payload, String phoneNumber, String messageType) {
-        log.info("Enviando mensagem WhatsApp: type={} destination={}", messageType, maskPhoneNumber(phoneNumber));
+        if (log.isInfoEnabled()) {
+            log.info("Enviando mensagem WhatsApp: type={} destination={}", messageType, maskPhoneNumber(phoneNumber));
+        }
         try {
             restClient.post()
                 .uri("/v18.0/{phoneNumberId}/messages", phoneNumberId)
@@ -121,13 +131,19 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 .retrieve()
                 .toBodilessEntity();
         } catch (RestClientException exception) {
-            log.error(
-                "Falha ao enviar mensagem WhatsApp: type={} destination={} error={}",
-                messageType,
-                maskPhoneNumber(phoneNumber),
-                exception.getMessage()
+            String maskedPhoneNumber = maskPhoneNumber(phoneNumber);
+            if (log.isErrorEnabled()) {
+                log.error(
+                    "Falha ao enviar mensagem WhatsApp: type={} destination={} error={}",
+                    messageType,
+                    maskedPhoneNumber,
+                    exception.getMessage()
+                );
+            }
+            throw new IllegalStateException(
+                "Falha ao enviar mensagem WhatsApp type=%s destination=%s".formatted(messageType, maskedPhoneNumber),
+                exception
             );
-            throw exception;
         }
     }
 
@@ -145,14 +161,14 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     private Map<String, Object> buildGreetingPayload(String phoneNumber) {
         return Map.of(
-            "messaging_product", "whatsapp",
+            MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
-            "type", "interactive",
-            "interactive", Map.of(
-                "type", "button",
+            TYPE, INTERACTIVE,
+            INTERACTIVE, Map.of(
+                TYPE, BUTTON,
                 "body", Map.of("text", GREETING_TEXT),
-                "action", Map.of(
-                    "buttons", List.of(
+                ACTION, Map.of(
+                    BUTTONS, List.of(
                         replyButton("YES_HELP", "✅ Sim, estou precisando"),
                         replyButton("NO_HELP", "🚫 Não, já sei o que quero")
                     )
@@ -199,14 +215,14 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             + "\n\nEra isso que você estava buscando?";
 
         return Map.of(
-            "messaging_product", "whatsapp",
+            MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
-            "type", "interactive",
-            "interactive", Map.of(
-                "type", "button",
+            TYPE, INTERACTIVE,
+            INTERACTIVE, Map.of(
+                TYPE, BUTTON,
                 "body", Map.of("text", body),
-                "action", Map.of(
-                    "buttons", List.of(
+                ACTION, Map.of(
+                    BUTTONS, List.of(
                         replyButton("CONFIRM_SERVICE", "✅ Sim, acertou em cheio"),
                         replyButton("RESELECT_SERVICE", "🚫 Não, foi quase")
                     )
@@ -217,9 +233,9 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     private Map<String, Object> textPayload(String phoneNumber, String body) {
         return Map.of(
-            "messaging_product", "whatsapp",
+            MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
-            "type", "text",
+            TYPE, "text",
             "text", Map.of("body", body)
         );
     }
@@ -230,14 +246,14 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             String buttonText,
             List<Map<String, Object>> rows) {
         return Map.of(
-            "messaging_product", "whatsapp",
+            MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
-            "type", "interactive",
-            "interactive", Map.of(
-                "type", "list",
+            TYPE, INTERACTIVE,
+            INTERACTIVE, Map.of(
+                TYPE, "list",
                 "body", Map.of("text", bodyText),
-                "action", Map.of(
-                    "button", buttonText,
+                ACTION, Map.of(
+                    BUTTON, buttonText,
                     "sections", List.of(Map.of("rows", rows))
                 )
             )
@@ -254,7 +270,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     private Map<String, Object> replyButton(String id, String title) {
         return Map.of(
-            "type", "reply",
+            TYPE, "reply",
             "reply", Map.of(
                 "id", id,
                 "title", title
@@ -263,7 +279,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     }
 
     private String formatPrice(BigDecimal price) {
-        NumberFormat formatter = NumberFormat.getCurrencyInstance(new Locale("pt", "BR"));
+        NumberFormat formatter = NumberFormat.getCurrencyInstance(BRAZILIAN_PORTUGUESE);
         return formatter.format(price);
     }
 }

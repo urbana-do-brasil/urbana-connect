@@ -71,9 +71,9 @@ public class GeminiAiGateway implements AiGateway {
 
             GeminiInterpretationPayload payload = objectMapper.readValue(jsonPayload, GeminiInterpretationPayload.class);
             return new AiInterpretation(
-                payload.intent != null ? payload.intent : IntentType.UNKNOWN,
-                payload.selectedService,
-                payload.suggestedResponse
+                payload.intent() != null ? payload.intent() : IntentType.UNKNOWN,
+                payload.selectedService(),
+                payload.suggestedResponse()
             );
         } catch (Exception exception) {
             log.error("Falha ao interpretar mensagem com Gemini na etapa {}: {}", context.currentStep(), exception.getMessage());
@@ -164,9 +164,9 @@ public class GeminiAiGateway implements AiGateway {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private static class GeminiInterpretationPayload {
-        public IntentType intent;
-        public ServiceType selectedService;
-        public String suggestedResponse;
+    private record GeminiInterpretationPayload(
+            IntentType intent,
+            ServiceType selectedService,
+            String suggestedResponse) {
     }
 }
