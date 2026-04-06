@@ -1,5 +1,7 @@
 package br.com.urbana.connect.interfaces.rest;
 
+import br.com.urbana.connect.application.conversation.ConversationFlowService;
+import br.com.urbana.connect.application.conversation.InboundWhatsAppMessage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,9 +11,13 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import br.com.urbana.connect.application.config.SecurityConfig;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -25,6 +31,9 @@ class WebhookControllerTest {
     @Autowired
     private MockMvc mockMvc;
 
+    @MockitoBean
+    private ConversationFlowService conversationFlowService;
+
     @Test
     void shouldAcceptWebhookPayload(CapturedOutput output) throws Exception {
         mockMvc.perform(post("/api/webhook")
@@ -32,13 +41,36 @@ class WebhookControllerTest {
                 .content("""
                     {
                       "object": "whatsapp_business_account",
-                      "entry": []
+                      "entry": [
+                        {
+                          "changes": [
+                            {
+                              "value": {
+                                "messages": [
+                                  {
+                                    "from": "+5583999999999",
+                                    "type": "text",
+                                    "text": {
+                                      "body": "oi"
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ]
                     }
                     """))
             .andExpect(status().isOk());
 
+        verify(conversationFlowService).handleIncomingMessage(
+            eq(new InboundWhatsAppMessage("+5583999999999", "oi", "")),
+            any()
+        );
+
         org.assertj.core.api.Assertions.assertThat(output)
-            .contains("Webhook recebido: object=whatsapp_business_account entries=0");
+            .contains("Webhook recebido: object=whatsapp_business_account entries=1");
     }
 
     @Test

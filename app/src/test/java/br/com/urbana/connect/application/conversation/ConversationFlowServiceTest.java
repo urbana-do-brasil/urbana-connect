@@ -1,0 +1,192 @@
+package br.com.urbana.connect.application.conversation;
+
+import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
+import br.com.urbana.connect.domain.conversation.model.Conversation;
+import br.com.urbana.connect.domain.conversation.model.ConversationStep;
+import br.com.urbana.connect.domain.conversation.model.IntentType;
+import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
+import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
+import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
+import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
+import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
+import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGateway;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class ConversationFlowServiceTest {
+
+    @Mock
+    private ConversationLifecycleService conversationLifecycleService;
+
+    @Mock
+    private ConversationGateway conversationGateway;
+
+    @Mock
+    private ServiceCatalogGateway serviceCatalogGateway;
+
+    @Mock
+    private WhatsAppMessageGateway whatsAppMessageGateway;
+
+    @Mock
+    private AiGateway aiGateway;
+
+    @Mock
+    private HumanHandoffGateway humanHandoffGateway;
+
+    @InjectMocks
+    private ConversationFlowService conversationFlowService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(serviceCatalogGateway.findAvailable()).thenReturn(List.of(decor()));
+        lenient().when(conversationGateway.save(any(Conversation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(aiGateway.interpret(any())).thenReturn(AiInterpretation.unknown());
+    }
+
+    @Test
+    void shouldMoveGreetingToGuidedTriageWhenAiInterpretsAffirmation() {
+        Instant now = Instant.parse("2026-04-06T10:00:00Z");
+        String phoneNumber = "+5583999999999";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+        when(aiGateway.interpret(any())).thenReturn(new AiInterpretation(IntentType.AFFIRMATION, null, null));
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "sim, preciso de ajuda", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_GUIDED);
+        verify(whatsAppMessageGateway).sendGuidedTriageOptions(eq(phoneNumber), any());
+    }
+
+    @Test
+    void shouldMoveDirectTriageToAwaitingConfirmationWhenAiSelectsService() {
+        Instant now = Instant.parse("2026-04-06T10:05:00Z");
+        String phoneNumber = "+5583888888888";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(120))
+            .moveTo(ConversationStep.TRIAGE_DIRECT, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+        when(aiGateway.interpret(any())).thenReturn(new AiInterpretation(IntentType.SERVICE_SELECTION, ServiceType.DECOR, null));
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "quero decor", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_CONFIRMATION);
+        assertThat(updated.selectedService()).isEqualTo(ServiceType.DECOR);
+        verify(whatsAppMessageGateway).sendServicePresentation(eq(phoneNumber), any(ServiceCatalogItem.class));
+    }
+
+    @Test
+    void shouldMoveAwaitingTermsToPaymentMethodWhenAiAcceptsTerms() {
+        Instant now = Instant.parse("2026-04-06T10:10:00Z");
+        String phoneNumber = "+5583777777777";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(180))
+            .selectService(ServiceType.DECOR, ConversationStep.AWAITING_TERMS, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+        when(aiGateway.interpret(any())).thenReturn(new AiInterpretation(IntentType.TERMS_ACCEPTANCE, null, null));
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "de acordo com os termos", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
+        verify(whatsAppMessageGateway).sendPaymentMethodOptions(phoneNumber);
+    }
+
+    @Test
+    void shouldRepeatCurrentStepWhenAiReturnsUnknown() {
+        Instant now = Instant.parse("2026-04-06T10:15:00Z");
+        String phoneNumber = "+5583666666666";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(120))
+            .moveTo(ConversationStep.TRIAGE_DIRECT, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "texto aleatorio", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
+        verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), any());
+    }
+
+    @Test
+    void shouldUseFreeTextPaymentMethodWithoutAi() {
+        Instant now = Instant.parse("2026-04-06T10:20:00Z");
+        String phoneNumber = "+5583555555555";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(240))
+            .selectService(ServiceType.DECOR, ConversationStep.AWAITING_PAYMENT_METHOD, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+        when(serviceCatalogGateway.findByType(ServiceType.DECOR)).thenReturn(Optional.of(decor()));
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "pode ser pix", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.PAYMENT_LINK_SENT);
+        assertThat(updated.context().paymentMethod()).isEqualTo("PIX");
+        verify(whatsAppMessageGateway).sendPaymentLink(eq(phoneNumber), any(ServiceCatalogItem.class));
+        verify(whatsAppMessageGateway).sendClosingMessage(phoneNumber);
+    }
+
+    @Test
+    void shouldKeepCurrentStepAndNotifyHumanWhenCustomerRequestsHumanHandoff() {
+        Instant now = Instant.parse("2026-04-06T10:25:00Z");
+        String phoneNumber = "+5583444444444";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(240))
+            .moveTo(ConversationStep.TRIAGE_DIRECT, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "quero falar com alguém", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
+        verify(whatsAppMessageGateway).sendHumanHandoffAcknowledgement(phoneNumber);
+        verify(humanHandoffGateway).notifyTeam(any());
+    }
+
+    private ServiceCatalogItem decor() {
+        return new ServiceCatalogItem(
+            ServiceType.DECOR,
+            "Decor",
+            "🛋️",
+            "Renovar espaço interno sem quebra-quebra",
+            "Apresentação da Decor",
+            BigDecimal.valueOf(400),
+            "https://mpago.la/decor",
+            "https://forms.gle/decor",
+            true
+        );
+    }
+}

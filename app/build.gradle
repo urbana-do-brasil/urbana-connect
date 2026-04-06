@@ -32,6 +32,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
 
     // Logging
     implementation 'net.logstash.logback:logstash-logback-encoder:8.0'
@@ -88,10 +89,7 @@ jacocoTestReport {
         classDirectories.setFrom(files(classDirectories.files.collect {
             fileTree(dir: it, exclude: [
                 "**/*Application.class",
-                "**/config/**",
-                "**/model/**",
-                "**/dto/**",
-                "**/exception/**"
+                "**/config/**"
             ])
         }))
     }
@@ -112,10 +110,7 @@ jacocoTestCoverageVerification {
         classDirectories.setFrom(files(classDirectories.files.collect {
             fileTree(dir: it, exclude: [
                 "**/*Application.class",
-                "**/config/**",
-                "**/model/**",
-                "**/dto/**",
-                "**/exception/**"
+                "**/config/**"
             ])
         }))
     }
