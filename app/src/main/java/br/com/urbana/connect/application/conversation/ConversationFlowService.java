@@ -58,6 +58,13 @@ public class ConversationFlowService {
         Conversation conversation = conversationLifecycleService.resumeOrStart(inboundMessage.phoneNumber(), receivedAt);
         List<ServiceCatalogItem> availableServices = serviceCatalogGateway.findAvailable();
 
+        log.info(
+            "Mensagem recebida: phoneNumber={} type={} currentStep={}",
+            inboundMessage.phoneNumber(),
+            resolveMessageType(inboundMessage),
+            conversation.currentStep()
+        );
+
         if (isHumanHandoffRequested(inboundMessage.textBody())) {
             handleHumanHandoff(conversation, inboundMessage, receivedAt);
             return conversation;
@@ -93,7 +100,12 @@ public class ConversationFlowService {
         if (hasText(inboundMessage)) {
             AiInterpretation interpretation = interpret(conversation, inboundMessage, availableServices);
             if (interpretation.intent() == IntentType.AFFIRMATION) {
-                Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_GUIDED, receivedAt));
+                Conversation updated = saveTransition(
+                    conversation,
+                    conversation.moveTo(ConversationStep.TRIAGE_GUIDED, receivedAt),
+                    inboundMessage.phoneNumber(),
+                    "greeting_ai_affirmation"
+                );
                 sendSafely(
                     inboundMessage.phoneNumber(),
                     updated.currentStep(),
@@ -103,7 +115,12 @@ public class ConversationFlowService {
             }
 
             if (interpretation.intent() == IntentType.NEGATION) {
-                Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt));
+                Conversation updated = saveTransition(
+                    conversation,
+                    conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt),
+                    inboundMessage.phoneNumber(),
+                    "greeting_ai_negation"
+                );
                 sendSafely(
                     inboundMessage.phoneNumber(),
                     updated.currentStep(),
@@ -114,7 +131,12 @@ public class ConversationFlowService {
         }
 
         if ("YES_HELP".equals(replyId)) {
-            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_GUIDED, receivedAt));
+            Conversation updated = saveTransition(
+                conversation,
+                conversation.moveTo(ConversationStep.TRIAGE_GUIDED, receivedAt),
+                inboundMessage.phoneNumber(),
+                "greeting_yes_help"
+            );
             sendSafely(
                 inboundMessage.phoneNumber(),
                 updated.currentStep(),
@@ -124,7 +146,12 @@ public class ConversationFlowService {
         }
 
         if ("NO_HELP".equals(replyId)) {
-            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt));
+            Conversation updated = saveTransition(
+                conversation,
+                conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt),
+                inboundMessage.phoneNumber(),
+                "greeting_no_help"
+            );
             sendSafely(
                 inboundMessage.phoneNumber(),
                 updated.currentStep(),
@@ -196,8 +223,11 @@ public class ConversationFlowService {
             String phoneNumber,
             ServiceCatalogItem selectedService,
             Instant receivedAt) {
-        Conversation updated = conversationGateway.save(
-            conversation.selectService(selectedService.type(), ConversationStep.AWAITING_CONFIRMATION, receivedAt)
+        Conversation updated = saveTransition(
+            conversation,
+            conversation.selectService(selectedService.type(), ConversationStep.AWAITING_CONFIRMATION, receivedAt),
+            phoneNumber,
+            "service_selected"
         );
 
         sendSafely(
@@ -218,7 +248,12 @@ public class ConversationFlowService {
         if (hasText(inboundMessage)) {
             AiInterpretation interpretation = interpret(conversation, inboundMessage, availableServices);
             if (interpretation.intent() == IntentType.AFFIRMATION) {
-                Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.AWAITING_TERMS, receivedAt));
+                Conversation updated = saveTransition(
+                    conversation,
+                    conversation.moveTo(ConversationStep.AWAITING_TERMS, receivedAt),
+                    inboundMessage.phoneNumber(),
+                    "confirmation_ai_affirmation"
+                );
                 sendSafely(
                     inboundMessage.phoneNumber(),
                     updated.currentStep(),
@@ -228,7 +263,12 @@ public class ConversationFlowService {
             }
 
             if (interpretation.intent() == IntentType.NEGATION) {
-                Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt));
+                Conversation updated = saveTransition(
+                    conversation,
+                    conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt),
+                    inboundMessage.phoneNumber(),
+                    "confirmation_ai_negation"
+                );
                 sendSafely(
                     inboundMessage.phoneNumber(),
                     updated.currentStep(),
@@ -239,7 +279,12 @@ public class ConversationFlowService {
         }
 
         if ("CONFIRM_SERVICE".equals(replyId)) {
-            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.AWAITING_TERMS, receivedAt));
+            Conversation updated = saveTransition(
+                conversation,
+                conversation.moveTo(ConversationStep.AWAITING_TERMS, receivedAt),
+                inboundMessage.phoneNumber(),
+                "confirmation_button"
+            );
             sendSafely(
                 inboundMessage.phoneNumber(),
                 updated.currentStep(),
@@ -249,7 +294,12 @@ public class ConversationFlowService {
         }
 
         if ("RESELECT_SERVICE".equals(replyId)) {
-            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt));
+            Conversation updated = saveTransition(
+                conversation,
+                conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt),
+                inboundMessage.phoneNumber(),
+                "confirmation_reselect"
+            );
             sendSafely(
                 inboundMessage.phoneNumber(),
                 updated.currentStep(),
@@ -276,7 +326,12 @@ public class ConversationFlowService {
             Instant receivedAt) {
         if (containsTermsAcceptance(inboundMessage.textBody())
                 || interpret(conversation, inboundMessage, List.of()).intent() == IntentType.TERMS_ACCEPTANCE) {
-            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.AWAITING_PAYMENT_METHOD, receivedAt));
+            Conversation updated = saveTransition(
+                conversation,
+                conversation.moveTo(ConversationStep.AWAITING_PAYMENT_METHOD, receivedAt),
+                inboundMessage.phoneNumber(),
+                "terms_accepted"
+            );
             sendSafely(
                 inboundMessage.phoneNumber(),
                 updated.currentStep(),
@@ -305,8 +360,11 @@ public class ConversationFlowService {
         if (paymentMethod != null) {
             Optional<ServiceCatalogItem> selectedService = serviceCatalogGateway.findByType(conversation.selectedService());
             if (selectedService.isPresent()) {
-                Conversation updated = conversationGateway.save(
-                    conversation.selectPaymentMethod(paymentMethod, ConversationStep.PAYMENT_LINK_SENT, receivedAt)
+                Conversation updated = saveTransition(
+                    conversation,
+                    conversation.selectPaymentMethod(paymentMethod, ConversationStep.PAYMENT_LINK_SENT, receivedAt),
+                    inboundMessage.phoneNumber(),
+                    "payment_method_selected_" + paymentMethod.toLowerCase(Locale.ROOT)
                 );
                 sendSafely(
                     inboundMessage.phoneNumber(),
@@ -326,7 +384,12 @@ public class ConversationFlowService {
                 conversation.selectedService(),
                 inboundMessage.phoneNumber()
             );
-            Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt));
+            Conversation updated = saveTransition(
+                conversation,
+                conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt),
+                inboundMessage.phoneNumber(),
+                "payment_service_missing"
+            );
             sendSafely(
                 inboundMessage.phoneNumber(),
                 updated.currentStep(),
@@ -383,6 +446,20 @@ public class ConversationFlowService {
                 exception.getMessage()
             );
         }
+    }
+
+    private Conversation saveTransition(Conversation previous, Conversation next, String phoneNumber, String reason) {
+        Conversation saved = conversationGateway.save(next);
+        if (previous.currentStep() != saved.currentStep()) {
+            log.info(
+                "Transicao de conversa: phoneNumber={} from={} to={} reason={}",
+                phoneNumber,
+                previous.currentStep(),
+                saved.currentStep(),
+                reason
+            );
+        }
+        return saved;
     }
 
     private void handleHumanHandoff(Conversation conversation, InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
@@ -454,6 +531,16 @@ public class ConversationFlowService {
             return "CARTÃO";
         }
         return null;
+    }
+
+    private String resolveMessageType(InboundWhatsAppMessage inboundMessage) {
+        if (hasText(inboundMessage)) {
+            return "text";
+        }
+        if (inboundMessage.interactiveReplyId() != null && !inboundMessage.interactiveReplyId().isBlank()) {
+            return "interactive";
+        }
+        return "unknown";
     }
 
     private AiInterpretation interpret(

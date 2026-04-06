@@ -2,9 +2,12 @@ package br.com.urbana.connect.infrastructure.whatsapp;
 
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
 import java.text.NumberFormat;
@@ -14,6 +17,7 @@ import java.util.Map;
 
 public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
+    private static final Logger log = LoggerFactory.getLogger(WhatsAppCloudApiGateway.class);
     private static final String GREETING_TEXT = "Precisando de ajuda para encontrar o serviço perfeito?";
     private static final String TERMS_OF_USE_LINK =
         "https://drive.google.com/file/d/10ZFSwmVHybvuaYTYE4lW5XspLN7tZa67/view?usp=sharing";
@@ -30,22 +34,22 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     @Override
     public void sendGreeting(String phoneNumber) {
-        sendPayload(buildGreetingPayload(phoneNumber));
+        sendPayload(buildGreetingPayload(phoneNumber), phoneNumber, "GREETING");
     }
 
     @Override
     public void sendGuidedTriageOptions(String phoneNumber, List<ServiceCatalogItem> availableServices) {
-        sendPayload(buildGuidedTriagePayload(phoneNumber, availableServices));
+        sendPayload(buildGuidedTriagePayload(phoneNumber, availableServices), phoneNumber, "GUIDED_TRIAGE");
     }
 
     @Override
     public void sendDirectTriageOptions(String phoneNumber, List<ServiceCatalogItem> availableServices) {
-        sendPayload(buildDirectTriagePayload(phoneNumber, availableServices));
+        sendPayload(buildDirectTriagePayload(phoneNumber, availableServices), phoneNumber, "DIRECT_TRIAGE");
     }
 
     @Override
     public void sendServicePresentation(String phoneNumber, ServiceCatalogItem selectedService) {
-        sendPayload(buildServicePresentationPayload(phoneNumber, selectedService));
+        sendPayload(buildServicePresentationPayload(phoneNumber, selectedService), phoneNumber, "SERVICE_PRESENTATION");
     }
 
     @Override
@@ -57,7 +61,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 + "Dá uma olhadinha nele: 👇🏾\n\n"
                 + TERMS_OF_USE_LINK
                 + "\n\nDepois da leitura, é só nos responder com a palavra \"Aceito\" e vamos lá começar os trabalhos! 🚀"
-        ));
+        ), phoneNumber, "TERMS_OF_USE");
     }
 
     @Override
@@ -76,7 +80,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                     )
                 )
             )
-        ));
+        ), phoneNumber, "PAYMENT_METHOD_OPTIONS");
     }
 
     @Override
@@ -87,7 +91,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 + selectedService.name() + "* " + selectedService.emoji()
                 + "\nClique no link abaixo 👇🏾\n"
                 + selectedService.paymentLink()
-        ));
+        ), phoneNumber, "PAYMENT_LINK");
     }
 
     @Override
@@ -95,7 +99,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
         sendPayload(textPayload(
             phoneNumber,
             "Perfeito! Assim que o pagamento for confirmado, daremos os próximos passos 😊"
-        ));
+        ), phoneNumber, "CLOSING");
     }
 
     @Override
@@ -103,17 +107,28 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
         sendPayload(textPayload(
             phoneNumber,
             "Iremos repassar sua dúvida para nossa equipe, que entrará em contato logo mais"
-        ));
+        ), phoneNumber, "HUMAN_HANDOFF_ACK");
     }
 
-    private void sendPayload(Map<String, Object> payload) {
-        restClient.post()
-            .uri("/v18.0/{phoneNumberId}/messages", phoneNumberId)
-            .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
-            .contentType(MediaType.APPLICATION_JSON)
-            .body(payload)
-            .retrieve()
-            .toBodilessEntity();
+    private void sendPayload(Map<String, Object> payload, String phoneNumber, String messageType) {
+        log.info("Enviando mensagem WhatsApp: type={} destination={}", messageType, phoneNumber);
+        try {
+            restClient.post()
+                .uri("/v18.0/{phoneNumberId}/messages", phoneNumberId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(payload)
+                .retrieve()
+                .toBodilessEntity();
+        } catch (RestClientException exception) {
+            log.error(
+                "Falha ao enviar mensagem WhatsApp: type={} destination={} error={}",
+                messageType,
+                phoneNumber,
+                exception.getMessage()
+            );
+            throw exception;
+        }
     }
 
     private Map<String, Object> buildGreetingPayload(String phoneNumber) {
