@@ -1,9 +1,14 @@
 package br.com.urbana.connect.application.conversation;
 
+import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
+import br.com.urbana.connect.domain.conversation.model.IntentType;
+import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
+import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.conversation.ConversationDocument;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog.ServiceCatalogDocument;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +32,9 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -52,6 +59,14 @@ class ConversationFlowServiceIntegrationTest {
 
     @MockitoBean
     private WhatsAppMessageGateway whatsAppMessageGateway;
+
+    @MockitoBean
+    private AiGateway aiGateway;
+
+    @BeforeEach
+    void setUp() {
+        doReturn(AiInterpretation.unknown()).when(aiGateway).interpret(any());
+    }
 
     @Test
     void shouldStartConversationInGreetingAndSendGreetingMessage() {
@@ -81,6 +96,23 @@ class ConversationFlowServiceIntegrationTest {
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_GUIDED);
         assertThat(countByPhoneNumber(phoneNumber)).isEqualTo(1);
+        verify(whatsAppMessageGateway).sendGuidedTriageOptions(eq(phoneNumber), anyList());
+    }
+
+    @Test
+    void shouldMoveGreetingToGuidedTriageWhenAiInterpretsAffirmation() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583880000000";
+
+        conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
+        doReturn(new AiInterpretation(IntentType.AFFIRMATION, null, null)).when(aiGateway).interpret(any());
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "sim, preciso de ajuda", ""),
+            now.plusSeconds(60)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_GUIDED);
         verify(whatsAppMessageGateway).sendGuidedTriageOptions(eq(phoneNumber), anyList());
     }
 
@@ -125,6 +157,31 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
+    void shouldMoveDirectTriageToAwaitingConfirmationWhenAiSelectsService() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583660000000";
+
+        conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "NO_HELP"),
+            now.plusSeconds(60)
+        );
+        doReturn(new AiInterpretation(IntentType.SERVICE_SELECTION, ServiceType.DECOR, null)).when(aiGateway).interpret(any());
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "quero decor", ""),
+            now.plusSeconds(120)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_CONFIRMATION);
+        assertThat(updated.selectedService()).isEqualTo(ServiceType.DECOR);
+        verify(whatsAppMessageGateway).sendServicePresentation(
+            eq(phoneNumber),
+            argThat(service -> service.type() == ServiceType.DECOR)
+        );
+    }
+
+    @Test
     void shouldRepeatDirectTriageOptionsWhenSelectionIsUnknown() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583555555555";
@@ -161,6 +218,23 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
+    void shouldMoveToAwaitingTermsWhenAiInterpretsAffirmation() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583330000000";
+
+        advanceToAwaitingConfirmation(phoneNumber, now);
+        doReturn(new AiInterpretation(IntentType.AFFIRMATION, null, null)).when(aiGateway).interpret(any());
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "sim, é isso", ""),
+            now.plusSeconds(180)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
+        verify(whatsAppMessageGateway).sendTermsOfUse(phoneNumber);
+    }
+
+    @Test
     void shouldReturnToDirectTriageWhenCustomerRejectsSuggestedService() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583222222222";
@@ -185,6 +259,23 @@ class ConversationFlowServiceIntegrationTest {
 
         var updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "sim aceito", ""),
+            now.plusSeconds(240)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
+        verify(whatsAppMessageGateway).sendPaymentMethodOptions(phoneNumber);
+    }
+
+    @Test
+    void shouldMoveToAwaitingPaymentMethodWhenAiInterpretsTermsAcceptance() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583110000000";
+
+        advanceToAwaitingTerms(phoneNumber, now);
+        doReturn(new AiInterpretation(IntentType.TERMS_ACCEPTANCE, null, null)).when(aiGateway).interpret(any());
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "de acordo com os termos", ""),
             now.plusSeconds(240)
         );
 

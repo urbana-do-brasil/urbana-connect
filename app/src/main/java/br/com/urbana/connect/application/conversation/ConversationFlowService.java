@@ -1,7 +1,12 @@
 package br.com.urbana.connect.application.conversation;
 
+import br.com.urbana.connect.domain.conversation.model.AiContext;
+import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.Conversation;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
+import br.com.urbana.connect.domain.conversation.model.IntentType;
+import br.com.urbana.connect.domain.conversation.model.ServiceSummary;
+import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
@@ -24,16 +29,19 @@ public class ConversationFlowService {
     private final ConversationGateway conversationGateway;
     private final ServiceCatalogGateway serviceCatalogGateway;
     private final WhatsAppMessageGateway whatsAppMessageGateway;
+    private final AiGateway aiGateway;
 
     public ConversationFlowService(
             ConversationLifecycleService conversationLifecycleService,
             ConversationGateway conversationGateway,
             ServiceCatalogGateway serviceCatalogGateway,
-            WhatsAppMessageGateway whatsAppMessageGateway) {
+            WhatsAppMessageGateway whatsAppMessageGateway,
+            AiGateway aiGateway) {
         this.conversationLifecycleService = conversationLifecycleService;
         this.conversationGateway = conversationGateway;
         this.serviceCatalogGateway = serviceCatalogGateway;
         this.whatsAppMessageGateway = whatsAppMessageGateway;
+        this.aiGateway = aiGateway;
     }
 
     public Conversation handleIncomingMessage(InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
@@ -57,6 +65,38 @@ public class ConversationFlowService {
             List<ServiceCatalogItem> availableServices,
             Instant receivedAt) {
         String replyId = inboundMessage.interactiveReplyId();
+
+        if (isFirstTouch(conversation, receivedAt)) {
+            sendSafely(
+                inboundMessage.phoneNumber(),
+                conversation.currentStep(),
+                () -> whatsAppMessageGateway.sendGreeting(inboundMessage.phoneNumber())
+            );
+            return conversation;
+        }
+
+        if (hasText(inboundMessage)) {
+            AiInterpretation interpretation = interpret(conversation, inboundMessage, availableServices);
+            if (interpretation.intent() == IntentType.AFFIRMATION) {
+                Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_GUIDED, receivedAt));
+                sendSafely(
+                    inboundMessage.phoneNumber(),
+                    updated.currentStep(),
+                    () -> whatsAppMessageGateway.sendGuidedTriageOptions(inboundMessage.phoneNumber(), availableServices)
+                );
+                return updated;
+            }
+
+            if (interpretation.intent() == IntentType.NEGATION) {
+                Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt));
+                sendSafely(
+                    inboundMessage.phoneNumber(),
+                    updated.currentStep(),
+                    () -> whatsAppMessageGateway.sendDirectTriageOptions(inboundMessage.phoneNumber(), availableServices)
+                );
+                return updated;
+            }
+        }
 
         if ("YES_HELP".equals(replyId)) {
             Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_GUIDED, receivedAt));
@@ -91,6 +131,13 @@ public class ConversationFlowService {
             InboundWhatsAppMessage inboundMessage,
             List<ServiceCatalogItem> availableServices,
             Instant receivedAt) {
+        if (hasText(inboundMessage)) {
+            Optional<ServiceCatalogItem> interpretedService = resolveInterpretedService(conversation, inboundMessage, availableServices);
+            if (interpretedService.isPresent()) {
+                return moveToConfirmation(conversation, inboundMessage.phoneNumber(), interpretedService.get(), receivedAt);
+            }
+        }
+
         Optional<ServiceCatalogItem> selectedService = resolveSelectedService(availableServices, inboundMessage.interactiveReplyId());
         if (selectedService.isPresent()) {
             return moveToConfirmation(conversation, inboundMessage.phoneNumber(), selectedService.get(), receivedAt);
@@ -109,6 +156,13 @@ public class ConversationFlowService {
             InboundWhatsAppMessage inboundMessage,
             List<ServiceCatalogItem> availableServices,
             Instant receivedAt) {
+        if (hasText(inboundMessage)) {
+            Optional<ServiceCatalogItem> interpretedService = resolveInterpretedService(conversation, inboundMessage, availableServices);
+            if (interpretedService.isPresent()) {
+                return moveToConfirmation(conversation, inboundMessage.phoneNumber(), interpretedService.get(), receivedAt);
+            }
+        }
+
         Optional<ServiceCatalogItem> selectedService = resolveSelectedService(availableServices, inboundMessage.interactiveReplyId());
         if (selectedService.isPresent()) {
             return moveToConfirmation(conversation, inboundMessage.phoneNumber(), selectedService.get(), receivedAt);
@@ -146,6 +200,29 @@ public class ConversationFlowService {
             Instant receivedAt) {
         String replyId = inboundMessage.interactiveReplyId();
 
+        if (hasText(inboundMessage)) {
+            AiInterpretation interpretation = interpret(conversation, inboundMessage, availableServices);
+            if (interpretation.intent() == IntentType.AFFIRMATION) {
+                Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.AWAITING_TERMS, receivedAt));
+                sendSafely(
+                    inboundMessage.phoneNumber(),
+                    updated.currentStep(),
+                    () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
+                );
+                return updated;
+            }
+
+            if (interpretation.intent() == IntentType.NEGATION) {
+                Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.TRIAGE_DIRECT, receivedAt));
+                sendSafely(
+                    inboundMessage.phoneNumber(),
+                    updated.currentStep(),
+                    () -> whatsAppMessageGateway.sendDirectTriageOptions(inboundMessage.phoneNumber(), availableServices)
+                );
+                return updated;
+            }
+        }
+
         if ("CONFIRM_SERVICE".equals(replyId)) {
             Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.AWAITING_TERMS, receivedAt));
             sendSafely(
@@ -182,7 +259,8 @@ public class ConversationFlowService {
             Conversation conversation,
             InboundWhatsAppMessage inboundMessage,
             Instant receivedAt) {
-        if (containsTermsAcceptance(inboundMessage.textBody())) {
+        if (containsTermsAcceptance(inboundMessage.textBody())
+                || interpret(conversation, inboundMessage, List.of()).intent() == IntentType.TERMS_ACCEPTANCE) {
             Conversation updated = conversationGateway.save(conversation.moveTo(ConversationStep.AWAITING_PAYMENT_METHOD, receivedAt));
             sendSafely(
                 inboundMessage.phoneNumber(),
@@ -206,6 +284,9 @@ public class ConversationFlowService {
             List<ServiceCatalogItem> availableServices,
             Instant receivedAt) {
         String paymentMethod = resolvePaymentMethod(inboundMessage.interactiveReplyId());
+        if (paymentMethod == null) {
+            paymentMethod = resolvePaymentMethodFromText(inboundMessage.textBody());
+        }
         if (paymentMethod != null) {
             Optional<ServiceCatalogItem> selectedService = serviceCatalogGateway.findByType(conversation.selectedService());
             if (selectedService.isPresent()) {
@@ -262,6 +343,20 @@ public class ConversationFlowService {
         }
     }
 
+    private Optional<ServiceCatalogItem> resolveInterpretedService(
+            Conversation conversation,
+            InboundWhatsAppMessage inboundMessage,
+            List<ServiceCatalogItem> availableServices) {
+        AiInterpretation interpretation = interpret(conversation, inboundMessage, availableServices);
+        if (interpretation.intent() != IntentType.SERVICE_SELECTION || interpretation.selectedService() == null) {
+            return Optional.empty();
+        }
+
+        return availableServices.stream()
+            .filter(service -> service.type() == interpretation.selectedService())
+            .findFirst();
+    }
+
     private void sendSafely(String phoneNumber, ConversationStep step, Runnable action) {
         try {
             action.run();
@@ -289,5 +384,50 @@ public class ConversationFlowService {
             case "PAYMENT_CARD" -> "CARTÃO";
             default -> null;
         };
+    }
+
+    private String resolvePaymentMethodFromText(String textBody) {
+        if (textBody == null || textBody.isBlank()) {
+            return null;
+        }
+
+        String normalized = textBody.toLowerCase();
+        if (normalized.contains("pix")) {
+            return "PIX";
+        }
+        if (normalized.contains("cart")) {
+            return "CARTÃO";
+        }
+        return null;
+    }
+
+    private AiInterpretation interpret(
+            Conversation conversation,
+            InboundWhatsAppMessage inboundMessage,
+            List<ServiceCatalogItem> availableServices) {
+        if (!hasText(inboundMessage)) {
+            return AiInterpretation.unknown();
+        }
+
+        return Optional.ofNullable(aiGateway.interpret(new AiContext(
+            conversation.currentStep(),
+            inboundMessage.textBody(),
+            availableServices.stream().map(this::toServiceSummary).toList(),
+            ""
+        ))).orElse(AiInterpretation.unknown());
+    }
+
+    private ServiceSummary toServiceSummary(ServiceCatalogItem service) {
+        return new ServiceSummary(service.type(), service.name(), service.scenarioText());
+    }
+
+    private boolean hasText(InboundWhatsAppMessage inboundMessage) {
+        return inboundMessage.textBody() != null && !inboundMessage.textBody().isBlank();
+    }
+
+    private boolean isFirstTouch(Conversation conversation, Instant receivedAt) {
+        return conversation.createdAt().equals(receivedAt)
+            && conversation.updatedAt().equals(receivedAt)
+            && conversation.selectedService() == null;
     }
 }
