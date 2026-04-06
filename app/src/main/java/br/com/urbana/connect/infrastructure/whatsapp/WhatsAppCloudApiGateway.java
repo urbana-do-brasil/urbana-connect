@@ -98,6 +98,14 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
         ));
     }
 
+    @Override
+    public void sendHumanHandoffAcknowledgement(String phoneNumber) {
+        sendPayload(textPayload(
+            phoneNumber,
+            "Iremos repassar sua dúvida para nossa equipe, que entrará em contato logo mais"
+        ));
+    }
+
     private void sendPayload(Map<String, Object> payload) {
         restClient.post()
             .uri("/v18.0/{phoneNumberId}/messages", phoneNumberId)

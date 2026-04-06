@@ -21,4 +21,6 @@ public interface WhatsAppMessageGateway {
     void sendPaymentLink(String phoneNumber, ServiceCatalogItem selectedService);
 
     void sendClosingMessage(String phoneNumber);
+
+    void sendHumanHandoffAcknowledgement(String phoneNumber);
 }

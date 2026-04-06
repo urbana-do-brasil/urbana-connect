@@ -4,6 +4,7 @@ import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
+import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.conversation.ConversationDocument;
@@ -62,6 +63,9 @@ class ConversationFlowServiceIntegrationTest {
 
     @MockitoBean
     private AiGateway aiGateway;
+
+    @MockitoBean
+    private HumanHandoffGateway humanHandoffGateway;
 
     @BeforeEach
     void setUp() {
@@ -199,6 +203,28 @@ class ConversationFlowServiceIntegrationTest {
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
         verify(whatsAppMessageGateway, times(2)).sendDirectTriageOptions(eq(phoneNumber), anyList());
+    }
+
+    @Test
+    void shouldNotifyHumanAndKeepConversationStepWhenCustomerRequestsHumanHandoff() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583550000000";
+
+        conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "NO_HELP"),
+            now.plusSeconds(60)
+        );
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "humano", ""),
+            now.plusSeconds(120)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
+        verify(whatsAppMessageGateway).sendHumanHandoffAcknowledgement(phoneNumber);
+        verify(humanHandoffGateway).notifyTeam(any());
+        assertThat(countByPhoneNumber(phoneNumber)).isEqualTo(1);
     }
 
     @Test
