@@ -37,6 +37,9 @@ logging:
     br.com.urbana: INFO
 
 whatsapp:
+  api:
+    access-token: ${WHATSAPP_ACCESS_TOKEN:}
+    phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
   webhook:
     verify-token: ${WHATSAPP_VERIFY_TOKEN:}
 
