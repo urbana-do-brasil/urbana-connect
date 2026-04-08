@@ -10,6 +10,7 @@ secrets/
 ├── apply-hml-runtime-secrets.sh
 ├── templates/              # Templates para criar secrets
 │   ├── registry-secret-template.yaml
+│   ├── gemini-secret-template.yaml
 │   ├── openai-secret-template.yaml
 │   ├── whatsapp-secret-template.yaml
 │   ├── mongodb-secret-template.yaml
@@ -26,6 +27,7 @@ Por motivos de segurança, os arquivos contendo dados sensíveis não são versi
 Em vez disso, são fornecidos templates para criar os arquivos reais:
 
 - `templates/registry-secret-template.yaml` → `prod/registry-secret.yaml` (Credenciais do container registry)
+- `templates/gemini-secret-template.yaml` → `prod/gemini-secret.yaml` (Chave e modelo do Gemini)
 - `templates/openai-secret-template.yaml` → `prod/openai-secret.yaml` (Chave API OpenAI)
 - `templates/whatsapp-secret-template.yaml` → `prod/whatsapp-secret.yaml` (Credenciais WhatsApp)
 - `templates/secret-template.yaml` → `prod/[seu-secret].yaml` (Template genérico para outros secrets)
@@ -41,6 +43,7 @@ Obrigatórios para a aplicação em `urbana-connect-hml`:
 - `prod/mongodb-secret.yaml`
 - `prod/mongodb-uri-secret.yaml`
 - `prod/whatsapp-secret.yaml`
+- `prod/gemini-secret.yaml`
 
 Opcionais neste estágio:
 
@@ -51,17 +54,17 @@ Opcionais neste estágio:
 
 1. Copie o arquivo template para o diretório `prod`:
    ```bash
-   cp templates/whatsapp-secret-template.yaml prod/whatsapp-secret.yaml
+   cp templates/gemini-secret-template.yaml prod/gemini-secret.yaml
    ```
 
 2. Edite o arquivo para incluir as credenciais reais:
    ```bash
-   vim prod/whatsapp-secret.yaml
+   vim prod/gemini-secret.yaml
    ```
 
 3. Aplique o arquivo usando kubectl:
    ```bash
-   kubectl apply -f prod/whatsapp-secret.yaml
+   kubectl apply -f prod/gemini-secret.yaml
    ```
 
 ## Aplicação na VPS
@@ -104,6 +107,7 @@ Para o MongoDB (após criar os arquivos a partir dos templates):
 ```bash
 kubectl apply -f prod/mongodb-secret.yaml
 kubectl apply -f prod/mongodb-uri-secret.yaml
+kubectl apply -f prod/gemini-secret.yaml
 kubectl apply -k ../mongodb/overlays/hml
 ```
 

@@ -69,14 +69,14 @@ class WhatsAppCloudApiGatewayTest {
                           "type": "reply",
                           "reply": {
                             "id": "YES_HELP",
-                            "title": "✅ Sim, estou precisando"
+                            "title": "Preciso de ajuda"
                           }
                         },
                         {
                           "type": "reply",
                           "reply": {
                             "id": "NO_HELP",
-                            "title": "🚫 Não, já sei o que quero"
+                            "title": "Já sei o serviço"
                           }
                         }
                       ]
