@@ -19,6 +19,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     private static final Logger log = LoggerFactory.getLogger(WhatsAppCloudApiGateway.class);
     private static final Locale BRAZILIAN_PORTUGUESE = Locale.of("pt", "BR");
+    private static final int WHATSAPP_LIST_DESCRIPTION_LIMIT = 72;
     private static final String GREETING_TEXT = "Precisando de ajuda para encontrar o serviço perfeito?";
     private static final String TERMS_OF_USE_LINK =
         "https://drive.google.com/file/d/10ZFSwmVHybvuaYTYE4lW5XspLN7tZa67/view?usp=sharing";
@@ -186,7 +187,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 .map(service -> listRow(
                     service.type().name(),
                     service.emoji() + " " + service.name(),
-                    service.scenarioText()
+                    truncateListDescription(service.scenarioText())
                 ))
                 .toList()
         );
@@ -276,6 +277,13 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 "title", title
             )
         );
+    }
+
+    private String truncateListDescription(String description) {
+        if (description == null || description.length() <= WHATSAPP_LIST_DESCRIPTION_LIMIT) {
+            return description;
+        }
+        return description.substring(0, WHATSAPP_LIST_DESCRIPTION_LIMIT - 3) + "...";
     }
 
     private String formatPrice(BigDecimal price) {
