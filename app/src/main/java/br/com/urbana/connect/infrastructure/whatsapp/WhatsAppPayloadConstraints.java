@@ -37,12 +37,18 @@ final class WhatsAppPayloadConstraints {
     }
 
     private static String truncate(String value, int limit) {
-        if (value == null || value.length() <= limit) {
+        if (value == null) {
+            return value;
+        }
+        int codePointCount = value.codePointCount(0, value.length());
+        if (codePointCount <= limit) {
             return value;
         }
         if (limit <= 3) {
-            return value.substring(0, limit);
+            int endIndex = value.offsetByCodePoints(0, limit);
+            return value.substring(0, endIndex);
         }
-        return value.substring(0, limit - 3) + "...";
+        int endIndex = value.offsetByCodePoints(0, limit - 3);
+        return value.substring(0, endIndex) + "...";
     }
 }

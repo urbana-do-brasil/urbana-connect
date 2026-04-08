@@ -28,7 +28,7 @@ class WhatsAppPayloadConstraintsTest {
     void shouldTruncateListRowTitleToMetaLimit() {
         String value = WhatsAppPayloadConstraints.listRowTitle("🛋️ Decor com um nome muito grande");
 
-        assertThat(value).hasSize(WhatsAppPayloadConstraints.LIST_ROW_TITLE_LIMIT);
+        assertThat(value.codePointCount(0, value.length())).isEqualTo(WhatsAppPayloadConstraints.LIST_ROW_TITLE_LIMIT);
         assertThat(value).endsWith("...");
     }
 
@@ -45,5 +45,13 @@ class WhatsAppPayloadConstraintsTest {
         String value = WhatsAppPayloadConstraints.textBody("Mensagem curta");
 
         assertThat(value).isEqualTo("Mensagem curta");
+    }
+
+    @Test
+    void shouldTruncateUsingCodePointsForEmojiStrings() {
+        String value = WhatsAppPayloadConstraints.listRowTitle("🛋️🛋️🛋️🛋️🛋️🛋️🛋️🛋️🛋️🛋️ espaço decorado");
+
+        assertThat(value.codePointCount(0, value.length())).isEqualTo(WhatsAppPayloadConstraints.LIST_ROW_TITLE_LIMIT);
+        assertThat(value).endsWith("...");
     }
 }
