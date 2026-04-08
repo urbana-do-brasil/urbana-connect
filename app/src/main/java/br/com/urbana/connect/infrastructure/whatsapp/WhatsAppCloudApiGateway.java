@@ -169,8 +169,8 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 "body", Map.of("text", GREETING_TEXT),
                 ACTION, Map.of(
                     BUTTONS, List.of(
-                        replyButton("YES_HELP", "✅ Sim, estou precisando"),
-                        replyButton("NO_HELP", "🚫 Não, já sei o que quero")
+                        replyButton("YES_HELP", "Preciso de ajuda"),
+                        replyButton("NO_HELP", "Já sei o serviço")
                     )
                 )
             )

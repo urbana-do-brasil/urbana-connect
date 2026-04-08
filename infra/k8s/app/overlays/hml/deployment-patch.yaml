@@ -17,6 +17,8 @@ spec:
             - secretRef:
                 name: urbana-connect-whatsapp
             - secretRef:
+                name: urbana-connect-ai
+            - secretRef:
                 name: urbana-connect-smtp
           readinessProbe:
             httpGet:
