@@ -12,10 +12,10 @@ required_files=(
   "mongodb-secret.yaml"
   "mongodb-uri-secret.yaml"
   "whatsapp-secret.yaml"
+  "gemini-secret.yaml"
 )
 
 optional_files=(
-  "openai-secret.yaml"
   "grafana-admin-secret.yaml"
 )
 
@@ -24,6 +24,7 @@ required_secrets=(
   "urbana-connect-mongodb"
   "urbana-connect-mongodb-uri"
   "urbana-connect-whatsapp"
+  "urbana-connect-ai"
 )
 
 if ! command -v kubectl >/dev/null 2>&1; then

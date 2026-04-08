@@ -87,6 +87,8 @@ jobs:
           kubectl get secret container-registry-credentials -n urbana-connect-hml >/dev/null
           kubectl get secret urbana-connect-mongodb-uri -n urbana-connect-hml >/dev/null
           kubectl get secret urbana-connect-whatsapp -n urbana-connect-hml >/dev/null
+          kubectl get secret urbana-connect-ai -n urbana-connect-hml >/dev/null
+          kubectl get secret urbana-connect-smtp -n urbana-connect-hml >/dev/null
 
       - name: Atualizar tag da overlay de homolog
         run: |
