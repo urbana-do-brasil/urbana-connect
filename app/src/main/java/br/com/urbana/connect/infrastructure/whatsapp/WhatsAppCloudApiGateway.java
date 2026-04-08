@@ -19,7 +19,6 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     private static final Logger log = LoggerFactory.getLogger(WhatsAppCloudApiGateway.class);
     private static final Locale BRAZILIAN_PORTUGUESE = Locale.of("pt", "BR");
-    private static final int WHATSAPP_LIST_DESCRIPTION_LIMIT = 72;
     private static final String GREETING_TEXT = "Precisando de ajuda para encontrar o serviço perfeito?";
     private static final String TERMS_OF_USE_LINK =
         "https://drive.google.com/file/d/10ZFSwmVHybvuaYTYE4lW5XspLN7tZa67/view?usp=sharing";
@@ -81,7 +80,9 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, BUTTON,
-                "body", Map.of("text", "Você irá realizar o pagamento via PIX ou cartão de crédito?"),
+                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(
+                    "Você irá realizar o pagamento via PIX ou cartão de crédito?"
+                )),
                 ACTION, Map.of(
                     BUTTONS, List.of(
                         replyButton("PAYMENT_PIX", "PIX"),
@@ -167,7 +168,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, BUTTON,
-                "body", Map.of("text", GREETING_TEXT),
+                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(GREETING_TEXT)),
                 ACTION, Map.of(
                     BUTTONS, List.of(
                         replyButton("YES_HELP", "Preciso de ajuda"),
@@ -187,7 +188,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 .map(service -> listRow(
                     service.type().name(),
                     service.emoji() + " " + service.name(),
-                    truncateListDescription(service.scenarioText())
+                    service.scenarioText()
                 ))
                 .toList()
         );
@@ -221,11 +222,11 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, BUTTON,
-                "body", Map.of("text", body),
+                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(body)),
                 ACTION, Map.of(
                     BUTTONS, List.of(
-                        replyButton("CONFIRM_SERVICE", "✅ Sim, acertou em cheio"),
-                        replyButton("RESELECT_SERVICE", "🚫 Não, foi quase")
+                        replyButton("CONFIRM_SERVICE", "Sim, é isso"),
+                        replyButton("RESELECT_SERVICE", "Não, refazer")
                     )
                 )
             )
@@ -237,7 +238,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
             TYPE, "text",
-            "text", Map.of("body", body)
+            "text", Map.of("body", WhatsAppPayloadConstraints.textBody(body))
         );
     }
 
@@ -252,9 +253,9 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, "list",
-                "body", Map.of("text", bodyText),
+                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(bodyText)),
                 ACTION, Map.of(
-                    BUTTON, buttonText,
+                    BUTTON, WhatsAppPayloadConstraints.listButtonText(buttonText),
                     "sections", List.of(Map.of("rows", rows))
                 )
             )
@@ -264,8 +265,8 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     private Map<String, Object> listRow(String id, String title, String description) {
         return Map.of(
             "id", id,
-            "title", title,
-            "description", description
+            "title", WhatsAppPayloadConstraints.listRowTitle(title),
+            "description", WhatsAppPayloadConstraints.listRowDescription(description)
         );
     }
 
@@ -274,16 +275,9 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             TYPE, "reply",
             "reply", Map.of(
                 "id", id,
-                "title", title
+                "title", WhatsAppPayloadConstraints.replyButtonTitle(title)
             )
         );
-    }
-
-    private String truncateListDescription(String description) {
-        if (description == null || description.length() <= WHATSAPP_LIST_DESCRIPTION_LIMIT) {
-            return description;
-        }
-        return description.substring(0, WHATSAPP_LIST_DESCRIPTION_LIMIT - 3) + "...";
     }
 
     private String formatPrice(BigDecimal price) {

@@ -161,14 +161,14 @@ class WhatsAppCloudApiGatewayTest {
                           "type": "reply",
                           "reply": {
                             "id": "CONFIRM_SERVICE",
-                            "title": "✅ Sim, acertou em cheio"
+                            "title": "Sim, é isso"
                           }
                         },
                         {
                           "type": "reply",
                           "reply": {
                             "id": "RESELECT_SERVICE",
-                            "title": "🚫 Não, foi quase"
+                            "title": "Não, refazer"
                           }
                         }
                       ]
@@ -308,6 +308,39 @@ class WhatsAppCloudApiGatewayTest {
 
         server.verify();
     }
+
+    @Test
+    void shouldTruncateOverlongGuidedTriageFieldsToMetaLimits() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(builder.build(), "phone-number-id", "access-token");
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(header("Authorization", "Bearer access-token"))
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().string(containsString("\"button\":\"Ver opções\"")))
+            .andExpect(content().string(containsString("\"title\":\"X Decor com um nome m...\"")))
+            .andExpect(content().string(containsString(
+                "\"description\":\"Quero renovar meu espaço interno sem gastar muito, nada de quebra-que...\""
+            )))
+            .andRespond(withSuccess());
+
+        gateway.sendGuidedTriageOptions("+5583999999999", List.of(new ServiceCatalogItem(
+            ServiceType.DECOR,
+            "Decor com um nome muito grande",
+            "X",
+            "Quero renovar meu espaço interno sem gastar muito, nada de quebra-quebra.",
+            "Apresentação",
+            new BigDecimal("400.00"),
+            "https://mpago.la/1TbJFYx",
+            "https://forms.gle/W4zBPwusPZeJ2cnD7",
+            true
+        )));
+
+        server.verify();
+    }
+
     private ServiceCatalogItem decor() {
         return new ServiceCatalogItem(
             ServiceType.DECOR,
