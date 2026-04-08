@@ -10,8 +10,9 @@ class WhatsAppPayloadConstraintsTest {
     void shouldTruncateReplyButtonTitleToMetaLimit() {
         String value = WhatsAppPayloadConstraints.replyButtonTitle("✅ Sim, acertou em cheio");
 
-        assertThat(value).isEqualTo("✅ Sim, acertou em...");
-        assertThat(value).hasSize(WhatsAppPayloadConstraints.REPLY_BUTTON_TITLE_LIMIT);
+        assertThat(value)
+            .isEqualTo("✅ Sim, acertou em...")
+            .hasSize(WhatsAppPayloadConstraints.REPLY_BUTTON_TITLE_LIMIT);
     }
 
     @Test
@@ -20,8 +21,9 @@ class WhatsAppPayloadConstraintsTest {
             "Quero renovar meu espaço interno sem gastar muito, nada de quebra-quebra."
         );
 
-        assertThat(value).isEqualTo("Quero renovar meu espaço interno sem gastar muito, nada de quebra-que...");
-        assertThat(value).hasSize(WhatsAppPayloadConstraints.LIST_ROW_DESCRIPTION_LIMIT);
+        assertThat(value)
+            .isEqualTo("Quero renovar meu espaço interno sem gastar muito, nada de quebra-que...")
+            .hasSize(WhatsAppPayloadConstraints.LIST_ROW_DESCRIPTION_LIMIT);
     }
 
     @Test
@@ -36,8 +38,9 @@ class WhatsAppPayloadConstraintsTest {
     void shouldTruncateInteractiveBodyTextToMetaLimit() {
         String value = WhatsAppPayloadConstraints.interactiveBodyText("x".repeat(1100));
 
-        assertThat(value).hasSize(WhatsAppPayloadConstraints.INTERACTIVE_BODY_TEXT_LIMIT);
-        assertThat(value).endsWith("...");
+        assertThat(value)
+            .hasSize(WhatsAppPayloadConstraints.INTERACTIVE_BODY_TEXT_LIMIT)
+            .endsWith("...");
     }
 
     @Test
