@@ -19,7 +19,14 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     private static final Logger log = LoggerFactory.getLogger(WhatsAppCloudApiGateway.class);
     private static final Locale BRAZILIAN_PORTUGUESE = Locale.of("pt", "BR");
-    private static final String GREETING_TEXT = "Precisando de ajuda para encontrar o serviço perfeito?";
+    private static final String GREETING_TEXT =
+        "Olá! Tudo bem?\n\n"
+            + "Nossas boas-vindas! 💜\n\n"
+            + "Sou a Urba e irei te atender hoje. 😃\n\n"
+            + "Precisa de ajuda para encontrar o serviço perfeito para você?";
+    private static final String DIRECT_TRIAGE_TEXT =
+        "Show! Você já sabe o serviço que deseja. 😄\n\n"
+            + "Então conta pra gente, para qual opção deseja atendimento:";
     private static final String TERMS_OF_USE_LINK =
         "https://drive.google.com/file/d/10ZFSwmVHybvuaYTYE4lW5XspLN7tZa67/view?usp=sharing";
     private static final String MESSAGING_PRODUCT = "messaging_product";
@@ -62,13 +69,26 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
     @Override
     public void sendTermsOfUse(String phoneNumber) {
-        sendPayload(textPayload(
-            phoneNumber,
-            "Pra gente iniciar a Decor, o último check é no nosso Termo de Uso 🤝.\n\n"
-                + "Assim deixamos tudo transparente e zero dor de cabeça.\n\n"
-                + "Dá uma olhadinha nele: 👇🏾\n\n"
-                + TERMS_OF_USE_LINK
-                + "\n\nDepois da leitura, é só nos responder com a palavra \"Aceito\" e vamos lá começar os trabalhos! 🚀"
+        sendPayload(Map.of(
+            MESSAGING_PRODUCT, WHATSAPP,
+            "to", phoneNumber,
+            TYPE, INTERACTIVE,
+            INTERACTIVE, Map.of(
+                TYPE, BUTTON,
+                "body", Map.of("text",
+                    "Pra gente iniciar a Decor, o último check é no nosso Termo de Uso 🤝🏾.\n\n"
+                        + "Assim deixamos tudo transparente e zero dor de cabeça.\n\n"
+                        + "Dá uma olhadinha nele: 👇🏾\n\n"
+                        + TERMS_OF_USE_LINK
+                        + "\n\nDepois da leitura, você aceita seguir com o termo?"
+                ),
+                ACTION, Map.of(
+                    BUTTONS, List.of(
+                        replyButton("TERMS_ACCEPT", "Sim"),
+                        replyButton("TERMS_DECLINE", "Não")
+                    )
+                )
+            )
         ), phoneNumber, "TERMS_OF_USE");
     }
 
@@ -172,7 +192,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 ACTION, Map.of(
                     BUTTONS, List.of(
                         replyButton("YES_HELP", "Preciso de ajuda"),
-                        replyButton("NO_HELP", "Já sei o serviço")
+                        replyButton("NO_HELP", "Já sei o que quero")
                     )
                 )
             )
@@ -197,7 +217,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     private Map<String, Object> buildDirectTriagePayload(String phoneNumber, List<ServiceCatalogItem> availableServices) {
         return interactiveListPayload(
             phoneNumber,
-            "Então conta pra gente, para qual opção deseja atendimento:",
+            DIRECT_TRIAGE_TEXT,
             "Ver serviços",
             availableServices.stream()
                 .map(service -> listRow(

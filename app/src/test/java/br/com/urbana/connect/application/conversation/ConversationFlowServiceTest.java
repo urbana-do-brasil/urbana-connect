@@ -119,6 +119,24 @@ class ConversationFlowServiceTest {
     }
 
     @Test
+    void shouldMoveAwaitingTermsToPaymentMethodWhenCustomerAcceptsTermsByButton() {
+        Instant now = Instant.parse("2026-04-06T10:11:00Z");
+        String phoneNumber = "+5583770000000";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(180))
+            .selectService(ServiceType.DECOR, ConversationStep.AWAITING_TERMS, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "TERMS_ACCEPT"),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
+        verify(whatsAppMessageGateway).sendPaymentMethodOptions(phoneNumber);
+    }
+
+    @Test
     void shouldRepeatCurrentStepWhenAiReturnsUnknown() {
         Instant now = Instant.parse("2026-04-06T10:15:00Z");
         String phoneNumber = "+5583666666666";
@@ -134,6 +152,24 @@ class ConversationFlowServiceTest {
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
         verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), any());
+    }
+
+    @Test
+    void shouldRepeatTermsWhenCustomerDeclinesTermsByButton() {
+        Instant now = Instant.parse("2026-04-06T10:16:00Z");
+        String phoneNumber = "+5583660000000";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(180))
+            .selectService(ServiceType.DECOR, ConversationStep.AWAITING_TERMS, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "TERMS_DECLINE"),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
+        verify(whatsAppMessageGateway).sendTermsOfUse(phoneNumber);
     }
 
     @Test

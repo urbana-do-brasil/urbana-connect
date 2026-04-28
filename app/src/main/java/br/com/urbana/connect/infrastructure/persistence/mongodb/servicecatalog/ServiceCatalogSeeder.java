@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Objects;
 
 @Component
 public class ServiceCatalogSeeder implements ApplicationRunner {
@@ -20,9 +21,9 @@ public class ServiceCatalogSeeder implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         for (ServiceCatalogDocument service : initialCatalog()) {
-            if (!repository.existsByType(service.getType())) {
-                repository.save(service);
-            }
+            repository.findByType(service.getType())
+                .map(existing -> merge(existing, service))
+                .ifPresentOrElse(repository::save, () -> repository.save(service));
         }
     }
 
@@ -33,7 +34,9 @@ public class ServiceCatalogSeeder implements ApplicationRunner {
                 "Decor",
                 "🛋️",
                 "Quero renovar meu espaço interno sem gastar muito, nada de quebra-quebra.",
-                "Para espaços de até 20m², temos a Decor 🛋️\n\nCriamos uma solução de espaço, de acordo com seu estilo e orçamento.",
+                "Para espaços de até 20m², temos a Decor 🛋️\n\n"
+                    + "Criamos uma solução de espaço, de acordo com seu estilo e orçamento.\n\n"
+                    + "Inclusive, se você coloca a mão na massa, para economizar, criamos uma solução faça você mesmo, com vídeos e tutoriais.",
                 new BigDecimal("400.00"),
                 true), "https://mpago.la/1TbJFYx", "https://forms.gle/W4zBPwusPZeJ2cnD7"),
             withLinks(service(
@@ -41,7 +44,9 @@ public class ServiceCatalogSeeder implements ApplicationRunner {
                 "Decor Pintura",
                 "🎨",
                 "Quero renovar meu espaço com uma pintura, nada de quebra-quebra.",
-                "Para renovar gastando pouco, com tintas e estilo, temos a Decor Pintura 🎨\n\nCriamos uma solução de pintura para o seu espaço, com todos os detalhes para você ou seu pintor.",
+                "Para renovar gastando pouco, com tintas e estilo, temos a Decor Pintura 🎨\n\n"
+                    + "Criamos uma solução de pintura para o seu espaço, com todos os detalhes para você ou seu pintor.\n\n"
+                    + "E, se você topa colocar a mão na massa, enviamos nosso manual de pintura didático, com links e tutoriais.",
                 new BigDecimal("250.00"),
                 true), "https://mpago.la/32aNZUw", "https://forms.gle/6FWqQCxmUxVKc6xG7"),
             withLinks(service(
@@ -89,5 +94,28 @@ public class ServiceCatalogSeeder implements ApplicationRunner {
         document.setPaymentLink(paymentLink);
         document.setBriefingLink(briefingLink);
         return document;
+    }
+
+    private ServiceCatalogDocument merge(ServiceCatalogDocument existing, ServiceCatalogDocument seed) {
+        existing.setName(seed.getName());
+        existing.setEmoji(seed.getEmoji());
+        existing.setScenarioText(seed.getScenarioText());
+        existing.setPresentationText(seed.getPresentationText());
+        existing.setPrice(seed.getPrice());
+
+        if (isBlank(existing.getPaymentLink())) {
+            existing.setPaymentLink(seed.getPaymentLink());
+        }
+        if (isBlank(existing.getBriefingLink())) {
+            existing.setBriefingLink(seed.getBriefingLink());
+        }
+        if (!existing.isAvailable() && seed.isAvailable() && Objects.equals(existing.getPaymentLink(), seed.getPaymentLink())) {
+            existing.setAvailable(true);
+        }
+        return existing;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }
