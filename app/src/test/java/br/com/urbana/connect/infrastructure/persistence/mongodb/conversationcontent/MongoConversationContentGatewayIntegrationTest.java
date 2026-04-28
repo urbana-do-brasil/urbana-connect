@@ -43,7 +43,7 @@ class MongoConversationContentGatewayIntegrationTest {
     }
 
     @Test
-    void shouldKeepExistingConversationContentValueWhenSeederRuns() throws Exception {
+    void shouldKeepExistingConversationContentValueWhenSeederRuns() {
         ConversationContentDocument existing = repository.findByKey(ConversationContentKey.CLOSING_TEXT).orElseThrow();
         existing.setValue("copy customizada");
         existing.setUpdatedAt(Instant.parse("2026-04-28T12:00:00Z"));

@@ -30,6 +30,8 @@ import java.util.regex.Pattern;
 @Service
 public class ConversationFlowService {
 
+    private static final String NO_TEXT_FALLBACK = "sem texto";
+
     private static final Logger log = LoggerFactory.getLogger(ConversationFlowService.class);
     private static final Pattern HUMAN_HANDOFF_PATTERN = Pattern.compile(
         "(\\bhumano\\b|falar com algu[eé]m|atendimento humano|atendente|pessoa real)"
@@ -673,18 +675,18 @@ public class ConversationFlowService {
         if (inboundMessage.interactiveReplyTitle() != null && !inboundMessage.interactiveReplyTitle().isBlank()) {
             return inboundMessage.interactiveReplyTitle();
         }
-        return blankToDefault(inboundMessage.interactiveReplyId(), "sem texto");
+        return blankToDefault(inboundMessage.interactiveReplyId(), NO_TEXT_FALLBACK);
     }
 
     private List<String> buildRecentMessagesForHandoff(String conversationId) {
         return conversationMessageGateway.findRecentByConversationId(conversationId, 5).stream()
-            .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), "sem texto")))
+            .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), NO_TEXT_FALLBACK)))
             .toList();
     }
 
     private String buildConversationHistory(String conversationId) {
         return conversationMessageGateway.findRecentByConversationId(conversationId, 10).stream()
-            .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), "sem texto")))
+            .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), NO_TEXT_FALLBACK)))
             .reduce((left, right) -> left + "\n" + right)
             .orElse("");
     }

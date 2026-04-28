@@ -407,10 +407,16 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     }
 
     private String defaultTermsText() {
-        return "Pra gente iniciar a Decor, o último check é no nosso Termo de Uso 🤝🏾.\n\n"
-            + "Assim deixamos tudo transparente e zero dor de cabeça.\n\n"
-            + "Dá uma olhadinha nele: 👇🏾\n\n"
-            + "{{TERMS_LINK}}\n\n"
-            + "Depois da leitura, você aceita seguir com o termo?";
+        return """
+            Pra gente iniciar a Decor, o último check é no nosso Termo de Uso 🤝🏾.
+
+            Assim deixamos tudo transparente e zero dor de cabeça.
+
+            Dá uma olhadinha nele: 👇🏾
+
+            {{TERMS_LINK}}
+
+            Depois da leitura, você aceita seguir com o termo?
+            """.stripIndent();
     }
 }
