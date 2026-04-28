@@ -326,6 +326,30 @@ public class ConversationFlowService {
             Conversation conversation,
             InboundWhatsAppMessage inboundMessage,
             Instant receivedAt) {
+        if ("TERMS_ACCEPT".equals(inboundMessage.interactiveReplyId())) {
+            Conversation updated = saveTransition(
+                conversation,
+                conversation.moveTo(ConversationStep.AWAITING_PAYMENT_METHOD, receivedAt),
+                inboundMessage.phoneNumber(),
+                "terms_accepted_button"
+            );
+            sendSafely(
+                inboundMessage.phoneNumber(),
+                updated.currentStep(),
+                () -> whatsAppMessageGateway.sendPaymentMethodOptions(inboundMessage.phoneNumber())
+            );
+            return updated;
+        }
+
+        if ("TERMS_DECLINE".equals(inboundMessage.interactiveReplyId())) {
+            sendSafely(
+                inboundMessage.phoneNumber(),
+                conversation.currentStep(),
+                () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
+            );
+            return conversation;
+        }
+
         if (containsTermsAcceptance(inboundMessage.textBody())
                 || interpret(conversation, inboundMessage, List.of()).intent() == IntentType.TERMS_ACCEPTANCE) {
             Conversation updated = saveTransition(

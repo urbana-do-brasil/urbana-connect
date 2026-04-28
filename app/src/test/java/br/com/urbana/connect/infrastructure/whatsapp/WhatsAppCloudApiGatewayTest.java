@@ -61,7 +61,7 @@ class WhatsAppCloudApiGatewayTest {
                   "interactive": {
                     "type": "button",
                     "body": {
-                      "text": "Precisando de ajuda para encontrar o serviço perfeito?"
+                      "text": "Olá! Tudo bem?\\n\\nNossas boas-vindas! 💜\\n\\nSou a Urba e irei te atender hoje. 😃\\n\\nPrecisa de ajuda para encontrar o serviço perfeito para você?"
                     },
                     "action": {
                       "buttons": [
@@ -76,7 +76,7 @@ class WhatsAppCloudApiGatewayTest {
                           "type": "reply",
                           "reply": {
                             "id": "NO_HELP",
-                            "title": "Já sei o serviço"
+                            "title": "Já sei o que quero"
                           }
                         }
                       ]
@@ -153,7 +153,7 @@ class WhatsAppCloudApiGatewayTest {
                   "interactive": {
                     "type": "button",
                     "body": {
-                      "text": "Acho que encontramos o serviço certo para você! 😃\\n\\nPara espaços de até 20m², temos a Decor 🛋️\\n\\nCriamos uma solução de espaço, de acordo com seu estilo e orçamento.\\n\\nR$ 400,00 por ambiente\\n\\nEra isso que você estava buscando?"
+                      "text": "Acho que encontramos o serviço certo para você! 😃\\n\\nPara espaços de até 20m², temos a Decor 🛋️\\n\\nCriamos uma solução de espaço, de acordo com seu estilo e orçamento.\\n\\nInclusive, se você coloca a mão na massa, para economizar, criamos uma solução faça você mesmo, com vídeos e tutoriais.\\n\\nR$ 400,00 por ambiente\\n\\nEra isso que você estava buscando?"
                     },
                     "action": {
                       "buttons": [
@@ -193,10 +193,14 @@ class WhatsAppCloudApiGatewayTest {
             .andExpect(method(HttpMethod.POST))
             .andExpect(header("Authorization", "Bearer access-token"))
             .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-            .andExpect(content().string(containsString("\"type\":\"text\"")))
+            .andExpect(content().string(containsString("\"type\":\"interactive\"")))
             .andExpect(content().string(containsString("o último check é no nosso Termo de Uso")))
             .andExpect(content().string(containsString("Dá uma olhadinha nele")))
-            .andExpect(content().string(containsString("é só nos responder com a palavra \\\"Aceito\\\"")))
+            .andExpect(content().string(containsString("você aceita seguir com o termo?")))
+            .andExpect(content().string(containsString("\"id\":\"TERMS_ACCEPT\"")))
+            .andExpect(content().string(containsString("\"title\":\"Sim\"")))
+            .andExpect(content().string(containsString("\"id\":\"TERMS_DECLINE\"")))
+            .andExpect(content().string(containsString("\"title\":\"Não\"")))
             .andRespond(withSuccess());
 
         gateway.sendTermsOfUse("+5583999999999");
@@ -347,7 +351,7 @@ class WhatsAppCloudApiGatewayTest {
             "Decor",
             "🛋️",
             "Quero renovar meu espaço interno sem gastar muito, nada de quebra-quebra.",
-            "Para espaços de até 20m², temos a Decor 🛋️\n\nCriamos uma solução de espaço, de acordo com seu estilo e orçamento.",
+            "Para espaços de até 20m², temos a Decor 🛋️\n\nCriamos uma solução de espaço, de acordo com seu estilo e orçamento.\n\nInclusive, se você coloca a mão na massa, para economizar, criamos uma solução faça você mesmo, com vídeos e tutoriais.",
             new BigDecimal("400.00"),
             "https://mpago.la/1TbJFYx",
             "https://forms.gle/W4zBPwusPZeJ2cnD7",

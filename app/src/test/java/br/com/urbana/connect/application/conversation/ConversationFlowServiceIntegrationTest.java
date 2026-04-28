@@ -308,6 +308,38 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
+    void shouldMoveToAwaitingPaymentMethodWhenCustomerAcceptsTermsByButton() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583111212121";
+
+        advanceToAwaitingTerms(phoneNumber, now);
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "TERMS_ACCEPT"),
+            now.plusSeconds(240)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
+        verify(whatsAppMessageGateway).sendPaymentMethodOptions(phoneNumber);
+    }
+
+    @Test
+    void shouldKeepAwaitingTermsWhenCustomerDeclinesTermsByButton() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583111313131";
+
+        advanceToAwaitingTerms(phoneNumber, now);
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "TERMS_DECLINE"),
+            now.plusSeconds(240)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
+        verify(whatsAppMessageGateway, times(2)).sendTermsOfUse(phoneNumber);
+    }
+
+    @Test
     void shouldMoveToAwaitingPaymentMethodWhenAiInterpretsTermsAcceptance() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583110000000";
