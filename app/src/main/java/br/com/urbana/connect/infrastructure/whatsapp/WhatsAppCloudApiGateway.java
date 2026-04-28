@@ -75,13 +75,13 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, BUTTON,
-                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(
+                "body", Map.of("text",
                     "Pra gente iniciar a Decor, o último check é no nosso Termo de Uso 🤝🏾.\n\n"
                         + "Assim deixamos tudo transparente e zero dor de cabeça.\n\n"
                         + "Dá uma olhadinha nele: 👇🏾\n\n"
                         + TERMS_OF_USE_LINK
                         + "\n\nDepois da leitura, você aceita seguir com o termo?"
-                )),
+                ),
                 ACTION, Map.of(
                     BUTTONS, List.of(
                         replyButton("TERMS_ACCEPT", "Sim"),
