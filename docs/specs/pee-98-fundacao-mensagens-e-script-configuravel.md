@@ -59,6 +59,7 @@ Definir e implementar a base estrutural para que a Urba:
 - externalização da copy principal usada no fluxo conversacional;
 - adaptação do handoff humano para consumir contexto real vindo do histórico persistido;
 - leitura do conteúdo textual da Urba via banco, com fallback controlado quando necessário;
+- leitura do conteúdo textual da Urba sem cache nesta etapa, deixando invalidação/caching para uma fase futura com API administrativa;
 - documentação do contrato de dados e do comportamento esperado antes da implementação final.
 
 ### Fora do escopo imediato
@@ -200,11 +201,14 @@ Não deve absorver:
 3. Dado que a entrada do cliente vier por botão ou lista, quando a mensagem for persistida, então o sistema deve guardar `interactiveReplyId` para preservar o contexto operacional da escolha.
 4. Dado que uma conversa esteja em andamento, quando mensagens forem persistidas, então `conversations` deve continuar representando apenas o estado resumido da jornada, sem incorporar o transcript completo.
 5. Dado que o handoff humano seja solicitado, quando o sistema notificar a equipe, então ele deve usar o histórico recente persistido para compor contexto melhor do que apenas a última mensagem recebida.
-6. Dado que a Urba precise enviar copy operacional do fluxo, quando o conteúdo correspondente existir em `conversation_content`, então o sistema deve lê-lo do banco em vez de usar constante hardcoded.
-7. Dado que uma chave de conteúdo configurável esteja ausente ou inválida, quando o sistema precisar responder ao cliente, então ele deve aplicar fallback controlado para uma copy segura e observável, sem quebrar o fluxo.
-8. Dado que novos ajustes de script/persona sejam necessários, quando os textos forem alterados na persistência de conteúdo, então a Urba deve conseguir refletir essas alterações sem necessidade de novo deploy.
-9. Dado o plano futuro de inbox humana, quando o modelo for implementado, então ele deve permitir distinguir claramente mensagens do usuário, do bot e de humano futuro usando `senderType`.
-10. Dado que a interface gráfica não faz parte desta etapa, quando esta subtarefa for concluída, então o sistema ainda não precisa ter UI própria, mas a base de dados deve estar preparada para ela.
+6. Dado que o handoff humano nesta etapa funciona apenas como notificação operacional, quando o contexto for enviado por e-mail, então ele deve incluir as últimas 5 mensagens da conversa, sem sumarização por IA nesta fase.
+7. Dado que a Urba precise enviar copy operacional do fluxo, quando o conteúdo correspondente existir em `conversation_content`, então o sistema deve lê-lo do banco em vez de usar constante hardcoded.
+8. Dado que uma chave de conteúdo configurável esteja ausente ou inválida, quando o sistema precisar responder ao cliente, então ele deve aplicar fallback controlado para uma copy segura e observável, sem quebrar o fluxo.
+9. Dado que novos ajustes de script/persona sejam necessários, quando os textos forem alterados na persistência de conteúdo, então a Urba deve conseguir refletir essas alterações sem necessidade de novo deploy.
+10. Dado que a PEE-98 não terá API administrativa nesta fase, quando o conteúdo configurável precisar ser alterado, então a atualização poderá ser feita diretamente no banco mantendo um schema preparado para futura API.
+11. Dado que a PEE-98 não terá cache de conteúdo nesta fase, quando uma copy configurável for alterada no banco, então a Urba deve refletir a alteração sem depender de invalidação em memória.
+12. Dado o plano futuro de inbox humana, quando o modelo for implementado, então ele deve permitir distinguir claramente mensagens do usuário, do bot e de humano futuro usando `senderType`.
+13. Dado que a interface gráfica não faz parte desta etapa, quando esta subtarefa for concluída, então o sistema ainda não precisa ter UI própria, mas a base de dados deve estar preparada para ela.
 
 ---
 
@@ -214,7 +218,9 @@ Não deve absorver:
 - O sistema persiste mensagens inbound e outbound com campos mínimos suficientes para leitura operacional futura.
 - O contrato de dados diferencia `direction`, `senderType` e `messageType`.
 - O handoff humano passa a ter caminho claro para usar histórico real da conversa.
+- O handoff humano desta etapa usa as últimas 5 mensagens como contexto operacional.
 - A copy operacional principal da Urba deixa de depender exclusivamente de constantes hardcoded.
+- Não existe cache de conteúdo configurável nesta fase inicial.
 - A aplicação mantém a state machine em código nesta etapa.
 - O desenho final evita acoplamento indevido entre estado da conversa, transcript e conteúdo configurável.
 - A spec deixa explícito o que é fundação desta etapa e o que permanece fora do escopo.
@@ -228,7 +234,7 @@ Não deve absorver:
 - erro ao persistir mensagem outbound depois do envio;
 - conteúdo configurável ausente para uma chave obrigatória;
 - conteúdo configurável presente, mas vazio;
-- histórico muito grande para ser enviado integralmente em handoff humano;
+- histórico maior do que o necessário para handoff humano;
 - duplicidade de mensagem recebida pelo webhook;
 - mensagens técnicas ou automáticas da plataforma que não devam entrar como mensagem exibível para operador humano;
 - migração de conversas antigas que ainda não possuem histórico persistido.
@@ -253,6 +259,8 @@ Não deve absorver:
 - testes de fluxo garantindo que persistência de mensagens não quebra a state machine;
 - testes de fallback para conteúdo ausente;
 - testes de handoff usando histórico recente persistido.
+- testes de estresse para validar onde o fluxo começa a degradar quando receber entradas inesperadas, payloads incompletos ou sequências anômalas.
+- testes de estresse do fluxo com foco em mensagens inesperadas e limites do contrato persistido.
 
 ### Smoke/manual validation
 
@@ -260,6 +268,7 @@ Não deve absorver:
 - validar que mensagens outbound da Urba também aparecem no histórico;
 - alterar uma copy configurável em homolog e confirmar reflexo sem rebuild;
 - solicitar handoff humano e verificar contexto enriquecido.
+- alterar uma copy configurável diretamente no banco e confirmar reflexo imediato sem camada de cache.
 
 ---
 
@@ -282,10 +291,24 @@ Objetivo da sequência:
 
 ---
 
-## 10. Dúvidas em Aberto
+## 10. Decisões Confirmadas
 
-- quantas mensagens recentes devem compor o contexto padrão de handoff humano?
-- `metadata` deve guardar somente contexto normalizado ou parte controlada do payload original da Meta?
-- a edição de conteúdo configurável será feita inicialmente por acesso direto ao banco ou já precisamos prever endpoint administrativo simples?
-- o carregamento de conteúdo configurável deve ser consultado a cada uso ou pode ter cache curto em memória?
-- quais textos entram já nesta primeira extração para banco e quais podem permanecer temporariamente em fallback?
+- o handoff humano desta etapa é apenas um gatilho operacional para o humano assumir depois pela interface futura; por isso, nesta fase, o e-mail deve carregar as últimas 5 mensagens e não uma síntese feita por IA;
+- `metadata` deve guardar somente campos úteis e extraídos, evitando persistir payload bruto sem necessidade;
+- a edição inicial do conteúdo configurável será feita diretamente no banco, com schema preparado para futura API administrativa;
+- não haverá cache de conteúdo configurável nesta primeira fase; a leitura deve refletir imediatamente alterações salvas no banco;
+- a primeira extração prioritária para banco deve cobrir:
+  - `GREETING_TEXT`
+  - `DIRECT_TRIAGE_TEXT`
+  - `GUIDED_TRIAGE_PROMPT`
+  - `TERMS_TEXT`
+  - `PAYMENT_METHOD_TEXT`
+  - `CLOSING_TEXT`
+  - `HUMAN_HANDOFF_ACK`
+  - `FALLBACK_UNKNOWN_INPUT`
+
+## 11. Observações Futuras
+
+- sumarização por IA para handoff humano pode ser considerada depois, quando houver necessidade real e UI própria consolidada;
+- cache em memória pode entrar numa fase futura, preferencialmente junto de uma API administrativa que ofereça gatilho claro para invalidação;
+- vale manter teste de estresse da modelagem desde cedo para reduzir risco de acoplamento errado antes do rollout maior.
