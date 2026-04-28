@@ -1,13 +1,16 @@
 package br.com.urbana.connect.application.conversation;
 
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.conversation.ConversationDocument;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.conversationmessage.ConversationMessageDocument;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog.ServiceCatalogDocument;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,6 +39,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -67,6 +71,9 @@ class ConversationFlowServiceIntegrationTest {
     @MockitoBean
     private HumanHandoffGateway humanHandoffGateway;
 
+    @Autowired
+    private ConversationMessageGateway conversationMessageGateway;
+
     @BeforeEach
     void setUp() {
         doReturn(AiInterpretation.unknown()).when(aiGateway).interpret(any());
@@ -85,6 +92,58 @@ class ConversationFlowServiceIntegrationTest {
         assertThat(conversation.currentStep()).isEqualTo(ConversationStep.GREETING);
         assertThat(countByPhoneNumber(phoneNumber)).isEqualTo(1);
         verify(whatsAppMessageGateway).sendGreeting(phoneNumber);
+    }
+
+    @Test
+    void shouldPersistInboundMessageWhenWebhookFlowStartsConversation() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583111111111";
+
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "oi", "", "", "text", "wamid-1"),
+            now
+        );
+
+        assertThat(mongoTemplate.findAll(ConversationMessageDocument.class))
+            .extracting(ConversationMessageDocument::getRawText)
+            .contains("oi");
+    }
+
+    @Test
+    void shouldIgnoreDuplicateInboundWebhookByProviderMessageId() {
+        Instant now = Instant.parse("2026-04-05T09:02:00Z");
+        String phoneNumber = "+5583111222333";
+
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "oi", "", "", "text", "wamid-duplicate-1"),
+            now
+        );
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "oi", "", "", "text", "wamid-duplicate-1"),
+            now.plusSeconds(5)
+        );
+
+        assertThat(mongoTemplate.findAll(ConversationMessageDocument.class))
+            .filteredOn(message -> "wamid-duplicate-1".equals(message.getProviderMessageId()))
+            .hasSize(1);
+        verify(whatsAppMessageGateway, times(1)).sendGreeting(phoneNumber);
+    }
+
+    @Test
+    void shouldPersistInboundListReplyWithInteractiveListType() {
+        Instant now = Instant.parse("2026-04-05T09:03:00Z");
+        String phoneNumber = "+5583111444555";
+
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "DECOR", "Decor", "list_reply", "wamid-list-1"),
+            now
+        );
+
+        assertThat(mongoTemplate.findAll(ConversationMessageDocument.class))
+            .filteredOn(message -> "wamid-list-1".equals(message.getProviderMessageId()))
+            .singleElement()
+            .extracting(ConversationMessageDocument::getMessageType)
+            .isEqualTo(ConversationMessageType.INTERACTIVE_LIST);
     }
 
     @Test

@@ -1,5 +1,12 @@
 package br.com.urbana.connect.infrastructure.whatsapp;
 
+import br.com.urbana.connect.domain.conversation.model.ConversationContentKey;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessage;
+import br.com.urbana.connect.domain.conversation.model.ConversationStep;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationContentGateway;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
+import br.com.urbana.connect.domain.conversation.model.Conversation;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import org.junit.jupiter.api.Test;
@@ -13,9 +20,16 @@ import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -209,6 +223,37 @@ class WhatsAppCloudApiGatewayTest {
     }
 
     @Test
+    void shouldTruncateConfiguredTermsTextToMetaInteractiveLimit() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ConversationContentGateway conversationContentGateway = mock(ConversationContentGateway.class);
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(
+            builder.build(),
+            "phone-number-id",
+            "access-token",
+            null,
+            null,
+            conversationContentGateway
+        );
+        String overlongTermsText = "A".repeat(1100);
+        String expectedTruncated = "A".repeat(1021) + "...";
+
+        when(conversationContentGateway.findActiveValue(ConversationContentKey.TERMS_TEXT))
+            .thenReturn(Optional.of(overlongTermsText));
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(header("Authorization", "Bearer access-token"))
+            .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+            .andExpect(content().string(containsString(expectedTruncated)))
+            .andRespond(withSuccess());
+
+        gateway.sendTermsOfUse("+5583999999999");
+
+        server.verify();
+    }
+
+    @Test
     void shouldSendPaymentMethodButtons() {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
@@ -309,6 +354,84 @@ class WhatsAppCloudApiGatewayTest {
             .andRespond(withSuccess());
 
         gateway.sendHumanHandoffAcknowledgement("+5583999999999");
+
+        server.verify();
+    }
+
+    @Test
+    void shouldUseConfiguredGreetingAndPersistOutboundMessage() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ConversationGateway conversationGateway = mock(ConversationGateway.class);
+        ConversationMessageGateway conversationMessageGateway = mock(ConversationMessageGateway.class);
+        ConversationContentGateway conversationContentGateway = mock(ConversationContentGateway.class);
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(
+            builder.build(),
+            "phone-number-id",
+            "access-token",
+            conversationGateway,
+            conversationMessageGateway,
+            conversationContentGateway
+        );
+
+        when(conversationContentGateway.findActiveValue(ConversationContentKey.GREETING_TEXT)).thenReturn(Optional.of("Oi, sou a Urba"));
+        when(conversationGateway.findLatestByPhoneNumber("+5583999999999")).thenReturn(Optional.of(new Conversation(
+            "conversation-1",
+            "+5583999999999",
+            br.com.urbana.connect.domain.conversation.model.ConversationStatus.ACTIVE,
+            ConversationStep.GREETING,
+            null,
+            br.com.urbana.connect.domain.conversation.model.ConversationContext.empty(),
+            java.time.Instant.parse("2026-04-28T12:00:00Z"),
+            java.time.Instant.parse("2026-04-28T12:00:00Z"),
+            java.time.Instant.parse("2026-04-29T12:00:00Z")
+        )));
+        when(conversationMessageGateway.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andExpect(content().string(containsString("Oi, sou a Urba")))
+            .andRespond(withSuccess());
+
+        gateway.sendGreeting("+5583999999999");
+
+        verify(conversationMessageGateway).save(any(ConversationMessage.class));
+        server.verify();
+    }
+
+    @Test
+    void shouldNotFailSendWhenOutboundHistoryPersistenceFails() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        ConversationGateway conversationGateway = mock(ConversationGateway.class);
+        ConversationMessageGateway conversationMessageGateway = mock(ConversationMessageGateway.class);
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(
+            builder.build(),
+            "phone-number-id",
+            "access-token",
+            conversationGateway,
+            conversationMessageGateway,
+            null
+        );
+
+        when(conversationGateway.findLatestByPhoneNumber("+5583999999999")).thenReturn(Optional.of(new Conversation(
+            "conversation-1",
+            "+5583999999999",
+            br.com.urbana.connect.domain.conversation.model.ConversationStatus.ACTIVE,
+            ConversationStep.GREETING,
+            null,
+            br.com.urbana.connect.domain.conversation.model.ConversationContext.empty(),
+            java.time.Instant.parse("2026-04-28T12:00:00Z"),
+            java.time.Instant.parse("2026-04-28T12:00:00Z"),
+            java.time.Instant.parse("2026-04-29T12:00:00Z")
+        )));
+        doThrow(new RuntimeException("mongo down")).when(conversationMessageGateway).save(any());
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withSuccess());
+
+        assertThatCode(() -> gateway.sendClosingMessage("+5583999999999")).doesNotThrowAnyException();
 
         server.verify();
     }

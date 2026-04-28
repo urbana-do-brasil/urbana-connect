@@ -1,5 +1,11 @@
 package br.com.urbana.connect.infrastructure.whatsapp;
 
+import br.com.urbana.connect.domain.conversation.model.ConversationContentKey;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessage;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationContentGateway;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
 import org.slf4j.Logger;
@@ -11,9 +17,11 @@ import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
 import java.text.NumberFormat;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
 
@@ -29,6 +37,11 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
             + "Então conta pra gente, para qual opção deseja atendimento:";
     private static final String TERMS_OF_USE_LINK =
         "https://drive.google.com/file/d/10ZFSwmVHybvuaYTYE4lW5XspLN7tZa67/view?usp=sharing";
+    private static final String PAYMENT_METHOD_TEXT = "Você irá realizar o pagamento via PIX ou cartão de crédito?";
+    private static final String CLOSING_TEXT = "Perfeito! Assim que o pagamento for confirmado, daremos os próximos passos 😊";
+    private static final String HUMAN_HANDOFF_ACK = "Iremos repassar sua dúvida para nossa equipe, que entrará em contato logo mais";
+    private static final String UNKNOWN_INPUT_FALLBACK = "Não entendi 😊 Por favor, use as opções abaixo:";
+    private static final String GUIDED_TRIAGE_PROMPT = "Das opções abaixo, qual você se identifica mais?";
     private static final String MESSAGING_PRODUCT = "messaging_product";
     private static final String WHATSAPP = "whatsapp";
     private static final String TYPE = "type";
@@ -40,48 +53,91 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     private final RestClient restClient;
     private final String phoneNumberId;
     private final String accessToken;
+    private final ConversationGateway conversationGateway;
+    private final ConversationMessageGateway conversationMessageGateway;
+    private final ConversationContentGateway conversationContentGateway;
 
     public WhatsAppCloudApiGateway(RestClient restClient, String phoneNumberId, String accessToken) {
+        this(restClient, phoneNumberId, accessToken, null, null, null);
+    }
+
+    public WhatsAppCloudApiGateway(
+            RestClient restClient,
+            String phoneNumberId,
+            String accessToken,
+            ConversationGateway conversationGateway,
+            ConversationMessageGateway conversationMessageGateway,
+            ConversationContentGateway conversationContentGateway) {
         this.restClient = restClient;
         this.phoneNumberId = phoneNumberId;
         this.accessToken = accessToken;
+        this.conversationGateway = conversationGateway;
+        this.conversationMessageGateway = conversationMessageGateway;
+        this.conversationContentGateway = conversationContentGateway;
     }
 
     @Override
     public void sendGreeting(String phoneNumber) {
-        sendPayload(buildGreetingPayload(phoneNumber), phoneNumber, "GREETING");
+        String bodyText = resolveContent(ConversationContentKey.GREETING_TEXT, GREETING_TEXT);
+        sendPayload(
+            buildGreetingPayload(phoneNumber, bodyText),
+            phoneNumber,
+            "GREETING",
+            appendOptions(bodyText, List.of("Preciso de ajuda", "Já sei o que quero")),
+            ConversationMessageType.INTERACTIVE_BUTTON
+        );
     }
 
     @Override
     public void sendGuidedTriageOptions(String phoneNumber, List<ServiceCatalogItem> availableServices) {
-        sendPayload(buildGuidedTriagePayload(phoneNumber, availableServices), phoneNumber, "GUIDED_TRIAGE");
+        String bodyText = resolveContent(ConversationContentKey.GUIDED_TRIAGE_PROMPT, GUIDED_TRIAGE_PROMPT);
+        sendPayload(
+            buildGuidedTriagePayload(phoneNumber, availableServices, bodyText),
+            phoneNumber,
+            "GUIDED_TRIAGE",
+            appendOptions(bodyText, availableServices.stream().map(service -> service.emoji() + " " + service.name()).toList()),
+            ConversationMessageType.INTERACTIVE_LIST
+        );
     }
 
     @Override
     public void sendDirectTriageOptions(String phoneNumber, List<ServiceCatalogItem> availableServices) {
-        sendPayload(buildDirectTriagePayload(phoneNumber, availableServices), phoneNumber, "DIRECT_TRIAGE");
+        String bodyText = resolveContent(ConversationContentKey.DIRECT_TRIAGE_TEXT, DIRECT_TRIAGE_TEXT);
+        sendPayload(
+            buildDirectTriagePayload(phoneNumber, availableServices, bodyText),
+            phoneNumber,
+            "DIRECT_TRIAGE",
+            appendOptions(bodyText, availableServices.stream()
+                .map(service -> service.emoji() + " " + service.name() + " - " + formatPrice(service.price()) + " por ambiente")
+                .toList()),
+            ConversationMessageType.INTERACTIVE_LIST
+        );
     }
 
     @Override
     public void sendServicePresentation(String phoneNumber, ServiceCatalogItem selectedService) {
-        sendPayload(buildServicePresentationPayload(phoneNumber, selectedService), phoneNumber, "SERVICE_PRESENTATION");
+        String bodyText = buildServicePresentationBody(selectedService);
+        sendPayload(
+            buildServicePresentationPayload(phoneNumber, bodyText),
+            phoneNumber,
+            "SERVICE_PRESENTATION",
+            appendOptions(bodyText, List.of("Sim, é isso", "Não, refazer")),
+            ConversationMessageType.INTERACTIVE_BUTTON
+        );
     }
 
     @Override
     public void sendTermsOfUse(String phoneNumber) {
+        String bodyText = resolveContent(ConversationContentKey.TERMS_TEXT, defaultTermsText())
+            .replace("{{TERMS_LINK}}", TERMS_OF_USE_LINK);
+        String boundedBodyText = WhatsAppPayloadConstraints.interactiveBodyText(bodyText);
         sendPayload(Map.of(
             MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, BUTTON,
-                "body", Map.of("text",
-                    "Pra gente iniciar a Decor, o último check é no nosso Termo de Uso 🤝🏾.\n\n"
-                        + "Assim deixamos tudo transparente e zero dor de cabeça.\n\n"
-                        + "Dá uma olhadinha nele: 👇🏾\n\n"
-                        + TERMS_OF_USE_LINK
-                        + "\n\nDepois da leitura, você aceita seguir com o termo?"
-                ),
+                "body", Map.of("text", boundedBodyText),
                 ACTION, Map.of(
                     BUTTONS, List.of(
                         replyButton("TERMS_ACCEPT", "Sim"),
@@ -89,20 +145,19 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                     )
                 )
             )
-        ), phoneNumber, "TERMS_OF_USE");
+        ), phoneNumber, "TERMS_OF_USE", appendOptions(boundedBodyText, List.of("Sim", "Não")), ConversationMessageType.INTERACTIVE_BUTTON);
     }
 
     @Override
     public void sendPaymentMethodOptions(String phoneNumber) {
+        String bodyText = resolveContent(ConversationContentKey.PAYMENT_METHOD_TEXT, PAYMENT_METHOD_TEXT);
         sendPayload(Map.of(
             MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, BUTTON,
-                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(
-                    "Você irá realizar o pagamento via PIX ou cartão de crédito?"
-                )),
+                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(bodyText)),
                 ACTION, Map.of(
                     BUTTONS, List.of(
                         replyButton("PAYMENT_PIX", "PIX"),
@@ -110,37 +165,42 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                     )
                 )
             )
-        ), phoneNumber, "PAYMENT_METHOD_OPTIONS");
+        ), phoneNumber, "PAYMENT_METHOD_OPTIONS", appendOptions(bodyText, List.of("PIX", "Cartão")), ConversationMessageType.INTERACTIVE_BUTTON);
     }
 
     @Override
     public void sendPaymentLink(String phoneNumber, ServiceCatalogItem selectedService) {
-        sendPayload(textPayload(
-            phoneNumber,
-            "Vamos lá então!\n\nPara efetuar o pagamento para a *"
-                + selectedService.name() + "* " + selectedService.emoji()
-                + "\nClique no link abaixo 👇🏾\n"
-                + selectedService.paymentLink()
-        ), phoneNumber, "PAYMENT_LINK");
+        String bodyText = "Vamos lá então!\n\nPara efetuar o pagamento para a *"
+            + selectedService.name() + "* " + selectedService.emoji()
+            + "\nClique no link abaixo 👇🏾\n"
+            + selectedService.paymentLink();
+        sendPayload(textPayload(phoneNumber, bodyText), phoneNumber, "PAYMENT_LINK", bodyText, ConversationMessageType.TEXT);
     }
 
     @Override
     public void sendClosingMessage(String phoneNumber) {
-        sendPayload(textPayload(
-            phoneNumber,
-            "Perfeito! Assim que o pagamento for confirmado, daremos os próximos passos 😊"
-        ), phoneNumber, "CLOSING");
+        String bodyText = resolveContent(ConversationContentKey.CLOSING_TEXT, CLOSING_TEXT);
+        sendPayload(textPayload(phoneNumber, bodyText), phoneNumber, "CLOSING", bodyText, ConversationMessageType.TEXT);
     }
 
     @Override
     public void sendHumanHandoffAcknowledgement(String phoneNumber) {
-        sendPayload(textPayload(
-            phoneNumber,
-            "Iremos repassar sua dúvida para nossa equipe, que entrará em contato logo mais"
-        ), phoneNumber, "HUMAN_HANDOFF_ACK");
+        String bodyText = resolveContent(ConversationContentKey.HUMAN_HANDOFF_ACK, HUMAN_HANDOFF_ACK);
+        sendPayload(textPayload(phoneNumber, bodyText), phoneNumber, "HUMAN_HANDOFF_ACK", bodyText, ConversationMessageType.TEXT);
     }
 
-    private void sendPayload(Map<String, Object> payload, String phoneNumber, String messageType) {
+    @Override
+    public void sendUnknownInputFallback(String phoneNumber) {
+        String bodyText = resolveContent(ConversationContentKey.FALLBACK_UNKNOWN_INPUT, UNKNOWN_INPUT_FALLBACK);
+        sendPayload(textPayload(phoneNumber, bodyText), phoneNumber, "UNKNOWN_INPUT_FALLBACK", bodyText, ConversationMessageType.TEXT);
+    }
+
+    private void sendPayload(
+            Map<String, Object> payload,
+            String phoneNumber,
+            String messageType,
+            String visibleText,
+            ConversationMessageType conversationMessageType) {
         if (log.isInfoEnabled()) {
             log.info("Enviando mensagem WhatsApp: type={} destination={}", messageType, maskPhoneNumber(phoneNumber));
         }
@@ -167,6 +227,8 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 exception
             );
         }
+
+        persistOutboundMessageSafely(phoneNumber, visibleText, conversationMessageType);
     }
 
     private String maskPhoneNumber(String phoneNumber) {
@@ -181,14 +243,14 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
         return phoneNumber.substring(0, prefixLength) + "***" + phoneNumber.substring(phoneNumber.length() - 4);
     }
 
-    private Map<String, Object> buildGreetingPayload(String phoneNumber) {
+    private Map<String, Object> buildGreetingPayload(String phoneNumber, String bodyText) {
         return Map.of(
             MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, BUTTON,
-                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(GREETING_TEXT)),
+                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(bodyText)),
                 ACTION, Map.of(
                     BUTTONS, List.of(
                         replyButton("YES_HELP", "Preciso de ajuda"),
@@ -199,10 +261,13 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
         );
     }
 
-    private Map<String, Object> buildGuidedTriagePayload(String phoneNumber, List<ServiceCatalogItem> availableServices) {
+    private Map<String, Object> buildGuidedTriagePayload(
+            String phoneNumber,
+            List<ServiceCatalogItem> availableServices,
+            String bodyText) {
         return interactiveListPayload(
             phoneNumber,
-            "Das opções abaixo, qual você se identifica mais?",
+            bodyText,
             "Ver opções",
             availableServices.stream()
                 .map(service -> listRow(
@@ -214,10 +279,13 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
         );
     }
 
-    private Map<String, Object> buildDirectTriagePayload(String phoneNumber, List<ServiceCatalogItem> availableServices) {
+    private Map<String, Object> buildDirectTriagePayload(
+            String phoneNumber,
+            List<ServiceCatalogItem> availableServices,
+            String bodyText) {
         return interactiveListPayload(
             phoneNumber,
-            DIRECT_TRIAGE_TEXT,
+            bodyText,
             "Ver serviços",
             availableServices.stream()
                 .map(service -> listRow(
@@ -229,20 +297,22 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
         );
     }
 
-    private Map<String, Object> buildServicePresentationPayload(String phoneNumber, ServiceCatalogItem selectedService) {
-        String body = "Acho que encontramos o serviço certo para você! 😃\n\n"
+    private String buildServicePresentationBody(ServiceCatalogItem selectedService) {
+        return "Acho que encontramos o serviço certo para você! 😃\n\n"
             + selectedService.presentationText()
             + "\n\n"
             + formatPrice(selectedService.price()) + " por ambiente"
             + "\n\nEra isso que você estava buscando?";
+    }
 
+    private Map<String, Object> buildServicePresentationPayload(String phoneNumber, String bodyText) {
         return Map.of(
             MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, BUTTON,
-                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(body)),
+                "body", Map.of("text", WhatsAppPayloadConstraints.interactiveBodyText(bodyText)),
                 ACTION, Map.of(
                     BUTTONS, List.of(
                         replyButton("CONFIRM_SERVICE", "Sim, é isso"),
@@ -303,5 +373,66 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     private String formatPrice(BigDecimal price) {
         NumberFormat formatter = NumberFormat.getCurrencyInstance(BRAZILIAN_PORTUGUESE);
         return formatter.format(price);
+    }
+
+    private String resolveContent(ConversationContentKey key, String fallback) {
+        return Optional.ofNullable(conversationContentGateway)
+            .flatMap(gateway -> gateway.findActiveValue(key))
+            .filter(value -> !value.isBlank())
+            .orElse(fallback);
+    }
+
+    private String appendOptions(String body, List<String> options) {
+        if (options == null || options.isEmpty()) {
+            return body;
+        }
+
+        return body + "\n\nOpções:\n- " + String.join("\n- ", options);
+    }
+
+    private void persistOutboundMessage(String phoneNumber, String visibleText, ConversationMessageType messageType) {
+        if (conversationGateway == null || conversationMessageGateway == null) {
+            return;
+        }
+
+        conversationGateway.findLatestByPhoneNumber(phoneNumber).ifPresent(conversation ->
+            conversationMessageGateway.save(ConversationMessage.outbound(
+                conversation.id(),
+                phoneNumber,
+                messageType,
+                visibleText,
+                Instant.now(),
+                conversation.currentStep().name()
+            ))
+        );
+    }
+
+    private void persistOutboundMessageSafely(String phoneNumber, String visibleText, ConversationMessageType messageType) {
+        try {
+            persistOutboundMessage(phoneNumber, visibleText, messageType);
+        } catch (RuntimeException exception) {
+            if (log.isWarnEnabled()) {
+                log.warn(
+                    "Falha ao persistir histórico outbound: destination={} type={} error={}",
+                    maskPhoneNumber(phoneNumber),
+                    messageType,
+                    exception.getMessage()
+                );
+            }
+        }
+    }
+
+    private String defaultTermsText() {
+        return """
+            Pra gente iniciar a Decor, o último check é no nosso Termo de Uso 🤝🏾.
+
+            Assim deixamos tudo transparente e zero dor de cabeça.
+
+            Dá uma olhadinha nele: 👇🏾
+
+            {{TERMS_LINK}}
+
+            Depois da leitura, você aceita seguir com o termo?
+            """.stripIndent();
     }
 }

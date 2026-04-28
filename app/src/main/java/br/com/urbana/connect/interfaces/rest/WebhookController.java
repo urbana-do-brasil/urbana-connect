@@ -108,7 +108,10 @@ public class WebhookController {
             new InboundWhatsAppMessage(
                 phoneNumber,
                 message.path("text").path("body").asText(""),
-                resolveInteractiveReplyId(message)
+                resolveInteractiveReplyId(message),
+                resolveInteractiveReplyTitle(message),
+                resolveMessageType(message),
+                message.path("id").asText("")
             ),
             receivedAt
         );
@@ -122,5 +125,27 @@ public class WebhookController {
         }
 
         return interactive.path("list_reply").path("id").asText("");
+    }
+
+    private String resolveInteractiveReplyTitle(JsonNode message) {
+        JsonNode interactive = message.path("interactive");
+        String buttonReplyTitle = interactive.path("button_reply").path("title").asText("");
+        if (!buttonReplyTitle.isBlank()) {
+            return buttonReplyTitle;
+        }
+
+        return interactive.path("list_reply").path("title").asText("");
+    }
+
+    private String resolveMessageType(JsonNode message) {
+        JsonNode interactive = message.path("interactive");
+        if (!interactive.path("button_reply").path("id").asText("").isBlank()) {
+            return "button_reply";
+        }
+        if (!interactive.path("list_reply").path("id").asText("").isBlank()) {
+            return "list_reply";
+        }
+
+        return message.path("type").asText("text");
     }
 }

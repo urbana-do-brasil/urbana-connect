@@ -3,12 +3,15 @@ package br.com.urbana.connect.application.conversation;
 import br.com.urbana.connect.domain.conversation.model.AiContext;
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.Conversation;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessage;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.model.ServiceSummary;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
@@ -16,6 +19,7 @@ import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -27,6 +31,8 @@ import java.util.regex.Pattern;
 @Service
 public class ConversationFlowService {
 
+    private static final String NO_TEXT_FALLBACK = "sem texto";
+
     private static final Logger log = LoggerFactory.getLogger(ConversationFlowService.class);
     private static final Pattern HUMAN_HANDOFF_PATTERN = Pattern.compile(
         "(\\bhumano\\b|falar com algu[eé]m|atendimento humano|atendente|pessoa real)"
@@ -34,6 +40,7 @@ public class ConversationFlowService {
 
     private final ConversationLifecycleService conversationLifecycleService;
     private final ConversationGateway conversationGateway;
+    private final ConversationMessageGateway conversationMessageGateway;
     private final ServiceCatalogGateway serviceCatalogGateway;
     private final WhatsAppMessageGateway whatsAppMessageGateway;
     private final AiGateway aiGateway;
@@ -42,12 +49,14 @@ public class ConversationFlowService {
     public ConversationFlowService(
             ConversationLifecycleService conversationLifecycleService,
             ConversationGateway conversationGateway,
+            ConversationMessageGateway conversationMessageGateway,
             ServiceCatalogGateway serviceCatalogGateway,
             WhatsAppMessageGateway whatsAppMessageGateway,
             AiGateway aiGateway,
             HumanHandoffGateway humanHandoffGateway) {
         this.conversationLifecycleService = conversationLifecycleService;
         this.conversationGateway = conversationGateway;
+        this.conversationMessageGateway = conversationMessageGateway;
         this.serviceCatalogGateway = serviceCatalogGateway;
         this.whatsAppMessageGateway = whatsAppMessageGateway;
         this.aiGateway = aiGateway;
@@ -55,6 +64,11 @@ public class ConversationFlowService {
     }
 
     public Conversation handleIncomingMessage(InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
+        if (isDuplicateInboundMessage(inboundMessage)) {
+            return conversationGateway.findLatestByPhoneNumber(inboundMessage.phoneNumber())
+                .orElseGet(() -> conversationLifecycleService.resumeOrStart(inboundMessage.phoneNumber(), receivedAt));
+        }
+
         Conversation conversation = conversationLifecycleService.resumeOrStart(inboundMessage.phoneNumber(), receivedAt);
         List<ServiceCatalogItem> availableServices = serviceCatalogGateway.findAvailable();
 
@@ -65,6 +79,10 @@ public class ConversationFlowService {
                 resolveMessageType(inboundMessage),
                 conversation.currentStep()
             );
+        }
+
+        if (!persistInboundMessage(conversation, inboundMessage, receivedAt)) {
+            return conversation;
         }
 
         if (isHumanHandoffRequested(inboundMessage.textBody())) {
@@ -162,7 +180,7 @@ public class ConversationFlowService {
             return updated;
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendGreeting(inboundMessage.phoneNumber())
@@ -187,7 +205,7 @@ public class ConversationFlowService {
             return moveToConfirmation(conversation, inboundMessage.phoneNumber(), selectedService.get(), receivedAt);
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendGuidedTriageOptions(inboundMessage.phoneNumber(), availableServices)
@@ -212,7 +230,7 @@ public class ConversationFlowService {
             return moveToConfirmation(conversation, inboundMessage.phoneNumber(), selectedService.get(), receivedAt);
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendDirectTriageOptions(inboundMessage.phoneNumber(), availableServices)
@@ -312,7 +330,7 @@ public class ConversationFlowService {
 
         return serviceCatalogGateway.findByType(conversation.selectedService())
             .map(service -> {
-                sendSafely(
+                sendFallbackAndRepeat(
                     inboundMessage.phoneNumber(),
                     conversation.currentStep(),
                     () -> whatsAppMessageGateway.sendServicePresentation(inboundMessage.phoneNumber(), service)
@@ -342,7 +360,7 @@ public class ConversationFlowService {
         }
 
         if ("TERMS_DECLINE".equals(inboundMessage.interactiveReplyId())) {
-            sendSafely(
+            sendFallbackAndRepeat(
                 inboundMessage.phoneNumber(),
                 conversation.currentStep(),
                 () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
@@ -366,7 +384,7 @@ public class ConversationFlowService {
             return updated;
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
@@ -426,7 +444,7 @@ public class ConversationFlowService {
             return updated;
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendPaymentMethodOptions(inboundMessage.phoneNumber())
@@ -476,6 +494,20 @@ public class ConversationFlowService {
         }
     }
 
+    private void sendFallbackAndRepeat(String phoneNumber, ConversationStep step, Runnable repeatAction) {
+        try {
+            whatsAppMessageGateway.sendUnknownInputFallback(phoneNumber);
+            repeatAction.run();
+        } catch (RuntimeException exception) {
+            log.error(
+                "Falha ao enviar mensagem para {} na etapa {}: {}",
+                maskPhoneNumber(phoneNumber),
+                step,
+                exception.getMessage()
+            );
+        }
+    }
+
     private Conversation saveTransition(Conversation previous, Conversation next, String phoneNumber, String reason) {
         Conversation saved = conversationGateway.save(next);
         if (previous.currentStep() != saved.currentStep() && log.isInfoEnabled()) {
@@ -510,7 +542,7 @@ public class ConversationFlowService {
                 conversation.currentStep(),
                 conversation.selectedService(),
                 conversation.context().paymentMethod(),
-                inboundMessage.textBody(),
+                buildRecentMessagesForHandoff(conversation.id()),
                 receivedAt
             ));
         } catch (RuntimeException exception) {
@@ -599,7 +631,7 @@ public class ConversationFlowService {
             conversation.currentStep(),
             inboundMessage.textBody(),
             availableServices.stream().map(this::toServiceSummary).toList(),
-            ""
+            buildConversationHistory(conversation.id())
         ))).orElse(AiInterpretation.unknown());
     }
 
@@ -615,5 +647,98 @@ public class ConversationFlowService {
         return conversation.createdAt().equals(receivedAt)
             && conversation.updatedAt().equals(receivedAt)
             && conversation.selectedService() == null;
+    }
+
+    private boolean persistInboundMessage(Conversation conversation, InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
+        if (conversation.id() == null) {
+            return true;
+        }
+
+        try {
+            conversationMessageGateway.save(ConversationMessage.inbound(
+                conversation.id(),
+                inboundMessage.phoneNumber(),
+                resolveInboundMessageType(inboundMessage),
+                resolveInboundRawText(inboundMessage),
+                blankToNull(inboundMessage.interactiveReplyId()),
+                blankToNull(inboundMessage.providerMessageId()),
+                receivedAt,
+                conversation.currentStep().name()
+            ));
+            return true;
+        } catch (DuplicateKeyException exception) {
+            if (log.isInfoEnabled()) {
+                log.info(
+                    "Mensagem inbound duplicada ignorada: phoneNumber={} providerMessageId={}",
+                    maskPhoneNumber(inboundMessage.phoneNumber()),
+                    inboundMessage.providerMessageId()
+                );
+            }
+            return false;
+        }
+    }
+
+    private ConversationMessageType resolveInboundMessageType(InboundWhatsAppMessage inboundMessage) {
+        if ("button_reply".equals(inboundMessage.messageType())) {
+            return ConversationMessageType.INTERACTIVE_BUTTON;
+        }
+        if ("list_reply".equals(inboundMessage.messageType())) {
+            return ConversationMessageType.INTERACTIVE_LIST;
+        }
+        if (inboundMessage.interactiveReplyId() != null && !inboundMessage.interactiveReplyId().isBlank()) {
+            return ConversationMessageType.INTERACTIVE_BUTTON;
+        }
+        if (hasText(inboundMessage)) {
+            return ConversationMessageType.TEXT;
+        }
+        return ConversationMessageType.SYSTEM;
+    }
+
+    private String resolveInboundRawText(InboundWhatsAppMessage inboundMessage) {
+        if (hasText(inboundMessage)) {
+            return inboundMessage.textBody();
+        }
+        if (inboundMessage.interactiveReplyTitle() != null && !inboundMessage.interactiveReplyTitle().isBlank()) {
+            return inboundMessage.interactiveReplyTitle();
+        }
+        return blankToDefault(inboundMessage.interactiveReplyId(), NO_TEXT_FALLBACK);
+    }
+
+    private List<String> buildRecentMessagesForHandoff(String conversationId) {
+        return conversationMessageGateway.findRecentByConversationId(conversationId, 5).stream()
+            .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), NO_TEXT_FALLBACK)))
+            .toList();
+    }
+
+    private String buildConversationHistory(String conversationId) {
+        return conversationMessageGateway.findRecentByConversationId(conversationId, 10).stream()
+            .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), NO_TEXT_FALLBACK)))
+            .reduce((left, right) -> left + "\n" + right)
+            .orElse("");
+    }
+
+    private String blankToDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private boolean isDuplicateInboundMessage(InboundWhatsAppMessage inboundMessage) {
+        String providerMessageId = inboundMessage.providerMessageId();
+        if (providerMessageId == null || providerMessageId.isBlank()) {
+            return false;
+        }
+
+        boolean duplicate = conversationMessageGateway.existsByProviderMessageId(providerMessageId);
+        if (duplicate && log.isInfoEnabled()) {
+            log.info(
+                "Webhook duplicado ignorado: phoneNumber={} providerMessageId={}",
+                maskPhoneNumber(inboundMessage.phoneNumber()),
+                providerMessageId
+            );
+        }
+        return duplicate;
     }
 }

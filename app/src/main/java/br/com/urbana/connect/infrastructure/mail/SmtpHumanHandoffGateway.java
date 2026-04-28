@@ -39,15 +39,27 @@ public class SmtpHumanHandoffGateway implements HumanHandoffGateway {
             Serviço selecionado: %s
             Forma de pagamento: %s
             Horário do evento: %s
-            Última mensagem recebida: %s
+            Últimas 5 mensagens:
+            %s
             """.formatted(
             request.phoneNumber(),
             request.currentStep(),
             request.selectedService() == null ? "nao informado" : request.selectedService().name(),
             request.paymentMethod() == null ? "nao informada" : request.paymentMethod(),
             request.receivedAt(),
-            request.latestMessage() == null || request.latestMessage().isBlank() ? "sem texto" : request.latestMessage()
+            formatRecentMessages(request)
         ));
         javaMailSender.send(message);
+    }
+
+    private String formatRecentMessages(HumanHandoffRequest request) {
+        if (request.recentMessages() == null || request.recentMessages().isEmpty()) {
+            return "- sem mensagens recentes";
+        }
+
+        return request.recentMessages().stream()
+            .map(message -> "- " + message)
+            .reduce((left, right) -> left + "\n" + right)
+            .orElse("- sem mensagens recentes");
     }
 }
