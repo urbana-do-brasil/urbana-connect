@@ -110,7 +110,7 @@ public class WebhookController {
                 message.path("text").path("body").asText(""),
                 resolveInteractiveReplyId(message),
                 resolveInteractiveReplyTitle(message),
-                message.path("type").asText("text"),
+                resolveMessageType(message),
                 message.path("id").asText("")
             ),
             receivedAt
@@ -135,5 +135,17 @@ public class WebhookController {
         }
 
         return interactive.path("list_reply").path("title").asText("");
+    }
+
+    private String resolveMessageType(JsonNode message) {
+        JsonNode interactive = message.path("interactive");
+        if (!interactive.path("button_reply").path("id").asText("").isBlank()) {
+            return "button_reply";
+        }
+        if (!interactive.path("list_reply").path("id").asText("").isBlank()) {
+            return "list_reply";
+        }
+
+        return message.path("type").asText("text");
     }
 }

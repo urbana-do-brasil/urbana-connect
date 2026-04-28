@@ -9,4 +9,6 @@ public interface ConversationMessageGateway {
     ConversationMessage save(ConversationMessage message);
 
     List<ConversationMessage> findRecentByConversationId(String conversationId, int limit);
+
+    boolean existsByProviderMessageId(String providerMessageId);
 }

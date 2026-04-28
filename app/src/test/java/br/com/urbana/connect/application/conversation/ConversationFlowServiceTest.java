@@ -1,6 +1,8 @@
 package br.com.urbana.connect.application.conversation;
 
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessage;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
 import br.com.urbana.connect.domain.conversation.model.Conversation;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
@@ -66,6 +68,7 @@ class ConversationFlowServiceTest {
         lenient().when(conversationGateway.save(any(Conversation.class))).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(conversationMessageGateway.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(conversationMessageGateway.findRecentByConversationId(any(), anyInt())).thenReturn(List.of());
+        lenient().when(conversationMessageGateway.existsByProviderMessageId(any())).thenReturn(false);
         lenient().when(aiGateway.interpret(any())).thenReturn(AiInterpretation.unknown());
     }
 
@@ -233,6 +236,52 @@ class ConversationFlowServiceTest {
             ArgumentCaptor.forClass(br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest.class);
         verify(humanHandoffGateway).notifyTeam(captor.capture());
         assertThat(captor.getValue().recentMessages()).containsExactly("USER: quero falar com alguém");
+    }
+
+    @Test
+    void shouldIgnoreDuplicateInboundWebhookBeforeProcessingFlow() {
+        Instant now = Instant.parse("2026-04-06T10:30:00Z");
+        String phoneNumber = "+5583333333333";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(60));
+
+        when(conversationMessageGateway.existsByProviderMessageId("wamid-duplicate")).thenReturn(true);
+        when(conversationGateway.findLatestByPhoneNumber(phoneNumber)).thenReturn(Optional.of(conversation));
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "oi", "", "", "text", "wamid-duplicate"),
+            now
+        );
+
+        assertThat(updated).isEqualTo(conversation);
+        verify(conversationGateway).findLatestByPhoneNumber(phoneNumber);
+    }
+
+    @Test
+    void shouldPersistInboundListReplyAsInteractiveList() {
+        Instant now = Instant.parse("2026-04-06T10:35:00Z");
+        String phoneNumber = "+5583222222222";
+        Conversation conversation = new Conversation(
+            "conversation-1",
+            phoneNumber,
+            br.com.urbana.connect.domain.conversation.model.ConversationStatus.ACTIVE,
+            ConversationStep.TRIAGE_GUIDED,
+            null,
+            br.com.urbana.connect.domain.conversation.model.ConversationContext.empty(),
+            now.minusSeconds(120),
+            now.minusSeconds(60),
+            now.plusSeconds(86400)
+        );
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "DECOR", "Decor", "list_reply", "wamid-list-1"),
+            now
+        );
+
+        ArgumentCaptor<ConversationMessage> captor = ArgumentCaptor.forClass(ConversationMessage.class);
+        verify(conversationMessageGateway).save(captor.capture());
+        assertThat(captor.getValue().messageType()).isEqualTo(ConversationMessageType.INTERACTIVE_LIST);
     }
 
     private ServiceCatalogItem decor() {

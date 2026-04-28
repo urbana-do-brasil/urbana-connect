@@ -1,6 +1,7 @@
 package br.com.urbana.connect.application.conversation;
 
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
@@ -38,6 +39,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -105,6 +107,43 @@ class ConversationFlowServiceIntegrationTest {
         assertThat(mongoTemplate.findAll(ConversationMessageDocument.class))
             .extracting(ConversationMessageDocument::getRawText)
             .contains("oi");
+    }
+
+    @Test
+    void shouldIgnoreDuplicateInboundWebhookByProviderMessageId() {
+        Instant now = Instant.parse("2026-04-05T09:02:00Z");
+        String phoneNumber = "+5583111222333";
+
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "oi", "", "", "text", "wamid-duplicate-1"),
+            now
+        );
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "oi", "", "", "text", "wamid-duplicate-1"),
+            now.plusSeconds(5)
+        );
+
+        assertThat(mongoTemplate.findAll(ConversationMessageDocument.class))
+            .filteredOn(message -> "wamid-duplicate-1".equals(message.getProviderMessageId()))
+            .hasSize(1);
+        verify(whatsAppMessageGateway, times(1)).sendGreeting(phoneNumber);
+    }
+
+    @Test
+    void shouldPersistInboundListReplyWithInteractiveListType() {
+        Instant now = Instant.parse("2026-04-05T09:03:00Z");
+        String phoneNumber = "+5583111444555";
+
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "DECOR", "Decor", "list_reply", "wamid-list-1"),
+            now
+        );
+
+        assertThat(mongoTemplate.findAll(ConversationMessageDocument.class))
+            .filteredOn(message -> "wamid-list-1".equals(message.getProviderMessageId()))
+            .singleElement()
+            .extracting(ConversationMessageDocument::getMessageType)
+            .isEqualTo(ConversationMessageType.INTERACTIVE_LIST);
     }
 
     @Test

@@ -19,6 +19,7 @@ import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -63,6 +64,11 @@ public class ConversationFlowService {
     }
 
     public Conversation handleIncomingMessage(InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
+        if (isDuplicateInboundMessage(inboundMessage)) {
+            return conversationGateway.findLatestByPhoneNumber(inboundMessage.phoneNumber())
+                .orElseGet(() -> conversationLifecycleService.resumeOrStart(inboundMessage.phoneNumber(), receivedAt));
+        }
+
         Conversation conversation = conversationLifecycleService.resumeOrStart(inboundMessage.phoneNumber(), receivedAt);
         List<ServiceCatalogItem> availableServices = serviceCatalogGateway.findAvailable();
 
@@ -75,7 +81,9 @@ public class ConversationFlowService {
             );
         }
 
-        persistInboundMessage(conversation, inboundMessage, receivedAt);
+        if (!persistInboundMessage(conversation, inboundMessage, receivedAt)) {
+            return conversation;
+        }
 
         if (isHumanHandoffRequested(inboundMessage.textBody())) {
             handleHumanHandoff(conversation, inboundMessage, receivedAt);
@@ -641,24 +649,42 @@ public class ConversationFlowService {
             && conversation.selectedService() == null;
     }
 
-    private void persistInboundMessage(Conversation conversation, InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
+    private boolean persistInboundMessage(Conversation conversation, InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
         if (conversation.id() == null) {
-            return;
+            return true;
         }
 
-        conversationMessageGateway.save(ConversationMessage.inbound(
-            conversation.id(),
-            inboundMessage.phoneNumber(),
-            resolveInboundMessageType(inboundMessage),
-            resolveInboundRawText(inboundMessage),
-            blankToNull(inboundMessage.interactiveReplyId()),
-            blankToNull(inboundMessage.providerMessageId()),
-            receivedAt,
-            conversation.currentStep().name()
-        ));
+        try {
+            conversationMessageGateway.save(ConversationMessage.inbound(
+                conversation.id(),
+                inboundMessage.phoneNumber(),
+                resolveInboundMessageType(inboundMessage),
+                resolveInboundRawText(inboundMessage),
+                blankToNull(inboundMessage.interactiveReplyId()),
+                blankToNull(inboundMessage.providerMessageId()),
+                receivedAt,
+                conversation.currentStep().name()
+            ));
+            return true;
+        } catch (DuplicateKeyException exception) {
+            if (log.isInfoEnabled()) {
+                log.info(
+                    "Mensagem inbound duplicada ignorada: phoneNumber={} providerMessageId={}",
+                    maskPhoneNumber(inboundMessage.phoneNumber()),
+                    inboundMessage.providerMessageId()
+                );
+            }
+            return false;
+        }
     }
 
     private ConversationMessageType resolveInboundMessageType(InboundWhatsAppMessage inboundMessage) {
+        if ("button_reply".equals(inboundMessage.messageType())) {
+            return ConversationMessageType.INTERACTIVE_BUTTON;
+        }
+        if ("list_reply".equals(inboundMessage.messageType())) {
+            return ConversationMessageType.INTERACTIVE_LIST;
+        }
         if (inboundMessage.interactiveReplyId() != null && !inboundMessage.interactiveReplyId().isBlank()) {
             return ConversationMessageType.INTERACTIVE_BUTTON;
         }
@@ -697,5 +723,22 @@ public class ConversationFlowService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private boolean isDuplicateInboundMessage(InboundWhatsAppMessage inboundMessage) {
+        String providerMessageId = inboundMessage.providerMessageId();
+        if (providerMessageId == null || providerMessageId.isBlank()) {
+            return false;
+        }
+
+        boolean duplicate = conversationMessageGateway.existsByProviderMessageId(providerMessageId);
+        if (duplicate && log.isInfoEnabled()) {
+            log.info(
+                "Webhook duplicado ignorado: phoneNumber={} providerMessageId={}",
+                maskPhoneNumber(inboundMessage.phoneNumber()),
+                providerMessageId
+            );
+        }
+        return duplicate;
     }
 }

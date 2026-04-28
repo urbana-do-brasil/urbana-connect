@@ -33,6 +33,15 @@ public class MongoConversationMessageGateway implements ConversationMessageGatew
             .toList();
     }
 
+    @Override
+    public boolean existsByProviderMessageId(String providerMessageId) {
+        if (providerMessageId == null || providerMessageId.isBlank()) {
+            return false;
+        }
+
+        return repository.existsByProviderMessageId(providerMessageId);
+    }
+
     private ConversationMessageDocument toDocument(ConversationMessage message) {
         ConversationMessageDocument document = new ConversationMessageDocument();
         document.setId(message.id());

@@ -8,4 +8,6 @@ import java.util.List;
 public interface SpringDataConversationMessageRepository extends MongoRepository<ConversationMessageDocument, String> {
 
     List<ConversationMessageDocument> findByConversationIdOrderByCreatedAtDesc(String conversationId, Pageable pageable);
+
+    boolean existsByProviderMessageId(String providerMessageId);
 }

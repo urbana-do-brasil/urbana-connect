@@ -65,7 +65,7 @@ class WebhookControllerTest {
             .andExpect(status().isOk());
 
         verify(conversationFlowService).handleIncomingMessage(
-            eq(new InboundWhatsAppMessage("+5583999999999", "oi", "")),
+            eq(new InboundWhatsAppMessage("+5583999999999", "oi", "", "", "text", "")),
             any()
         );
 
@@ -109,5 +109,45 @@ class WebhookControllerTest {
 
         org.assertj.core.api.Assertions.assertThat(output)
             .contains("Webhook rejeitado: object=unknown_provider entries=0");
+    }
+
+    @Test
+    void shouldMapInteractiveListReplyMetadata() throws Exception {
+        mockMvc.perform(post("/api/webhook")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                      "object": "whatsapp_business_account",
+                      "entry": [
+                        {
+                          "changes": [
+                            {
+                              "value": {
+                                "messages": [
+                                  {
+                                    "id": "wamid-123",
+                                    "from": "+5583999999999",
+                                    "type": "interactive",
+                                    "interactive": {
+                                      "list_reply": {
+                                        "id": "DECOR",
+                                        "title": "Decor"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                    """))
+            .andExpect(status().isOk());
+
+        verify(conversationFlowService).handleIncomingMessage(
+            eq(new InboundWhatsAppMessage("+5583999999999", "", "DECOR", "Decor", "list_reply", "wamid-123")),
+            any()
+        );
     }
 }

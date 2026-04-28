@@ -29,6 +29,7 @@ public class ConversationMessageDocument {
     private ConversationMessageType messageType;
     private String rawText;
     private String interactiveReplyId;
+    @Indexed(unique = true, sparse = true)
     private String providerMessageId;
     private Instant createdAt;
     private String stepAtTime;

@@ -130,13 +130,14 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     public void sendTermsOfUse(String phoneNumber) {
         String bodyText = resolveContent(ConversationContentKey.TERMS_TEXT, defaultTermsText())
             .replace("{{TERMS_LINK}}", TERMS_OF_USE_LINK);
+        String boundedBodyText = WhatsAppPayloadConstraints.interactiveBodyText(bodyText);
         sendPayload(Map.of(
             MESSAGING_PRODUCT, WHATSAPP,
             "to", phoneNumber,
             TYPE, INTERACTIVE,
             INTERACTIVE, Map.of(
                 TYPE, BUTTON,
-                "body", Map.of("text", bodyText),
+                "body", Map.of("text", boundedBodyText),
                 ACTION, Map.of(
                     BUTTONS, List.of(
                         replyButton("TERMS_ACCEPT", "Sim"),
@@ -144,7 +145,7 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                     )
                 )
             )
-        ), phoneNumber, "TERMS_OF_USE", appendOptions(bodyText, List.of("Sim", "Não")), ConversationMessageType.INTERACTIVE_BUTTON);
+        ), phoneNumber, "TERMS_OF_USE", appendOptions(boundedBodyText, List.of("Sim", "Não")), ConversationMessageType.INTERACTIVE_BUTTON);
     }
 
     @Override
@@ -211,8 +212,6 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 .body(payload)
                 .retrieve()
                 .toBodilessEntity();
-
-            persistOutboundMessage(phoneNumber, visibleText, conversationMessageType);
         } catch (RestClientException exception) {
             String maskedPhoneNumber = maskPhoneNumber(phoneNumber);
             if (log.isErrorEnabled()) {
@@ -228,6 +227,8 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 exception
             );
         }
+
+        persistOutboundMessageSafely(phoneNumber, visibleText, conversationMessageType);
     }
 
     private String maskPhoneNumber(String phoneNumber) {
@@ -404,6 +405,21 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
                 conversation.currentStep().name()
             ))
         );
+    }
+
+    private void persistOutboundMessageSafely(String phoneNumber, String visibleText, ConversationMessageType messageType) {
+        try {
+            persistOutboundMessage(phoneNumber, visibleText, messageType);
+        } catch (RuntimeException exception) {
+            if (log.isWarnEnabled()) {
+                log.warn(
+                    "Falha ao persistir histórico outbound: destination={} type={} error={}",
+                    maskPhoneNumber(phoneNumber),
+                    messageType,
+                    exception.getMessage()
+                );
+            }
+        }
     }
 
     private String defaultTermsText() {
