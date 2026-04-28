@@ -2,12 +2,14 @@ package br.com.urbana.connect.application.conversation;
 
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.conversation.ConversationDocument;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.conversationmessage.ConversationMessageDocument;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog.ServiceCatalogDocument;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,6 +69,9 @@ class ConversationFlowServiceIntegrationTest {
     @MockitoBean
     private HumanHandoffGateway humanHandoffGateway;
 
+    @Autowired
+    private ConversationMessageGateway conversationMessageGateway;
+
     @BeforeEach
     void setUp() {
         doReturn(AiInterpretation.unknown()).when(aiGateway).interpret(any());
@@ -85,6 +90,21 @@ class ConversationFlowServiceIntegrationTest {
         assertThat(conversation.currentStep()).isEqualTo(ConversationStep.GREETING);
         assertThat(countByPhoneNumber(phoneNumber)).isEqualTo(1);
         verify(whatsAppMessageGateway).sendGreeting(phoneNumber);
+    }
+
+    @Test
+    void shouldPersistInboundMessageWhenWebhookFlowStartsConversation() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583111111111";
+
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "oi", "", "", "text", "wamid-1"),
+            now
+        );
+
+        assertThat(mongoTemplate.findAll(ConversationMessageDocument.class))
+            .extracting(ConversationMessageDocument::getRawText)
+            .contains("oi");
     }
 
     @Test

@@ -23,4 +23,6 @@ public interface WhatsAppMessageGateway {
     void sendClosingMessage(String phoneNumber);
 
     void sendHumanHandoffAcknowledgement(String phoneNumber);
+
+    void sendUnknownInputFallback(String phoneNumber);
 }

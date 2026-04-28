@@ -3,12 +3,15 @@ package br.com.urbana.connect.application.conversation;
 import br.com.urbana.connect.domain.conversation.model.AiContext;
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.Conversation;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessage;
+import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.model.ServiceSummary;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
@@ -34,6 +37,7 @@ public class ConversationFlowService {
 
     private final ConversationLifecycleService conversationLifecycleService;
     private final ConversationGateway conversationGateway;
+    private final ConversationMessageGateway conversationMessageGateway;
     private final ServiceCatalogGateway serviceCatalogGateway;
     private final WhatsAppMessageGateway whatsAppMessageGateway;
     private final AiGateway aiGateway;
@@ -42,12 +46,14 @@ public class ConversationFlowService {
     public ConversationFlowService(
             ConversationLifecycleService conversationLifecycleService,
             ConversationGateway conversationGateway,
+            ConversationMessageGateway conversationMessageGateway,
             ServiceCatalogGateway serviceCatalogGateway,
             WhatsAppMessageGateway whatsAppMessageGateway,
             AiGateway aiGateway,
             HumanHandoffGateway humanHandoffGateway) {
         this.conversationLifecycleService = conversationLifecycleService;
         this.conversationGateway = conversationGateway;
+        this.conversationMessageGateway = conversationMessageGateway;
         this.serviceCatalogGateway = serviceCatalogGateway;
         this.whatsAppMessageGateway = whatsAppMessageGateway;
         this.aiGateway = aiGateway;
@@ -66,6 +72,8 @@ public class ConversationFlowService {
                 conversation.currentStep()
             );
         }
+
+        persistInboundMessage(conversation, inboundMessage, receivedAt);
 
         if (isHumanHandoffRequested(inboundMessage.textBody())) {
             handleHumanHandoff(conversation, inboundMessage, receivedAt);
@@ -162,7 +170,7 @@ public class ConversationFlowService {
             return updated;
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendGreeting(inboundMessage.phoneNumber())
@@ -187,7 +195,7 @@ public class ConversationFlowService {
             return moveToConfirmation(conversation, inboundMessage.phoneNumber(), selectedService.get(), receivedAt);
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendGuidedTriageOptions(inboundMessage.phoneNumber(), availableServices)
@@ -212,7 +220,7 @@ public class ConversationFlowService {
             return moveToConfirmation(conversation, inboundMessage.phoneNumber(), selectedService.get(), receivedAt);
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendDirectTriageOptions(inboundMessage.phoneNumber(), availableServices)
@@ -312,7 +320,7 @@ public class ConversationFlowService {
 
         return serviceCatalogGateway.findByType(conversation.selectedService())
             .map(service -> {
-                sendSafely(
+                sendFallbackAndRepeat(
                     inboundMessage.phoneNumber(),
                     conversation.currentStep(),
                     () -> whatsAppMessageGateway.sendServicePresentation(inboundMessage.phoneNumber(), service)
@@ -342,7 +350,7 @@ public class ConversationFlowService {
         }
 
         if ("TERMS_DECLINE".equals(inboundMessage.interactiveReplyId())) {
-            sendSafely(
+            sendFallbackAndRepeat(
                 inboundMessage.phoneNumber(),
                 conversation.currentStep(),
                 () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
@@ -366,7 +374,7 @@ public class ConversationFlowService {
             return updated;
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
@@ -426,7 +434,7 @@ public class ConversationFlowService {
             return updated;
         }
 
-        sendSafely(
+        sendFallbackAndRepeat(
             inboundMessage.phoneNumber(),
             conversation.currentStep(),
             () -> whatsAppMessageGateway.sendPaymentMethodOptions(inboundMessage.phoneNumber())
@@ -476,6 +484,20 @@ public class ConversationFlowService {
         }
     }
 
+    private void sendFallbackAndRepeat(String phoneNumber, ConversationStep step, Runnable repeatAction) {
+        try {
+            whatsAppMessageGateway.sendUnknownInputFallback(phoneNumber);
+            repeatAction.run();
+        } catch (RuntimeException exception) {
+            log.error(
+                "Falha ao enviar mensagem para {} na etapa {}: {}",
+                maskPhoneNumber(phoneNumber),
+                step,
+                exception.getMessage()
+            );
+        }
+    }
+
     private Conversation saveTransition(Conversation previous, Conversation next, String phoneNumber, String reason) {
         Conversation saved = conversationGateway.save(next);
         if (previous.currentStep() != saved.currentStep() && log.isInfoEnabled()) {
@@ -510,7 +532,7 @@ public class ConversationFlowService {
                 conversation.currentStep(),
                 conversation.selectedService(),
                 conversation.context().paymentMethod(),
-                inboundMessage.textBody(),
+                buildRecentMessagesForHandoff(conversation.id()),
                 receivedAt
             ));
         } catch (RuntimeException exception) {
@@ -599,7 +621,7 @@ public class ConversationFlowService {
             conversation.currentStep(),
             inboundMessage.textBody(),
             availableServices.stream().map(this::toServiceSummary).toList(),
-            ""
+            buildConversationHistory(conversation.id())
         ))).orElse(AiInterpretation.unknown());
     }
 
@@ -615,5 +637,63 @@ public class ConversationFlowService {
         return conversation.createdAt().equals(receivedAt)
             && conversation.updatedAt().equals(receivedAt)
             && conversation.selectedService() == null;
+    }
+
+    private void persistInboundMessage(Conversation conversation, InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
+        if (conversation.id() == null) {
+            return;
+        }
+
+        conversationMessageGateway.save(ConversationMessage.inbound(
+            conversation.id(),
+            inboundMessage.phoneNumber(),
+            resolveInboundMessageType(inboundMessage),
+            resolveInboundRawText(inboundMessage),
+            blankToNull(inboundMessage.interactiveReplyId()),
+            blankToNull(inboundMessage.providerMessageId()),
+            receivedAt,
+            conversation.currentStep().name()
+        ));
+    }
+
+    private ConversationMessageType resolveInboundMessageType(InboundWhatsAppMessage inboundMessage) {
+        if (inboundMessage.interactiveReplyId() != null && !inboundMessage.interactiveReplyId().isBlank()) {
+            return ConversationMessageType.INTERACTIVE_BUTTON;
+        }
+        if (hasText(inboundMessage)) {
+            return ConversationMessageType.TEXT;
+        }
+        return ConversationMessageType.SYSTEM;
+    }
+
+    private String resolveInboundRawText(InboundWhatsAppMessage inboundMessage) {
+        if (hasText(inboundMessage)) {
+            return inboundMessage.textBody();
+        }
+        if (inboundMessage.interactiveReplyTitle() != null && !inboundMessage.interactiveReplyTitle().isBlank()) {
+            return inboundMessage.interactiveReplyTitle();
+        }
+        return blankToDefault(inboundMessage.interactiveReplyId(), "sem texto");
+    }
+
+    private List<String> buildRecentMessagesForHandoff(String conversationId) {
+        return conversationMessageGateway.findRecentByConversationId(conversationId, 5).stream()
+            .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), "sem texto")))
+            .toList();
+    }
+
+    private String buildConversationHistory(String conversationId) {
+        return conversationMessageGateway.findRecentByConversationId(conversationId, 10).stream()
+            .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), "sem texto")))
+            .reduce((left, right) -> left + "\n" + right)
+            .orElse("");
+    }
+
+    private String blankToDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 }

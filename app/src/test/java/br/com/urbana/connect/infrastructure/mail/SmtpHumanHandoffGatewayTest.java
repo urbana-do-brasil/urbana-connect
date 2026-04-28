@@ -9,6 +9,7 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -30,7 +31,7 @@ class SmtpHumanHandoffGatewayTest {
             ConversationStep.AWAITING_CONFIRMATION,
             ServiceType.DECOR,
             "PIX",
-            "quero falar com alguém",
+            List.of("USER: quero falar com alguém", "URBA_BOT: Iremos repassar sua dúvida"),
             Instant.parse("2026-04-06T10:30:00Z")
         ));
 
@@ -45,6 +46,7 @@ class SmtpHumanHandoffGatewayTest {
         assertThat(message.getText()).contains("AWAITING_CONFIRMATION");
         assertThat(message.getText()).contains("DECOR");
         assertThat(message.getText()).contains("PIX");
-        assertThat(message.getText()).contains("quero falar com alguém");
+        assertThat(message.getText()).contains("USER: quero falar com alguém");
+        assertThat(message.getText()).contains("URBA_BOT: Iremos repassar sua dúvida");
     }
 }

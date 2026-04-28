@@ -4,6 +4,7 @@ import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.Conversation;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
 import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
@@ -14,6 +15,7 @@ import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGatewa
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -25,6 +27,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -43,6 +46,9 @@ class ConversationFlowServiceTest {
     private ServiceCatalogGateway serviceCatalogGateway;
 
     @Mock
+    private ConversationMessageGateway conversationMessageGateway;
+
+    @Mock
     private WhatsAppMessageGateway whatsAppMessageGateway;
 
     @Mock
@@ -58,6 +64,8 @@ class ConversationFlowServiceTest {
     void setUp() {
         lenient().when(serviceCatalogGateway.findAvailable()).thenReturn(List.of(decor()));
         lenient().when(conversationGateway.save(any(Conversation.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(conversationMessageGateway.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(conversationMessageGateway.findRecentByConversationId(any(), anyInt())).thenReturn(List.of());
         lenient().when(aiGateway.interpret(any())).thenReturn(AiInterpretation.unknown());
     }
 
@@ -201,6 +209,18 @@ class ConversationFlowServiceTest {
             .moveTo(ConversationStep.TRIAGE_DIRECT, now.minusSeconds(60));
 
         when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+        when(conversationMessageGateway.findRecentByConversationId(any(), eq(5))).thenReturn(List.of(
+            br.com.urbana.connect.domain.conversation.model.ConversationMessage.inbound(
+                "conversation-1",
+                phoneNumber,
+                br.com.urbana.connect.domain.conversation.model.ConversationMessageType.TEXT,
+                "quero falar com alguém",
+                null,
+                null,
+                now.minusSeconds(5),
+                "TRIAGE_DIRECT"
+            )
+        ));
 
         Conversation updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "quero falar com alguém", ""),
@@ -209,7 +229,10 @@ class ConversationFlowServiceTest {
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
         verify(whatsAppMessageGateway).sendHumanHandoffAcknowledgement(phoneNumber);
-        verify(humanHandoffGateway).notifyTeam(any());
+        ArgumentCaptor<br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest> captor =
+            ArgumentCaptor.forClass(br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest.class);
+        verify(humanHandoffGateway).notifyTeam(captor.capture());
+        assertThat(captor.getValue().recentMessages()).containsExactly("USER: quero falar com alguém");
     }
 
     private ServiceCatalogItem decor() {
