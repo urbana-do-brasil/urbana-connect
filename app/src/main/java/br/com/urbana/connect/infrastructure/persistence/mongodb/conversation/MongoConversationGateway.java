@@ -2,8 +2,12 @@ package br.com.urbana.connect.infrastructure.persistence.mongodb.conversation;
 
 import br.com.urbana.connect.domain.conversation.model.Conversation;
 import br.com.urbana.connect.domain.conversation.model.ConversationContext;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotValue;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
 
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Optional;
 
 public class MongoConversationGateway implements ConversationGateway {
@@ -44,6 +48,7 @@ public class MongoConversationGateway implements ConversationGateway {
     private ConversationContextDocument toContextDocument(ConversationContext context) {
         ConversationContextDocument document = new ConversationContextDocument();
         document.setPaymentMethod(context == null ? null : context.paymentMethod());
+        document.setSlots(toSlotDocuments(context == null ? Map.of() : context.slots()));
         return document;
     }
 
@@ -66,6 +71,49 @@ public class MongoConversationGateway implements ConversationGateway {
             return ConversationContext.empty();
         }
 
-        return new ConversationContext(document.getPaymentMethod());
+        return new ConversationContext(document.getPaymentMethod(), toSlots(document.getSlots()));
+    }
+
+    private Map<ConversationSlotName, ConversationSlotValueDocument> toSlotDocuments(
+            Map<ConversationSlotName, ConversationSlotValue> slots) {
+        if (slots == null || slots.isEmpty()) {
+            return Map.of();
+        }
+
+        EnumMap<ConversationSlotName, ConversationSlotValueDocument> documents = new EnumMap<>(ConversationSlotName.class);
+        slots.forEach((slotName, slotValue) -> {
+            if (slotName == null || slotValue == null) {
+                return;
+            }
+
+            ConversationSlotValueDocument document = new ConversationSlotValueDocument();
+            document.setValue(slotValue.value());
+            document.setLevel(slotValue.level());
+            document.setSource(slotValue.source());
+            document.setConfidence(slotValue.confidence());
+            documents.put(slotName, document);
+        });
+        return documents;
+    }
+
+    private Map<ConversationSlotName, ConversationSlotValue> toSlots(
+            Map<ConversationSlotName, ConversationSlotValueDocument> documents) {
+        if (documents == null || documents.isEmpty()) {
+            return Map.of();
+        }
+
+        EnumMap<ConversationSlotName, ConversationSlotValue> slots = new EnumMap<>(ConversationSlotName.class);
+        documents.forEach((slotName, document) -> {
+            if (slotName == null || document == null) {
+                return;
+            }
+            slots.put(slotName, new ConversationSlotValue(
+                document.getValue(),
+                document.getLevel(),
+                document.getSource(),
+                document.getConfidence()
+            ).normalized());
+        });
+        return slots;
     }
 }

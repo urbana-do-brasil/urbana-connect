@@ -4,7 +4,13 @@ import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessage;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
 import br.com.urbana.connect.domain.conversation.model.Conversation;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotLevel;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotSource;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
+import br.com.urbana.connect.domain.conversation.model.ConversationalAiAction;
+import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
@@ -70,24 +76,40 @@ class ConversationFlowServiceTest {
         lenient().when(conversationMessageGateway.findRecentByConversationId(any(), anyInt())).thenReturn(List.of());
         lenient().when(conversationMessageGateway.existsByProviderMessageId(any())).thenReturn(false);
         lenient().when(aiGateway.interpret(any())).thenReturn(AiInterpretation.unknown());
+        lenient().when(aiGateway.converse(any())).thenReturn(ConversationalAiReply.fallback("test"));
     }
 
     @Test
-    void shouldMoveGreetingToGuidedTriageWhenAiInterpretsAffirmation() {
+    void shouldMoveGreetingToIcpQualificationWhenAiConfirmsNeedForHelp() {
         Instant now = Instant.parse("2026-04-06T10:00:00Z");
         String phoneNumber = "+5583999999999";
         Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(60));
 
         when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
-        when(aiGateway.interpret(any())).thenReturn(new AiInterpretation(IntentType.AFFIRMATION, null, null));
+        when(aiGateway.converse(any())).thenReturn(new ConversationalAiReply(
+            "Perfeito, eu te ajudo. Como você prefere que eu te trate?",
+            ConversationalAiAction.ACKNOWLEDGE_AND_ADVANCE,
+            List.of(new ConversationSlotUpdate(
+                ConversationSlotName.NEEDS_DISCOVERY_HELP,
+                "true",
+                ConversationSlotLevel.CONFIRMED,
+                0.95,
+                ConversationSlotSource.EXPLICIT
+            )),
+            0.95,
+            true,
+            ConversationStep.ICP_QUALIFICATION,
+            false,
+            null
+        ));
 
         Conversation updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "sim, preciso de ajuda", ""),
             now
         );
 
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_GUIDED);
-        verify(whatsAppMessageGateway).sendGuidedTriageOptions(eq(phoneNumber), any());
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.ICP_QUALIFICATION);
+        verify(whatsAppMessageGateway).sendTextMessage(eq(phoneNumber), any());
     }
 
     @Test
@@ -161,7 +183,7 @@ class ConversationFlowServiceTest {
             now
         );
 
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
         verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), any());
     }
 

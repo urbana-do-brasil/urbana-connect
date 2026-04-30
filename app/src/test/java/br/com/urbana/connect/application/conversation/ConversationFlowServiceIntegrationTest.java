@@ -2,7 +2,13 @@ package br.com.urbana.connect.application.conversation;
 
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotLevel;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotSource;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
+import br.com.urbana.connect.domain.conversation.model.ConversationalAiAction;
+import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
@@ -30,6 +36,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -77,6 +84,7 @@ class ConversationFlowServiceIntegrationTest {
     @BeforeEach
     void setUp() {
         doReturn(AiInterpretation.unknown()).when(aiGateway).interpret(any());
+        doReturn(ConversationalAiReply.fallback("test")).when(aiGateway).converse(any());
     }
 
     @Test
@@ -147,7 +155,7 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
-    void shouldMoveGreetingToGuidedTriageWhenCustomerRequestsHelp() {
+    void shouldMoveGreetingToIcpQualificationWhenCustomerRequestsHelp() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583888888888";
 
@@ -157,13 +165,13 @@ class ConversationFlowServiceIntegrationTest {
             now.plusSeconds(60)
         );
 
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_GUIDED);
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.ICP_QUALIFICATION);
         assertThat(countByPhoneNumber(phoneNumber)).isEqualTo(1);
-        verify(whatsAppMessageGateway).sendGuidedTriageOptions(eq(phoneNumber), anyList());
+        verify(whatsAppMessageGateway).sendTextMessage(eq(phoneNumber), any());
     }
 
     @Test
-    void shouldLogIncomingMessageAndTransitionWhenMovingFromGreetingToGuidedTriage(CapturedOutput output) {
+    void shouldLogIncomingMessageAndTransitionWhenMovingFromGreetingToIcpQualification(CapturedOutput output) {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583881212121";
 
@@ -174,28 +182,43 @@ class ConversationFlowServiceIntegrationTest {
         );
 
         assertThat(output.getOut()).contains("Mensagem recebida: phoneNumber=+5583***2121 type=interactive currentStep=GREETING");
-        assertThat(output.getOut()).contains("Transição de conversa: phoneNumber=+5583***2121 from=GREETING to=TRIAGE_GUIDED reason=greeting_yes_help");
+        assertThat(output.getOut()).contains("Transição de conversa: phoneNumber=+5583***2121 from=GREETING to=ICP_QUALIFICATION reason=greeting_yes_help");
     }
 
     @Test
-    void shouldMoveGreetingToGuidedTriageWhenAiInterpretsAffirmation() {
+    void shouldMoveGreetingToIcpQualificationWhenAiInterpretsNeedForHelp() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583880000000";
 
         conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
-        doReturn(new AiInterpretation(IntentType.AFFIRMATION, null, null)).when(aiGateway).interpret(any());
+        doReturn(new ConversationalAiReply(
+            "Perfeito, eu te ajudo. Como você prefere que eu te trate?",
+            ConversationalAiAction.ACKNOWLEDGE_AND_ADVANCE,
+            List.of(new ConversationSlotUpdate(
+                ConversationSlotName.NEEDS_DISCOVERY_HELP,
+                "true",
+                ConversationSlotLevel.CONFIRMED,
+                0.95,
+                ConversationSlotSource.EXPLICIT
+            )),
+            0.95,
+            true,
+            ConversationStep.ICP_QUALIFICATION,
+            false,
+            null
+        )).when(aiGateway).converse(any());
 
         var updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "sim, preciso de ajuda", ""),
             now.plusSeconds(60)
         );
 
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_GUIDED);
-        verify(whatsAppMessageGateway).sendGuidedTriageOptions(eq(phoneNumber), anyList());
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.ICP_QUALIFICATION);
+        verify(whatsAppMessageGateway).sendTextMessage(eq(phoneNumber), any());
     }
 
     @Test
-    void shouldMoveGreetingToDirectTriageWhenCustomerAlreadyKnowsDesiredService() {
+    void shouldMoveGreetingToIcpQualificationWhenCustomerAlreadyKnowsDesiredService() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583777777777";
 
@@ -205,25 +228,22 @@ class ConversationFlowServiceIntegrationTest {
             now.plusSeconds(60)
         );
 
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.ICP_QUALIFICATION);
         assertThat(countByPhoneNumber(phoneNumber)).isEqualTo(1);
-        verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), anyList());
+        verify(whatsAppMessageGateway).sendTextMessage(eq(phoneNumber), any());
     }
 
     @Test
-    void shouldMoveGuidedTriageToAwaitingConfirmationWhenScenarioIsSelected() {
+    void shouldMoveServiceDiscoveryToAwaitingConfirmationWhenScenarioIsSelected() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583666666666";
 
         conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
-        conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "", "YES_HELP"),
-            now.plusSeconds(60)
-        );
+        advanceToServiceDiscovery(phoneNumber, now, true);
 
         var updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "", "DECOR"),
-            now.plusSeconds(120)
+            now.plusSeconds(180)
         );
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_CONFIRMATION);
@@ -235,20 +255,17 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
-    void shouldMoveDirectTriageToAwaitingConfirmationWhenAiSelectsService() {
+    void shouldMoveServiceDiscoveryToAwaitingConfirmationWhenAiSelectsService() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583660000000";
 
         conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
-        conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "", "NO_HELP"),
-            now.plusSeconds(60)
-        );
+        advanceToServiceDiscovery(phoneNumber, now, false);
         doReturn(new AiInterpretation(IntentType.SERVICE_SELECTION, ServiceType.DECOR, null)).when(aiGateway).interpret(any());
 
         var updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "quero decor", ""),
-            now.plusSeconds(120)
+            now.plusSeconds(180)
         );
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_CONFIRMATION);
@@ -260,23 +277,20 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
-    void shouldRepeatDirectTriageOptionsWhenSelectionIsUnknown() {
+    void shouldRepeatServiceDiscoveryOptionsWhenSelectionIsUnknown() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583555555555";
 
         conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
-        conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "", "NO_HELP"),
-            now.plusSeconds(60)
-        );
+        advanceToServiceDiscovery(phoneNumber, now, false);
 
         var updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "texto livre", ""),
-            now.plusSeconds(120)
+            now.plusSeconds(180)
         );
 
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
-        verify(whatsAppMessageGateway, times(2)).sendDirectTriageOptions(eq(phoneNumber), anyList());
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
+        verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), anyList());
     }
 
     @Test
@@ -285,17 +299,14 @@ class ConversationFlowServiceIntegrationTest {
         String phoneNumber = "+5583550000000";
 
         conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
-        conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "", "NO_HELP"),
-            now.plusSeconds(60)
-        );
+        advanceToServiceDiscovery(phoneNumber, now, false);
 
         var updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "humano", ""),
-            now.plusSeconds(120)
+            now.plusSeconds(180)
         );
 
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
         verify(whatsAppMessageGateway).sendHumanHandoffAcknowledgement(phoneNumber);
         verify(humanHandoffGateway).notifyTeam(any());
         assertThat(countByPhoneNumber(phoneNumber)).isEqualTo(1);
@@ -335,7 +346,7 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
-    void shouldReturnToDirectTriageWhenCustomerRejectsSuggestedService() {
+    void shouldReturnToServiceDiscoveryWhenCustomerRejectsSuggestedService() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583222222222";
 
@@ -346,8 +357,8 @@ class ConversationFlowServiceIntegrationTest {
             now.plusSeconds(180)
         );
 
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
-        verify(whatsAppMessageGateway, times(2)).sendDirectTriageOptions(eq(phoneNumber), anyList());
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
+        verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), anyList());
     }
 
     @Test
@@ -437,7 +448,7 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
-    void shouldLogErrorAndReturnToDirectTriageWhenServiceIsMissingForPayment(CapturedOutput output) {
+    void shouldLogErrorAndReturnToServiceDiscoveryWhenServiceIsMissingForPayment(CapturedOutput output) {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583991111111";
 
@@ -453,8 +464,8 @@ class ConversationFlowServiceIntegrationTest {
                 now.plusSeconds(300)
             );
 
-            assertThat(updated.currentStep()).isEqualTo(ConversationStep.TRIAGE_DIRECT);
-            verify(whatsAppMessageGateway, times(2)).sendDirectTriageOptions(eq(phoneNumber), anyList());
+            assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
+            verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), anyList());
             verify(whatsAppMessageGateway, times(0)).sendClosingMessage(phoneNumber);
             assertThat(output)
                     .contains("Servico DECOR nao encontrado para enviar link de pagamento para +5583***1111");
@@ -491,13 +502,43 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     private void advanceToAwaitingConfirmation(String phoneNumber, Instant now) {
+        advanceToServiceDiscovery(phoneNumber, now, false);
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "DECOR"),
+            now.plusSeconds(180)
+        );
+    }
+
+    private void advanceToServiceDiscovery(String phoneNumber, Instant now, boolean needsHelp) {
+        doReturn(
+            new ConversationalAiReply(
+                "Perfeito, podemos seguir.",
+                ConversationalAiAction.ACKNOWLEDGE_AND_ADVANCE,
+                List.of(
+                    new ConversationSlotUpdate(
+                        ConversationSlotName.PRONOUN_PREFERENCE,
+                        "você",
+                        ConversationSlotLevel.TENTATIVE,
+                        0.9,
+                        ConversationSlotSource.EXPLICIT
+                    )
+                ),
+                0.95,
+                true,
+                ConversationStep.SERVICE_DISCOVERY,
+                false,
+                null
+            ),
+            ConversationalAiReply.fallback("test")
+        ).when(aiGateway).converse(any());
+
         conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
         conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "", "NO_HELP"),
+            new InboundWhatsAppMessage(phoneNumber, "", needsHelp ? "YES_HELP" : "NO_HELP"),
             now.plusSeconds(60)
         );
         conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "", "DECOR"),
+            new InboundWhatsAppMessage(phoneNumber, "pode me chamar de você", ""),
             now.plusSeconds(120)
         );
     }
