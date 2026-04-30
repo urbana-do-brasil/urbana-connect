@@ -534,10 +534,10 @@ Sem transformar a solução num CMS arbitrário logo de saída.
 
 ---
 
-## 15. Dúvidas em Aberto
+## 15. Detalhes de Implementação a Fechar
 
-As decisões principais foram validadas no refinamento. Antes da implementação, ainda pode ser necessário fechar:
+O modelo-alvo desta spec foi validado no refinamento. Os pontos abaixo permanecem em aberto apenas como detalhe de implementação, não como reabertura das decisões estruturais:
 
-- se `pronounPreference`, `firstTimeHiringDesigner` e `occupation` entram já na primeira entrega de código ou numa segunda iteração imediata;
-- se os slots conversacionais ficam dentro de `conversations.context` ou em estrutura separada;
-- se `SERVICE_DISCOVERY` já substitui de imediato `TRIAGE_GUIDED` e `TRIAGE_DIRECT` no código ou se haverá uma etapa de migração intermediária.
+- definir a ordem e a estratégia de coleta de `pronounPreference`, `firstTimeHiringDesigner` e `occupation` dentro de `ICP_QUALIFICATION`, sem remover esses slots da primeira iteração;
+- definir se os slots conversacionais ficam dentro de `conversations.context` ou em estrutura separada, preservando o mesmo contrato funcional da etapa;
+- definir o plano de migração de `TRIAGE_GUIDED` e `TRIAGE_DIRECT` para `SERVICE_DISCOVERY`, incluindo se a troca será direta ou transitória por compatibilidade interna.
