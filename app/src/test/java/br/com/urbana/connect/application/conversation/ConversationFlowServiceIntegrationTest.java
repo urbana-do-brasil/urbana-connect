@@ -2,6 +2,7 @@ package br.com.urbana.connect.application.conversation;
 
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
+import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotLevel;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotSource;
@@ -325,6 +326,7 @@ class ConversationFlowServiceIntegrationTest {
         );
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
+        assertThat(updated.context().slotValue(ConversationSlotName.CONFIRMED_SERVICE)).contains("DECOR");
         verify(whatsAppMessageGateway).sendTermsOfUse(phoneNumber);
     }
 
@@ -424,6 +426,55 @@ class ConversationFlowServiceIntegrationTest {
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
         verify(whatsAppMessageGateway).sendPaymentMethodOptions(phoneNumber);
+    }
+
+    @Test
+    void shouldKeepAwaitingTermsWhenCustomerExplicitlyDeclinesEvenIfAiMisclassifiesAcceptance() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583110099999";
+
+        advanceToAwaitingTerms(phoneNumber, now);
+        doReturn(new AiInterpretation(IntentType.TERMS_ACCEPTANCE, null, null)).when(aiGateway).interpret(any());
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "não aceito", ""),
+            now.plusSeconds(240)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
+        verify(whatsAppMessageGateway, times(2)).sendTermsOfUse(phoneNumber);
+    }
+
+    @Test
+    void shouldDiscardInvalidSuggestedServiceFromConversationalAiReply() {
+        Instant now = Instant.parse("2026-04-05T09:00:00Z");
+        String phoneNumber = "+5583110088888";
+
+        advanceToServiceDiscovery(phoneNumber, now, false);
+        doReturn(new ConversationalAiReply(
+            "Entendi. Me conta mais um pouco para eu te orientar melhor.",
+            ConversationalAiAction.CONFIRM_UNDERSTANDING,
+            List.of(new ConversationSlotUpdate(
+                ConversationSlotName.SUGGESTED_SERVICE,
+                "SERVICO_INVENTADO",
+                ConversationSlotLevel.TENTATIVE,
+                0.91,
+                ConversationSlotSource.INFERRED
+            )),
+            0.91,
+            false,
+            null,
+            false,
+            null
+        )).when(aiGateway).converse(any());
+
+        var updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "quero algo diferente", ""),
+            now.plusSeconds(180)
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
+        assertThat(updated.context().slotValue(ConversationSlotName.SUGGESTED_SERVICE)).isEmpty();
     }
 
     @Test

@@ -152,6 +152,23 @@ class ConversationFlowServiceTest {
     }
 
     @Test
+    void shouldNotAdvanceTermsWhenCustomerExplicitlyDeclinesEvenIfAiMisclassifies() {
+        Instant now = Instant.parse("2026-04-06T10:10:30Z");
+        String phoneNumber = "+5583771111111";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(180))
+            .selectService(ServiceType.DECOR, ConversationStep.AWAITING_TERMS, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "não aceito", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
+        verify(whatsAppMessageGateway).sendTermsOfUse(phoneNumber);
+    }
+
+    @Test
     void shouldMoveAwaitingTermsToPaymentMethodWhenCustomerAcceptsTermsByButton() {
         Instant now = Instant.parse("2026-04-06T10:11:00Z");
         String phoneNumber = "+5583770000000";
@@ -224,6 +241,58 @@ class ConversationFlowServiceTest {
         assertThat(updated.context().paymentMethod()).isEqualTo("PIX");
         verify(whatsAppMessageGateway).sendPaymentLink(eq(phoneNumber), any(ServiceCatalogItem.class));
         verify(whatsAppMessageGateway).sendClosingMessage(phoneNumber);
+    }
+
+    @Test
+    void shouldPersistConfirmedServiceWhenCustomerConfirmsSelection() {
+        Instant now = Instant.parse("2026-04-06T10:22:00Z");
+        String phoneNumber = "+5583550001111";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(240))
+            .selectService(ServiceType.DECOR, ConversationStep.AWAITING_CONFIRMATION, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "CONFIRM_SERVICE"),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
+        assertThat(updated.context().slotValue(ConversationSlotName.CONFIRMED_SERVICE)).contains("DECOR");
+    }
+
+    @Test
+    void shouldDiscardInvalidSuggestedServiceFromAiSlotUpdates() {
+        Instant now = Instant.parse("2026-04-06T10:23:00Z");
+        String phoneNumber = "+5583550002222";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(240))
+            .moveTo(ConversationStep.SERVICE_DISCOVERY, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+        when(aiGateway.converse(any())).thenReturn(new ConversationalAiReply(
+            "Acho que entendi, me conta mais um pouco.",
+            ConversationalAiAction.CONFIRM_UNDERSTANDING,
+            List.of(new ConversationSlotUpdate(
+                ConversationSlotName.SUGGESTED_SERVICE,
+                "SERVICO_INVENTADO",
+                ConversationSlotLevel.TENTATIVE,
+                0.92,
+                ConversationSlotSource.INFERRED
+            )),
+            0.92,
+            false,
+            null,
+            false,
+            null
+        ));
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "quero algo diferente", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
+        assertThat(updated.context().slotValue(ConversationSlotName.SUGGESTED_SERVICE)).isEmpty();
     }
 
     @Test

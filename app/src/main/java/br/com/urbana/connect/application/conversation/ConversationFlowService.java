@@ -52,6 +52,7 @@ public class ConversationFlowService {
     private static final Pattern TERMS_NEGATIVE_PATTERN = Pattern.compile(
         "\\b(n[aã]o aceito|n[aã]o li ainda|n[aã]o concordo|tenho d[uú]vidas)\\b"
     );
+    private static final List<String> SUPPORTED_PAYMENT_METHODS = List.of("PIX", "CARTÃO");
 
     private final ConversationLifecycleService conversationLifecycleService;
     private final ConversationGateway conversationGateway;
@@ -330,7 +331,7 @@ public class ConversationFlowService {
             if (interpretation.intent() == IntentType.AFFIRMATION) {
                 Conversation updated = saveTransition(
                     conversation,
-                    conversation.moveTo(ConversationStep.AWAITING_TERMS, receivedAt),
+                    confirmSelectedService(conversation, receivedAt).moveTo(ConversationStep.AWAITING_TERMS, receivedAt),
                     inboundMessage.phoneNumber(),
                     "confirmation_ai_affirmation"
                 );
@@ -366,7 +367,7 @@ public class ConversationFlowService {
         if ("CONFIRM_SERVICE".equals(replyId)) {
             Conversation updated = saveTransition(
                 conversation,
-                conversation.moveTo(ConversationStep.AWAITING_TERMS, receivedAt),
+                confirmSelectedService(conversation, receivedAt).moveTo(ConversationStep.AWAITING_TERMS, receivedAt),
                 inboundMessage.phoneNumber(),
                 "confirmation_button"
             );
@@ -438,6 +439,15 @@ public class ConversationFlowService {
         }
 
         if ("TERMS_DECLINE".equals(inboundMessage.interactiveReplyId())) {
+            sendFallbackAndRepeat(
+                inboundMessage.phoneNumber(),
+                conversation.currentStep(),
+                () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
+            );
+            return conversation;
+        }
+
+        if (containsExplicitTermsDecline(inboundMessage.textBody())) {
             sendFallbackAndRepeat(
                 inboundMessage.phoneNumber(),
                 conversation.currentStep(),
@@ -619,7 +629,7 @@ public class ConversationFlowService {
                 new ConversationSlotUpdate(
                     ConversationSlotName.SUGGESTED_SERVICE,
                     selectedService.type().name(),
-                    ConversationSlotLevel.CONFIRMED,
+                    ConversationSlotLevel.TENTATIVE,
                     1.0,
                     ConversationSlotSource.EXPLICIT
                 )
@@ -636,13 +646,33 @@ public class ConversationFlowService {
         return updated;
     }
 
+    private Conversation confirmSelectedService(Conversation conversation, Instant receivedAt) {
+        if (conversation.selectedService() == null) {
+            return conversation;
+        }
+
+        return applySlotUpdates(conversation, List.of(
+            new ConversationSlotUpdate(
+                ConversationSlotName.CONFIRMED_SERVICE,
+                conversation.selectedService().name(),
+                ConversationSlotLevel.CONFIRMED,
+                1.0,
+                ConversationSlotSource.EXPLICIT
+            )
+        ), receivedAt);
+    }
+
     private Conversation applySlotUpdates(
             Conversation conversation,
             List<ConversationSlotUpdate> slotUpdates,
             Instant receivedAt) {
         ConversationContext updatedContext = conversation.context();
         for (ConversationSlotUpdate slotUpdate : slotUpdates) {
-            if (slotUpdate == null || slotUpdate.slot() == null || slotUpdate.value() == null || slotUpdate.value().isBlank()) {
+            if (slotUpdate == null
+                    || slotUpdate.slot() == null
+                    || slotUpdate.value() == null
+                    || slotUpdate.value().isBlank()
+                    || !isValidSlotUpdate(slotUpdate)) {
                 continue;
             }
             updatedContext = updatedContext.withSlot(slotUpdate.slot(), slotUpdate.toSlotValue());
@@ -847,6 +877,37 @@ public class ConversationFlowService {
         }
 
         return TERMS_POSITIVE_PATTERN.matcher(normalized).find();
+    }
+
+    private boolean containsExplicitTermsDecline(String textBody) {
+        if (textBody == null || textBody.isBlank()) {
+            return false;
+        }
+
+        return TERMS_NEGATIVE_PATTERN.matcher(textBody.toLowerCase(Locale.ROOT)).find();
+    }
+
+    private boolean isValidSlotUpdate(ConversationSlotUpdate slotUpdate) {
+        return switch (slotUpdate.slot()) {
+            case NEEDS_DISCOVERY_HELP -> "true".equalsIgnoreCase(slotUpdate.value())
+                || "false".equalsIgnoreCase(slotUpdate.value());
+            case SUGGESTED_SERVICE, CONFIRMED_SERVICE -> isKnownService(slotUpdate.value());
+            case PAYMENT_METHOD -> SUPPORTED_PAYMENT_METHODS.contains(slotUpdate.value().toUpperCase(Locale.ROOT));
+            case TERMS_ACCEPTED -> TERMS_ACCEPTED_VALUE.equalsIgnoreCase(slotUpdate.value());
+            case PRONOUN_PREFERENCE, FIRST_TIME_HIRING_DESIGNER, OCCUPATION -> true;
+        };
+    }
+
+    private boolean isKnownService(String value) {
+        try {
+            ServiceType.valueOf(value);
+            return true;
+        } catch (IllegalArgumentException exception) {
+            if (log.isWarnEnabled()) {
+                log.warn("Slot de serviço inválido descartado: {}", value);
+            }
+            return false;
+        }
     }
 
     private boolean isHumanHandoffRequested(String textBody) {
