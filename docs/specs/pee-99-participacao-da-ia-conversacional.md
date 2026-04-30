@@ -92,22 +92,48 @@ Justificativa:
 - são as etapas em que o script da Urba depende mais de bate-papo do que de seleção estruturada;
 - permitem melhorar a conversa sem abrir cedo demais as partes mais sensíveis do fluxo.
 
-### 4.2 Slots obrigatórios da primeira iteração
+### 4.2 Mapeamento para a state machine atual
 
-Slots obrigatórios:
+A implementação não deve deixar esse refinamento solto em relação ao fluxo já existente.
 
-- `needsDiscoveryHelp`
-- `suggestedService`
-- `confirmedService`
-- `paymentMethod`
+Mapeamento recomendado da primeira iteração:
 
-Slots importantes, mas não bloqueantes já na primeira iteração:
+| Etapa conversacional | Estratégia na state machine | Observação |
+|---|---|---|
+| `saudação + descoberta inicial` | continua em `GREETING` | `GREETING` deixa de ser apenas saudação fixa e passa a conduzir abertura + leitura inicial do grau de clareza do cliente |
+| `identificação de ICP` | novo `ConversationStep`: `ICP_QUALIFICATION` | etapa intermediária logo após `GREETING`, dedicada a pronome, primeira experiência e ocupação |
+| `descoberta do serviço ideal` | novo `ConversationStep`: `SERVICE_DISCOVERY` | substitui a separação rígida entre `TRIAGE_GUIDED` e `TRIAGE_DIRECT` como conceito principal de descoberta |
+| confirmação do serviço | permanece em `AWAITING_CONFIRMATION` | continua mais estruturada |
+| termos | permanece em `AWAITING_TERMS` | continua mais estruturada |
+| pagamento | permanece em `AWAITING_PAYMENT_METHOD` | continua mais estruturada |
+| link enviado | permanece em `PAYMENT_LINK_SENT` | sem mudança conceitual nesta etapa |
 
-- `pronounPreference`
-- `firstTimeHiringDesigner`
-- `occupation`
+Diretriz adicional:
 
-### 4.3 Liberdade verbal da IA
+- `TRIAGE_GUIDED` e `TRIAGE_DIRECT` deixam de ser a forma principal de pensar a descoberta;
+- se ainda precisarem existir por compatibilidade de implementação incremental, devem ser tratadas como detalhe transitório da migração e não como modelo-alvo da nova spec.
+
+### 4.3 Slots por etapa e condição de avanço
+
+Os slots não devem ser tratados como uma lista global de obrigatórios da primeira iteração. Eles precisam ser avaliados por etapa.
+
+| Etapa | Slot | Nível mínimo | Obrigatório para avançar? | Condição de avanço |
+|---|---|---|---|---|
+| `GREETING` | `needsDiscoveryHelp` | `confirmed` | sim | avançar quando a Urba entender se o cliente precisa de ajuda para descobrir o serviço ou se já chega com clareza suficiente |
+| `ICP_QUALIFICATION` | `pronounPreference` | `tentative` ou `confirmed` | não | a etapa pode avançar mesmo sem resposta conclusiva, desde que a Urba tenha tentado a coleta ou o cliente tenha sinalizado que prefere não responder |
+| `ICP_QUALIFICATION` | `firstTimeHiringDesigner` | `tentative` ou `confirmed` | não | mesma regra acima |
+| `ICP_QUALIFICATION` | `occupation` | `tentative` ou `confirmed` | não | mesma regra acima |
+| `SERVICE_DISCOVERY` | `suggestedService` | `tentative` | sim | avançar para `AWAITING_CONFIRMATION` quando a orquestração tiver um serviço sugerido válido e apresentável ao cliente |
+| `AWAITING_CONFIRMATION` | `confirmedService` | `confirmed` | sim | avançar apenas com confirmação explícita do cliente, por botão ou linguagem livre inequívoca |
+| `AWAITING_TERMS` | `termsAccepted` | `confirmed` | sim | avançar apenas com botão ou texto livre inequivocamente positivo |
+| `AWAITING_PAYMENT_METHOD` | `paymentMethod` | `confirmed` | sim | avançar apenas com escolha objetiva e válida da forma de pagamento |
+
+Observação:
+
+- `confirmedService` e `paymentMethod` fazem parte da primeira iteração da feature, mas pertencem a etapas posteriores do fluxo e não podem bloquear descoberta precoce;
+- `suggestedService` é o slot mínimo para concluir a etapa conversacional de descoberta e levar a conversa para confirmação.
+
+### 4.4 Liberdade verbal da IA
 
 A IA deve ter maior liberdade verbal em:
 
@@ -125,7 +151,7 @@ A IA deve ser mais restrita em:
 - envio do link de pagamento;
 - acionamento de atendimento humano.
 
-### 4.4 Interações que continuam estruturadas
+### 4.5 Interações que continuam estruturadas
 
 Mesmo com a IA ganhando papel conversacional, as seguintes interações continuam estruturalmente controladas:
 
@@ -137,7 +163,7 @@ Mesmo com a IA ganhando papel conversacional, as seguintes interações continua
 
 A IA pode introduzir essas interações com linguagem mais natural, mas a coleta final deve continuar apoiada por regras objetivas, botões, listas ou validações explícitas.
 
-### 4.5 Regra para aceite de termos
+### 4.6 Regra para aceite de termos
 
 O aceite de termos deve aceitar:
 
@@ -149,6 +175,21 @@ Exemplos de texto válidos:
 - `aceito`
 - `sim, aceito`
 - `ok, aceito`
+
+Exemplos que **não** contam como aceite:
+
+- `não aceito`
+- `não li ainda`
+- `ok`
+- `certo`
+- `beleza`
+- qualquer mensagem ambígua sem aceite explícito
+
+Regra segura:
+
+- texto livre só deve contar como aceite quando a intenção positiva for inequívoca;
+- validação por substring isolada é insuficiente;
+- se houver dúvida, a Urba deve pedir confirmação novamente em vez de avançar.
 
 ---
 
@@ -218,17 +259,20 @@ O sistema deve deixar de pensar apenas em `currentStep` e passar a pensar també
 ### 6.1 Slots da primeira iteração
 
 - `needsDiscoveryHelp`
+- `pronounPreference`
+- `firstTimeHiringDesigner`
+- `occupation`
 - `suggestedService`
 - `confirmedService`
+- `termsAccepted`
 - `paymentMethod`
 
 ### 6.2 Slots previstos para evolução próxima
 
-- `pronounPreference`
-- `firstTimeHiringDesigner`
-- `occupation`
 - `clarityLevel`
 - `customerGoal`
+- `discoveryMode`
+- `handoffRequested`
 
 ### 6.3 Regras dos slots
 
@@ -282,16 +326,89 @@ Campos mínimos do contexto enviado para a IA:
 
 ### 8.1 Formato esperado da saída da IA
 
-O adapter de IA deve ser capaz de retornar, no mínimo:
+O adapter de IA não deve devolver apenas texto. O contrato mínimo esperado nesta spec é estruturado e testável.
 
-- `replyText`
-- `slotUpdates`
-- `confidence`
-- `shouldAdvance`
-- `suggestedNextStep` quando aplicável
-- `shouldOfferStructuredOptions`
+Formato-base esperado:
 
-O sistema não deve depender de texto puro da IA sem estrutura adicional.
+```json
+{
+  "replyText": "Entendi. Pelo que você me contou, parece que você quer renovar a fachada sem grandes obras. Faz sentido?",
+  "action": "ASK_CLARIFYING_QUESTION",
+  "slotUpdates": [
+    {
+      "slot": "suggestedService",
+      "value": "DECOR_FACHADA",
+      "level": "tentative",
+      "confidence": 0.91,
+      "source": "inferred"
+    }
+  ],
+  "confidence": 0.91,
+  "shouldAdvance": false,
+  "suggestedNextStep": null,
+  "shouldOfferStructuredOptions": false,
+  "fallbackReason": null
+}
+```
+
+Campos obrigatórios:
+
+- `replyText`: texto a ser enviado ao cliente, quando a resposta for válida;
+- `action`: ação pretendida pela IA dentro do conjunto permitido;
+- `slotUpdates`: lista de alterações propostas de slot;
+- `confidence`: confiança geral da interpretação atual, em faixa `0.0` a `1.0`;
+- `shouldAdvance`: sinalização da IA de que entende haver dados suficientes para transição;
+- `suggestedNextStep`: próximo passo sugerido, quando aplicável;
+- `shouldOfferStructuredOptions`: se a orquestração deve preferir botões/listas na resposta;
+- `fallbackReason`: justificativa estruturada quando a IA não conseguiu devolver uma saída confiável.
+
+Enums mínimos:
+
+### `action`
+
+- `ASK_CLARIFYING_QUESTION`
+- `CONFIRM_UNDERSTANDING`
+- `PROPOSE_SERVICE`
+- `OFFER_STRUCTURED_OPTIONS`
+- `ACKNOWLEDGE_AND_ADVANCE`
+- `REPEAT_WITH_REFRAME`
+- `REQUEST_HUMAN_HANDOFF`
+
+### `slotUpdates[].level`
+
+- `tentative`
+- `confirmed`
+
+### `slotUpdates[].source`
+
+- `inferred`
+- `explicit`
+
+### `suggestedNextStep`
+
+- `GREETING`
+- `ICP_QUALIFICATION`
+- `SERVICE_DISCOVERY`
+- `AWAITING_CONFIRMATION`
+- `AWAITING_TERMS`
+- `AWAITING_PAYMENT_METHOD`
+- `PAYMENT_LINK_SENT`
+- `null`
+
+Regras de interpretação pela orquestração:
+
+- `shouldAdvance` é apenas sugestão, nunca autoridade final;
+- a orquestração só pode honrar `shouldAdvance = true` quando:
+  - `confidence >= 0.85`;
+  - os slots mínimos da etapa estiverem no nível exigido;
+  - a ação proposta for permitida na etapa atual;
+  - não houver conflito com regra operacional rígida.
+
+Regras adicionais de segurança:
+
+- `confirmedService`, `termsAccepted` e `paymentMethod` não podem avançar apenas por confiança alta; exigem confirmação explícita ou regra determinística aprovada;
+- se a IA devolver JSON inválido, campo obrigatório ausente, enum fora do contrato ou slot impossível, a orquestração deve descartar a resposta estruturada, logar o evento e aplicar fallback seguro;
+- o sistema não deve depender de texto puro da IA sem estrutura adicional.
 
 ---
 
@@ -423,4 +540,4 @@ As decisões principais foram validadas no refinamento. Antes da implementação
 
 - se `pronounPreference`, `firstTimeHiringDesigner` e `occupation` entram já na primeira entrega de código ou numa segunda iteração imediata;
 - se os slots conversacionais ficam dentro de `conversations.context` ou em estrutura separada;
-- qual contrato exato o adapter de IA deve devolver para suportar `slotUpdates`, `confidence` e `shouldAdvance`.
+- se `SERVICE_DISCOVERY` já substitui de imediato `TRIAGE_GUIDED` e `TRIAGE_DIRECT` no código ou se haverá uma etapa de migração intermediária.
