@@ -1,6 +1,5 @@
 package br.com.urbana.connect.application.conversation;
 
-import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotLevel;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
@@ -10,7 +9,6 @@ import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiAction;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
-import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
@@ -83,7 +81,6 @@ class ConversationFlowServiceIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        doReturn(AiInterpretation.unknown()).when(aiGateway).interpret(any());
         doReturn(ConversationalAiReply.fallback("test")).when(aiGateway).converse(any());
     }
 
@@ -255,13 +252,28 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
-    void shouldMoveServiceDiscoveryToAwaitingConfirmationWhenAiSelectsService() {
+    void shouldMoveServiceDiscoveryToAwaitingConfirmationWhenAiSuggestsService() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583660000000";
 
         conversationFlowService.handleIncomingMessage(new InboundWhatsAppMessage(phoneNumber, "oi", ""), now);
         advanceToServiceDiscovery(phoneNumber, now, false);
-        doReturn(new AiInterpretation(IntentType.SERVICE_SELECTION, ServiceType.DECOR, null)).when(aiGateway).interpret(any());
+        doReturn(new ConversationalAiReply(
+            "Decor parece a melhor opção para isso.",
+            ConversationalAiAction.PROPOSE_SERVICE,
+            List.of(new ConversationSlotUpdate(
+                ConversationSlotName.SUGGESTED_SERVICE,
+                "DECOR",
+                ConversationSlotLevel.TENTATIVE,
+                0.96,
+                ConversationSlotSource.INFERRED
+            )),
+            0.96,
+            true,
+            ConversationStep.AWAITING_CONFIRMATION,
+            false,
+            null
+        )).when(aiGateway).converse(any());
 
         var updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "quero decor", ""),
@@ -330,12 +342,11 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
-    void shouldMoveToAwaitingTermsWhenAiInterpretsAffirmation() {
+    void shouldMoveToAwaitingTermsWhenCustomerAffirmsByText() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583330000000";
 
         advanceToAwaitingConfirmation(phoneNumber, now);
-        doReturn(new AiInterpretation(IntentType.AFFIRMATION, null, null)).when(aiGateway).interpret(any());
 
         var updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "sim, é isso", ""),
@@ -414,15 +425,14 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
-    void shouldMoveToAwaitingPaymentMethodWhenAiInterpretsTermsAcceptance() {
+    void shouldMoveToAwaitingPaymentMethodWhenCustomerAcceptsTermsByText() {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583110000000";
 
         advanceToAwaitingTerms(phoneNumber, now);
-        doReturn(new AiInterpretation(IntentType.TERMS_ACCEPTANCE, null, null)).when(aiGateway).interpret(any());
 
         var updated = conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "de acordo com os termos", ""),
+            new InboundWhatsAppMessage(phoneNumber, "sim, aceito", ""),
             now.plusSeconds(240)
         );
 
@@ -436,7 +446,6 @@ class ConversationFlowServiceIntegrationTest {
         String phoneNumber = "+5583110099999";
 
         advanceToAwaitingTerms(phoneNumber, now);
-        doReturn(new AiInterpretation(IntentType.TERMS_ACCEPTANCE, null, null)).when(aiGateway).interpret(any());
 
         var updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "não aceito", ""),

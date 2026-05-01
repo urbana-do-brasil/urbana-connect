@@ -1,11 +1,11 @@
 package br.com.urbana.connect.application.conversation;
 
-import br.com.urbana.connect.domain.conversation.model.AiContext;
-import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
+import br.com.urbana.connect.domain.conversation.model.AssembledContext;
 import br.com.urbana.connect.domain.conversation.model.Conversation;
 import br.com.urbana.connect.domain.conversation.model.ConversationContext;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessage;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
+import br.com.urbana.connect.domain.conversation.model.StepContract;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotLevel;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotSource;
@@ -13,8 +13,6 @@ import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
 import br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest;
-import br.com.urbana.connect.domain.conversation.model.IntentType;
-import br.com.urbana.connect.domain.conversation.model.ServiceSummary;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
@@ -38,7 +36,6 @@ import java.util.regex.Pattern;
 public class ConversationFlowService {
 
     private static final String NO_TEXT_FALLBACK = "sem texto";
-    private static final double MIN_CONFIDENCE_TO_ADVANCE = 0.85;
     private static final String TERMS_ACCEPTED_VALUE = "accepted";
     private static final String PAYMENT_METHOD_CARD = "CARTÃO";
 
@@ -52,6 +49,12 @@ public class ConversationFlowService {
     private static final Pattern TERMS_NEGATIVE_PATTERN = Pattern.compile(
         "\\b(n[aã]o aceito|n[aã]o li ainda|n[aã]o concordo|tenho d[uú]vidas)\\b"
     );
+    private static final Pattern AFFIRMATION_PATTERN = Pattern.compile(
+        "\\b(sim|isso|confirmo|pode ser|perfeito|fechou|beleza)\\b"
+    );
+    private static final Pattern NEGATION_PATTERN = Pattern.compile(
+        "\\b(n[aã]o|negativo|n[aã]o era isso|n[aã]o faz sentido|quero outro)\\b"
+    );
     private static final List<String> SUPPORTED_PAYMENT_METHODS = List.of("PIX", PAYMENT_METHOD_CARD);
 
     private final ConversationLifecycleService conversationLifecycleService;
@@ -61,6 +64,11 @@ public class ConversationFlowService {
     private final WhatsAppMessageGateway whatsAppMessageGateway;
     private final AiGateway aiGateway;
     private final HumanHandoffGateway humanHandoffGateway;
+    private final StepContractRegistry stepContractRegistry;
+    private final ConversationContextAssembler contextAssembler;
+    private final ConversationResponseValidator responseValidator;
+    private final ConversationPolicyEngine policyEngine;
+    private final ConversationActionExecutor actionExecutor;
 
     public ConversationFlowService(
             ConversationLifecycleService conversationLifecycleService,
@@ -69,7 +77,12 @@ public class ConversationFlowService {
             ServiceCatalogGateway serviceCatalogGateway,
             WhatsAppMessageGateway whatsAppMessageGateway,
             AiGateway aiGateway,
-            HumanHandoffGateway humanHandoffGateway) {
+            HumanHandoffGateway humanHandoffGateway,
+            StepContractRegistry stepContractRegistry,
+            ConversationContextAssembler contextAssembler,
+            ConversationResponseValidator responseValidator,
+            ConversationPolicyEngine policyEngine,
+            ConversationActionExecutor actionExecutor) {
         this.conversationLifecycleService = conversationLifecycleService;
         this.conversationGateway = conversationGateway;
         this.conversationMessageGateway = conversationMessageGateway;
@@ -77,6 +90,11 @@ public class ConversationFlowService {
         this.whatsAppMessageGateway = whatsAppMessageGateway;
         this.aiGateway = aiGateway;
         this.humanHandoffGateway = humanHandoffGateway;
+        this.stepContractRegistry = stepContractRegistry;
+        this.contextAssembler = contextAssembler;
+        this.responseValidator = responseValidator;
+        this.policyEngine = policyEngine;
+        this.actionExecutor = actionExecutor;
     }
 
     public Conversation handleIncomingMessage(InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
@@ -136,62 +154,11 @@ public class ConversationFlowService {
         }
 
         if (!hasText(inboundMessage)) {
-            sendFallbackAndRepeat(
-                inboundMessage.phoneNumber(),
-                conversation.currentStep(),
-                () -> whatsAppMessageGateway.sendGreeting(inboundMessage.phoneNumber())
-            );
+            executeFallback(conversation, inboundMessage.phoneNumber(), availableServices);
             return conversation;
         }
 
-        ConversationalAiReply reply = converse(conversation, inboundMessage, availableServices);
-        if (isGreetingAdvanceAllowed(reply, conversation)) {
-            Conversation updated = saveTransition(
-                conversation,
-                applySlotUpdates(conversation, reply.slotUpdates(), receivedAt).moveTo(ConversationStep.ICP_QUALIFICATION, receivedAt),
-                inboundMessage.phoneNumber(),
-                "greeting_ai_advance"
-            );
-            sendStageReplyOrDefault(inboundMessage.phoneNumber(), updated.currentStep(), reply.replyText(), defaultIcpPrompt(updated));
-            return updated;
-        }
-
-        if (hasUsableReply(reply)) {
-            Conversation updated = saveTransition(
-                conversation,
-                applySlotUpdates(conversation, reply.slotUpdates(), receivedAt),
-                inboundMessage.phoneNumber(),
-                "greeting_ai_reply"
-            );
-            sendSafely(
-                inboundMessage.phoneNumber(),
-                updated.currentStep(),
-                () -> whatsAppMessageGateway.sendTextMessage(inboundMessage.phoneNumber(), reply.replyText())
-            );
-            if (reply.shouldOfferStructuredOptions()) {
-                sendSafely(
-                    inboundMessage.phoneNumber(),
-                    updated.currentStep(),
-                    () -> whatsAppMessageGateway.sendGreeting(inboundMessage.phoneNumber())
-                );
-            }
-            return updated;
-        }
-
-        AiInterpretation interpretation = interpret(conversation, inboundMessage, availableServices);
-        if (interpretation.intent() == IntentType.AFFIRMATION) {
-            return advanceGreetingDeterministically(conversation, inboundMessage.phoneNumber(), true, receivedAt, "greeting_legacy_affirmation");
-        }
-        if (interpretation.intent() == IntentType.NEGATION) {
-            return advanceGreetingDeterministically(conversation, inboundMessage.phoneNumber(), false, receivedAt, "greeting_legacy_negation");
-        }
-
-        sendFallbackAndRepeat(
-            inboundMessage.phoneNumber(),
-            conversation.currentStep(),
-            () -> whatsAppMessageGateway.sendGreeting(inboundMessage.phoneNumber())
-        );
-        return conversation;
+        return handleConversationalStep(conversation, inboundMessage, availableServices, receivedAt);
     }
 
     private Conversation handleIcpQualification(
@@ -200,49 +167,11 @@ public class ConversationFlowService {
             List<ServiceCatalogItem> availableServices,
             Instant receivedAt) {
         if (!hasText(inboundMessage)) {
-            sendSafely(
-                inboundMessage.phoneNumber(),
-                conversation.currentStep(),
-                () -> whatsAppMessageGateway.sendTextMessage(inboundMessage.phoneNumber(), defaultIcpPrompt(conversation))
-            );
+            executeFallback(conversation, inboundMessage.phoneNumber(), availableServices);
             return conversation;
         }
 
-        ConversationalAiReply reply = converse(conversation, inboundMessage, availableServices);
-        Conversation updatedConversation = applySlotUpdates(conversation, reply.slotUpdates(), receivedAt);
-
-        if (isIcpAdvanceAllowed(reply)) {
-            Conversation transitioned = saveTransition(
-                conversation,
-                updatedConversation.moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt),
-                inboundMessage.phoneNumber(),
-                "icp_ai_advance"
-            );
-            sendStageReplyOrDefault(
-                inboundMessage.phoneNumber(),
-                transitioned.currentStep(),
-                reply.replyText(),
-                defaultServiceDiscoveryPrompt(transitioned)
-            );
-            return transitioned;
-        }
-
-        if (hasUsableReply(reply)) {
-            Conversation saved = saveTransition(conversation, updatedConversation, inboundMessage.phoneNumber(), "icp_ai_reply");
-            sendSafely(
-                inboundMessage.phoneNumber(),
-                saved.currentStep(),
-                () -> whatsAppMessageGateway.sendTextMessage(inboundMessage.phoneNumber(), reply.replyText())
-            );
-            return saved;
-        }
-
-        sendSafely(
-            inboundMessage.phoneNumber(),
-            conversation.currentStep(),
-            () -> whatsAppMessageGateway.sendTextMessage(inboundMessage.phoneNumber(), defaultIcpPrompt(conversation))
-        );
-        return conversation;
+        return handleConversationalStep(conversation, inboundMessage, availableServices, receivedAt);
     }
 
     private Conversation handleServiceDiscovery(
@@ -256,67 +185,11 @@ public class ConversationFlowService {
         }
 
         if (!hasText(inboundMessage)) {
-            sendFallbackAndRepeat(
-                inboundMessage.phoneNumber(),
-                conversation.currentStep(),
-                () -> sendStructuredDiscoveryOptions(inboundMessage.phoneNumber(), conversation, availableServices)
-            );
+            executeFallback(conversation, inboundMessage.phoneNumber(), availableServices);
             return conversation;
         }
 
-        ConversationalAiReply reply = converse(conversation, inboundMessage, availableServices);
-        Conversation updatedConversation = applySlotUpdates(conversation, reply.slotUpdates(), receivedAt);
-        Optional<ServiceCatalogItem> suggestedService = resolveSuggestedService(updatedConversation, availableServices);
-
-        if (isServiceDiscoveryAdvanceAllowed(reply, updatedConversation) && suggestedService.isPresent()) {
-            if (hasUsableReply(reply)) {
-                sendSafely(
-                    inboundMessage.phoneNumber(),
-                    updatedConversation.currentStep(),
-                    () -> whatsAppMessageGateway.sendTextMessage(inboundMessage.phoneNumber(), reply.replyText())
-                );
-            }
-            return moveToConfirmation(
-                updatedConversation,
-                inboundMessage.phoneNumber(),
-                suggestedService.get(),
-                receivedAt,
-                "service_discovery_ai_advance"
-            );
-        }
-
-        if (hasUsableReply(reply)) {
-            Conversation saved = saveTransition(conversation, updatedConversation, inboundMessage.phoneNumber(), "service_discovery_ai_reply");
-            sendSafely(
-                inboundMessage.phoneNumber(),
-                saved.currentStep(),
-                () -> whatsAppMessageGateway.sendTextMessage(inboundMessage.phoneNumber(), reply.replyText())
-            );
-            if (reply.shouldOfferStructuredOptions()) {
-                sendSafely(
-                    inboundMessage.phoneNumber(),
-                    saved.currentStep(),
-                    () -> sendStructuredDiscoveryOptions(inboundMessage.phoneNumber(), saved, availableServices)
-                );
-            }
-            return saved;
-        }
-
-        AiInterpretation interpretation = interpret(conversation, inboundMessage, availableServices);
-        if (interpretation.intent() == IntentType.SERVICE_SELECTION && interpretation.selectedService() != null) {
-            return availableServices.stream()
-                .filter(service -> service.type() == interpretation.selectedService())
-                .findFirst()
-                .map(service -> moveToConfirmation(conversation, inboundMessage.phoneNumber(), service, receivedAt, "service_discovery_legacy_selection"))
-                .orElse(conversation);
-        }
-
-        sendFallbackAndRepeat(
-            inboundMessage.phoneNumber(),
-            conversation.currentStep(),
-            () -> sendStructuredDiscoveryOptions(inboundMessage.phoneNumber(), conversation, availableServices)
-        );
-        return conversation;
+        return handleConversationalStep(conversation, inboundMessage, availableServices, receivedAt);
     }
 
     private Conversation handleAwaitingConfirmation(
@@ -327,8 +200,7 @@ public class ConversationFlowService {
         String replyId = inboundMessage.interactiveReplyId();
 
         if (hasText(inboundMessage)) {
-            AiInterpretation interpretation = interpret(conversation, inboundMessage, availableServices);
-            if (interpretation.intent() == IntentType.AFFIRMATION) {
+            if (isAffirmation(inboundMessage.textBody())) {
                 Conversation updated = saveTransition(
                     conversation,
                     confirmSelectedService(conversation, receivedAt).moveTo(ConversationStep.AWAITING_TERMS, receivedAt),
@@ -343,7 +215,7 @@ public class ConversationFlowService {
                 return updated;
             }
 
-            if (interpretation.intent() == IntentType.NEGATION) {
+            if (isNegation(inboundMessage.textBody())) {
                 Conversation updated = saveTransition(
                     conversation,
                     resetServiceDiscoveryState(conversation, receivedAt).moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt),
@@ -401,11 +273,7 @@ public class ConversationFlowService {
 
         return serviceCatalogGateway.findByType(conversation.selectedService())
             .map(service -> {
-                sendFallbackAndRepeat(
-                    inboundMessage.phoneNumber(),
-                    conversation.currentStep(),
-                    () -> whatsAppMessageGateway.sendServicePresentation(inboundMessage.phoneNumber(), service)
-                );
+                executeFallback(conversation, inboundMessage.phoneNumber(), availableServices);
                 return conversation;
             })
             .orElse(conversation);
@@ -439,25 +307,16 @@ public class ConversationFlowService {
         }
 
         if ("TERMS_DECLINE".equals(inboundMessage.interactiveReplyId())) {
-            sendFallbackAndRepeat(
-                inboundMessage.phoneNumber(),
-                conversation.currentStep(),
-                () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
-            );
+            executeFallback(conversation, inboundMessage.phoneNumber(), List.of());
             return conversation;
         }
 
         if (containsExplicitTermsDecline(inboundMessage.textBody())) {
-            sendFallbackAndRepeat(
-                inboundMessage.phoneNumber(),
-                conversation.currentStep(),
-                () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
-            );
+            executeFallback(conversation, inboundMessage.phoneNumber(), List.of());
             return conversation;
         }
 
-        if (containsTermsAcceptance(inboundMessage.textBody())
-                || interpret(conversation, inboundMessage, List.of()).intent() == IntentType.TERMS_ACCEPTANCE) {
+        if (containsTermsAcceptance(inboundMessage.textBody())) {
             Conversation updated = saveTransition(
                 conversation,
                 applySlotUpdates(conversation, List.of(
@@ -480,11 +339,7 @@ public class ConversationFlowService {
             return updated;
         }
 
-        sendFallbackAndRepeat(
-            inboundMessage.phoneNumber(),
-            conversation.currentStep(),
-            () -> whatsAppMessageGateway.sendTermsOfUse(inboundMessage.phoneNumber())
-        );
+        executeFallback(conversation, inboundMessage.phoneNumber(), List.of());
         return conversation;
     }
 
@@ -553,11 +408,7 @@ public class ConversationFlowService {
             return updated;
         }
 
-        sendFallbackAndRepeat(
-            inboundMessage.phoneNumber(),
-            conversation.currentStep(),
-            () -> whatsAppMessageGateway.sendPaymentMethodOptions(inboundMessage.phoneNumber())
-        );
+        executeFallback(conversation, inboundMessage.phoneNumber(), availableServices);
         return conversation;
     }
 
@@ -741,48 +592,161 @@ public class ConversationFlowService {
             .orElse(true);
     }
 
-    private boolean isGreetingAdvanceAllowed(ConversationalAiReply reply, Conversation conversation) {
-        if (!reply.isStructurallyValid()
-                || !reply.shouldAdvance()
-                || reply.confidence() < MIN_CONFIDENCE_TO_ADVANCE
-                || reply.suggestedNextStep() != ConversationStep.ICP_QUALIFICATION) {
-            return false;
+    private Conversation handleConversationalStep(
+            Conversation conversation,
+            InboundWhatsAppMessage inboundMessage,
+            List<ServiceCatalogItem> availableServices,
+            Instant receivedAt) {
+        StepContract stepContract = stepContractRegistry.findByStep(conversation.currentStep())
+            .orElseThrow(() -> new IllegalStateException("StepContract ausente para " + conversation.currentStep()));
+
+        if (policyEngine.shouldTriggerStructuredEscape(conversation, stepContract)) {
+            logPolicyDecision(conversation, "structured_escape", "stagnation_limit");
+            sendSafely(
+                inboundMessage.phoneNumber(),
+                conversation.currentStep(),
+                () -> actionExecutor.sendStructuredEscape(
+                    inboundMessage.phoneNumber(),
+                    conversation,
+                    stepContract.structuredEscapeType(),
+                    availableServices
+                )
+            );
+            Conversation reset = conversation.withContext(
+                conversation.context().withTurnsWithoutProgress(conversation.currentStep(), 0),
+                receivedAt
+            );
+            return saveTransition(conversation, reset, inboundMessage.phoneNumber(), "structured_escape");
         }
 
-        Conversation updated = applySlotUpdates(conversation, reply.slotUpdates(), conversation.updatedAt());
-        return updated.context().hasSlotAtLeast(ConversationSlotName.NEEDS_DISCOVERY_HELP, ConversationSlotLevel.CONFIRMED);
-    }
-
-    private boolean isIcpAdvanceAllowed(ConversationalAiReply reply) {
-        return reply.isStructurallyValid()
-            && reply.shouldAdvance()
-            && reply.confidence() >= MIN_CONFIDENCE_TO_ADVANCE
-            && reply.suggestedNextStep() == ConversationStep.SERVICE_DISCOVERY;
-    }
-
-    private boolean isServiceDiscoveryAdvanceAllowed(ConversationalAiReply reply, Conversation conversation) {
-        return reply.isStructurallyValid()
-            && reply.shouldAdvance()
-            && reply.confidence() >= MIN_CONFIDENCE_TO_ADVANCE
-            && reply.suggestedNextStep() == ConversationStep.AWAITING_CONFIRMATION
-            && conversation.context().hasSlotAtLeast(ConversationSlotName.SUGGESTED_SERVICE, ConversationSlotLevel.TENTATIVE);
-    }
-
-    private boolean hasUsableReply(ConversationalAiReply reply) {
-        return reply.isStructurallyValid()
-            && reply.replyText() != null
-            && !reply.replyText().isBlank();
-    }
-
-    private void sendStageReplyOrDefault(String phoneNumber, ConversationStep step, String replyText, String fallbackText) {
-        sendSafely(
-            phoneNumber,
-            step,
-            () -> whatsAppMessageGateway.sendTextMessage(
-                phoneNumber,
-                replyText == null || replyText.isBlank() ? fallbackText : replyText
-            )
+        AssembledContext assembledContext = contextAssembler.assemble(
+            conversation,
+            inboundMessage,
+            availableServices,
+            stepContract
         );
+        logAssemblerLayers(conversation, assembledContext);
+
+        ConversationalAiReply reply = Optional.ofNullable(aiGateway.converse(assembledContext))
+            .orElse(ConversationalAiReply.fallback("null_reply"));
+        Conversation updatedConversation = applySlotUpdates(conversation, reply.slotUpdates(), receivedAt);
+        ResponseValidationResult validationResult = responseValidator.validate(
+            conversation,
+            assembledContext,
+            stepContract,
+            reply,
+            availableServices
+        );
+        if (!validationResult.valid()) {
+            logValidationFailure(conversation, validationResult.reason());
+        }
+
+        ConversationPolicyDecision decision = policyEngine.decide(
+            conversation,
+            stepContract,
+            reply,
+            validationResult,
+            updatedConversation,
+            receivedAt
+        );
+        logPolicyDecision(conversation, decision.type().name(), decision.reason());
+
+        return switch (decision.type()) {
+            case APPLY_FALLBACK -> {
+                executeFallback(conversation, inboundMessage.phoneNumber(), availableServices);
+                Conversation saved = saveTransition(conversation, decision.updatedConversation(), inboundMessage.phoneNumber(), decision.reason());
+                yield saved;
+            }
+            case ACCEPT_REPLY -> {
+                Conversation saved = saveTransition(conversation, decision.updatedConversation(), inboundMessage.phoneNumber(), decision.reason());
+                sendSafely(
+                    inboundMessage.phoneNumber(),
+                    saved.currentStep(),
+                    () -> actionExecutor.sendReply(inboundMessage.phoneNumber(), reply.replyText())
+                );
+                if (reply.shouldOfferStructuredOptions()) {
+                    sendSafely(
+                        inboundMessage.phoneNumber(),
+                        saved.currentStep(),
+                        () -> actionExecutor.sendStructuredEscape(
+                            inboundMessage.phoneNumber(),
+                            saved,
+                            stepContract.structuredEscapeType(),
+                            availableServices
+                        )
+                    );
+                }
+                yield saved;
+            }
+            case ACCEPT_AND_ADVANCE -> handleAcceptedAdvance(
+                conversation,
+                decision.updatedConversation(),
+                inboundMessage.phoneNumber(),
+                availableServices,
+                reply,
+                receivedAt
+            );
+            case TRIGGER_STRUCTURED_ESCAPE -> {
+                sendSafely(
+                    inboundMessage.phoneNumber(),
+                    conversation.currentStep(),
+                    () -> actionExecutor.sendStructuredEscape(
+                        inboundMessage.phoneNumber(),
+                        conversation,
+                        stepContract.structuredEscapeType(),
+                        availableServices
+                    )
+                );
+                yield saveTransition(conversation, decision.updatedConversation(), inboundMessage.phoneNumber(), decision.reason());
+            }
+        };
+    }
+
+    private Conversation handleAcceptedAdvance(
+            Conversation previousConversation,
+            Conversation updatedConversation,
+            String phoneNumber,
+            List<ServiceCatalogItem> availableServices,
+            ConversationalAiReply reply,
+            Instant receivedAt) {
+        if (updatedConversation.currentStep() == ConversationStep.GREETING && reply.suggestedNextStep() == ConversationStep.ICP_QUALIFICATION) {
+            Conversation advanced = updatedConversation.moveTo(ConversationStep.ICP_QUALIFICATION, receivedAt);
+            Conversation saved = saveTransition(previousConversation, advanced, phoneNumber, "greeting_ai_advance");
+            sendSafely(phoneNumber, saved.currentStep(), () -> actionExecutor.sendReply(
+                phoneNumber,
+                usableReplyOrDefault(reply.replyText(), defaultIcpPrompt(saved))
+            ));
+            return saved;
+        }
+
+        if (updatedConversation.currentStep() == ConversationStep.ICP_QUALIFICATION && reply.suggestedNextStep() == ConversationStep.SERVICE_DISCOVERY) {
+            Conversation advanced = updatedConversation.moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt);
+            Conversation saved = saveTransition(previousConversation, advanced, phoneNumber, "icp_ai_advance");
+            sendSafely(phoneNumber, saved.currentStep(), () -> actionExecutor.sendReply(
+                phoneNumber,
+                usableReplyOrDefault(reply.replyText(), defaultServiceDiscoveryPrompt(saved))
+            ));
+            return saved;
+        }
+
+        if ((updatedConversation.currentStep() == ConversationStep.SERVICE_DISCOVERY
+                || updatedConversation.currentStep() == ConversationStep.TRIAGE_DIRECT
+                || updatedConversation.currentStep() == ConversationStep.TRIAGE_GUIDED)
+                && reply.suggestedNextStep() == ConversationStep.AWAITING_CONFIRMATION) {
+            Optional<ServiceCatalogItem> suggestedService = resolveSuggestedService(updatedConversation, availableServices);
+            if (suggestedService.isPresent()) {
+                if (reply.replyText() != null && !reply.replyText().isBlank()) {
+                    sendSafely(phoneNumber, updatedConversation.currentStep(), () -> actionExecutor.sendReply(phoneNumber, reply.replyText()));
+                }
+                return moveToConfirmation(updatedConversation, phoneNumber, suggestedService.get(), receivedAt, "service_discovery_ai_advance");
+            }
+        }
+
+        return saveTransition(previousConversation, updatedConversation, phoneNumber, "advance_without_transition");
+    }
+
+    private String usableReplyOrDefault(String replyText, String fallbackText) {
+        return replyText == null || replyText.isBlank() ? fallbackText : replyText;
     }
 
     private String defaultIcpPrompt(Conversation conversation) {
@@ -812,18 +776,21 @@ public class ConversationFlowService {
         }
     }
 
-    private void sendFallbackAndRepeat(String phoneNumber, ConversationStep step, Runnable repeatAction) {
-        try {
-            whatsAppMessageGateway.sendUnknownInputFallback(phoneNumber);
-            repeatAction.run();
-        } catch (RuntimeException exception) {
-            log.error(
-                "Falha ao enviar mensagem para {} na etapa {}: {}",
-                maskPhoneNumber(phoneNumber),
-                step,
-                exception.getMessage()
-            );
-        }
+    private void executeFallback(Conversation conversation, String phoneNumber, List<ServiceCatalogItem> availableServices) {
+        StepContract stepContract = stepContractRegistry.findByStep(conversation.currentStep())
+            .orElseThrow(() -> new IllegalStateException("StepContract ausente para " + conversation.currentStep()));
+        sendSafely(
+            phoneNumber,
+            conversation.currentStep(),
+            () -> actionExecutor.executeFallback(
+                phoneNumber,
+                conversation,
+                stepContract,
+                availableServices,
+                defaultIcpPrompt(conversation),
+                defaultServiceDiscoveryPrompt(conversation)
+            )
+        );
     }
 
     private Conversation saveTransition(Conversation previous, Conversation next, String phoneNumber, String reason) {
@@ -894,6 +861,21 @@ public class ConversationFlowService {
         }
 
         return TERMS_NEGATIVE_PATTERN.matcher(textBody.toLowerCase(Locale.ROOT)).find();
+    }
+
+    private boolean isAffirmation(String textBody) {
+        if (textBody == null || textBody.isBlank()) {
+            return false;
+        }
+        return AFFIRMATION_PATTERN.matcher(textBody.toLowerCase(Locale.ROOT)).find()
+            && !NEGATION_PATTERN.matcher(textBody.toLowerCase(Locale.ROOT)).find();
+    }
+
+    private boolean isNegation(String textBody) {
+        if (textBody == null || textBody.isBlank()) {
+            return false;
+        }
+        return NEGATION_PATTERN.matcher(textBody.toLowerCase(Locale.ROOT)).find();
     }
 
     private boolean isValidSlotUpdate(ConversationSlotUpdate slotUpdate) {
@@ -973,39 +955,41 @@ public class ConversationFlowService {
         return phoneNumber.substring(0, prefixLength) + "***" + phoneNumber.substring(phoneNumber.length() - 4);
     }
 
-    private AiInterpretation interpret(
-            Conversation conversation,
-            InboundWhatsAppMessage inboundMessage,
-            List<ServiceCatalogItem> availableServices) {
-        if (!hasText(inboundMessage)) {
-            return AiInterpretation.unknown();
+    private void logAssemblerLayers(Conversation conversation, AssembledContext assembledContext) {
+        if (log.isInfoEnabled()) {
+            log.info(
+                "Assembler de contexto: conversationId={} step={} layers={}",
+                conversation.id(),
+                conversation.currentStep(),
+                assembledContext.includedLayers()
+            );
         }
-
-        return Optional.ofNullable(aiGateway.interpret(new AiContext(
-            conversation.currentStep(),
-            inboundMessage.textBody(),
-            availableServices.stream().map(this::toServiceSummary).toList(),
-            buildConversationHistory(conversation.id()),
-            conversation.context().slots()
-        ))).orElse(AiInterpretation.unknown());
     }
 
-    private ConversationalAiReply converse(
-            Conversation conversation,
-            InboundWhatsAppMessage inboundMessage,
-            List<ServiceCatalogItem> availableServices) {
-        return Optional.ofNullable(aiGateway.converse(new AiContext(
-            conversation.currentStep(),
-            inboundMessage.textBody(),
-            availableServices.stream().map(this::toServiceSummary).toList(),
-            buildConversationHistory(conversation.id()),
-            conversation.context().slots()
-        ))).orElse(ConversationalAiReply.fallback("null_reply"));
+    private void logValidationFailure(Conversation conversation, String reason) {
+        if (log.isWarnEnabled()) {
+            log.warn(
+                "Resposta da IA rejeitada: conversationId={} step={} reason={}",
+                conversation.id(),
+                conversation.currentStep(),
+                reason
+            );
+        }
     }
 
-    private ServiceSummary toServiceSummary(ServiceCatalogItem service) {
-        return new ServiceSummary(service.type(), service.name(), service.scenarioText());
+    private void logPolicyDecision(Conversation conversation, String decision, String reason) {
+        if (log.isInfoEnabled()) {
+            log.info(
+                "Policy decision: conversationId={} step={} decision={} reason={} turnsWithoutProgress={}",
+                conversation.id(),
+                conversation.currentStep(),
+                decision,
+                reason,
+                conversation.context().turnsWithoutProgress()
+            );
+        }
     }
+
 
     private boolean hasText(InboundWhatsAppMessage inboundMessage) {
         return inboundMessage.textBody() != null && !inboundMessage.textBody().isBlank();

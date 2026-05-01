@@ -48,6 +48,8 @@ public class MongoConversationGateway implements ConversationGateway {
     private ConversationContextDocument toContextDocument(ConversationContext context) {
         ConversationContextDocument document = new ConversationContextDocument();
         document.setPaymentMethod(context == null ? null : context.paymentMethod());
+        document.setStagnationStep(context == null ? null : context.stagnationStep());
+        document.setTurnsWithoutProgress(context == null ? 0 : context.turnsWithoutProgress());
         document.setSlots(toSlotDocuments(context == null ? Map.of() : context.slots()));
         return document;
     }
@@ -71,7 +73,12 @@ public class MongoConversationGateway implements ConversationGateway {
             return ConversationContext.empty();
         }
 
-        return new ConversationContext(document.getPaymentMethod(), toSlots(document.getSlots()));
+        return new ConversationContext(
+            document.getPaymentMethod(),
+            document.getStagnationStep(),
+            document.getTurnsWithoutProgress() == null ? 0 : document.getTurnsWithoutProgress(),
+            toSlots(document.getSlots())
+        );
     }
 
     private Map<ConversationSlotName, ConversationSlotValueDocument> toSlotDocuments(

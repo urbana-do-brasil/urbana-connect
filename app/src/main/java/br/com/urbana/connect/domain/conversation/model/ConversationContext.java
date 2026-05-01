@@ -8,24 +8,31 @@ import java.util.Optional;
 
 public record ConversationContext(
         String paymentMethod,
+        ConversationStep stagnationStep,
+        int turnsWithoutProgress,
         Map<ConversationSlotName, ConversationSlotValue> slots) {
 
     public ConversationContext(String paymentMethod) {
-        this(paymentMethod, Map.of());
+        this(paymentMethod, null, 0, Map.of());
     }
 
     public ConversationContext {
+        turnsWithoutProgress = Math.max(turnsWithoutProgress, 0);
         slots = slots == null || slots.isEmpty()
             ? Map.of()
             : Collections.unmodifiableMap(new EnumMap<>(slots));
     }
 
     public static ConversationContext empty() {
-        return new ConversationContext(null, Map.of());
+        return new ConversationContext(null, null, 0, Map.of());
     }
 
     public ConversationContext withPaymentMethod(String paymentMethod) {
-        return new ConversationContext(paymentMethod, slots);
+        return new ConversationContext(paymentMethod, stagnationStep, turnsWithoutProgress, slots);
+    }
+
+    public ConversationContext withTurnsWithoutProgress(ConversationStep step, int turnsWithoutProgress) {
+        return new ConversationContext(paymentMethod, step, Math.max(turnsWithoutProgress, 0), slots);
     }
 
     public ConversationContext withSlot(ConversationSlotName slotName, ConversationSlotValue slotValue) {
@@ -33,7 +40,7 @@ public record ConversationContext(
         updatedSlots.putAll(slots);
         updatedSlots.put(slotName, slotValue == null ? null : slotValue.normalized());
         updatedSlots.values().removeIf(Objects::isNull);
-        return new ConversationContext(paymentMethod, updatedSlots);
+        return new ConversationContext(paymentMethod, stagnationStep, turnsWithoutProgress, updatedSlots);
     }
 
     public ConversationContext withoutSlot(ConversationSlotName slotName) {
@@ -44,7 +51,7 @@ public record ConversationContext(
         EnumMap<ConversationSlotName, ConversationSlotValue> updatedSlots = new EnumMap<>(ConversationSlotName.class);
         updatedSlots.putAll(slots);
         updatedSlots.remove(slotName);
-        return new ConversationContext(paymentMethod, updatedSlots);
+        return new ConversationContext(paymentMethod, stagnationStep, turnsWithoutProgress, updatedSlots);
     }
 
     public Optional<ConversationSlotValue> slot(ConversationSlotName slotName) {

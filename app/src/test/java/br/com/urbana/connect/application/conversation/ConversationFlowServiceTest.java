@@ -1,6 +1,5 @@
 package br.com.urbana.connect.application.conversation;
 
-import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessage;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
 import br.com.urbana.connect.domain.conversation.model.Conversation;
@@ -13,9 +12,9 @@ import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiAction;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
-import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
+import br.com.urbana.connect.domain.conversation.port.out.ConversationContentGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
 import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
@@ -26,7 +25,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -68,17 +66,33 @@ class ConversationFlowServiceTest {
     @Mock
     private HumanHandoffGateway humanHandoffGateway;
 
-    @InjectMocks
+    @Mock
+    private ConversationContentGateway conversationContentGateway;
+
     private ConversationFlowService conversationFlowService;
 
     @BeforeEach
     void setUp() {
+        conversationFlowService = new ConversationFlowService(
+            conversationLifecycleService,
+            conversationGateway,
+            conversationMessageGateway,
+            serviceCatalogGateway,
+            whatsAppMessageGateway,
+            aiGateway,
+            humanHandoffGateway,
+            new StepContractRegistry(),
+            new ConversationContextAssembler(conversationContentGateway, conversationMessageGateway),
+            new ConversationResponseValidator(),
+            new ConversationPolicyEngine(),
+            new ConversationActionExecutor(whatsAppMessageGateway)
+        );
         lenient().when(serviceCatalogGateway.findAvailable()).thenReturn(List.of(decor()));
         lenient().when(conversationGateway.save(any(Conversation.class))).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(conversationMessageGateway.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(conversationMessageGateway.findRecentByConversationId(any(), anyInt())).thenReturn(List.of());
         lenient().when(conversationMessageGateway.existsByProviderMessageId(any())).thenReturn(false);
-        lenient().when(aiGateway.interpret(any())).thenReturn(AiInterpretation.unknown());
+        lenient().when(conversationContentGateway.findActiveValue(any())).thenReturn(Optional.empty());
         lenient().when(aiGateway.converse(any())).thenReturn(ConversationalAiReply.fallback("test"));
     }
 
@@ -162,14 +176,29 @@ class ConversationFlowServiceTest {
     }
 
     @Test
-    void shouldMoveDirectTriageToAwaitingConfirmationWhenAiSelectsService() {
+    void shouldMoveDirectTriageToAwaitingConfirmationWhenAiSuggestsService() {
         Instant now = Instant.parse("2026-04-06T10:05:00Z");
         String phoneNumber = "+5583888888888";
         Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(120))
             .moveTo(ConversationStep.TRIAGE_DIRECT, now.minusSeconds(60));
 
         when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
-        when(aiGateway.interpret(any())).thenReturn(new AiInterpretation(IntentType.SERVICE_SELECTION, ServiceType.DECOR, null));
+        when(aiGateway.converse(any())).thenReturn(new ConversationalAiReply(
+            "Pelo que você descreveu, Decor parece a melhor opção.",
+            ConversationalAiAction.PROPOSE_SERVICE,
+            List.of(new ConversationSlotUpdate(
+                ConversationSlotName.SUGGESTED_SERVICE,
+                "DECOR",
+                ConversationSlotLevel.TENTATIVE,
+                0.95,
+                ConversationSlotSource.INFERRED
+            )),
+            0.95,
+            true,
+            ConversationStep.AWAITING_CONFIRMATION,
+            false,
+            null
+        ));
 
         Conversation updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "quero decor", ""),
@@ -218,17 +247,16 @@ class ConversationFlowServiceTest {
     }
 
     @Test
-    void shouldMoveAwaitingTermsToPaymentMethodWhenAiAcceptsTerms() {
+    void shouldMoveAwaitingTermsToPaymentMethodWhenCustomerAcceptsTermsByText() {
         Instant now = Instant.parse("2026-04-06T10:10:00Z");
         String phoneNumber = "+5583777777777";
         Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(180))
             .selectService(ServiceType.DECOR, ConversationStep.AWAITING_TERMS, now.minusSeconds(60));
 
         when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
-        when(aiGateway.interpret(any())).thenReturn(new AiInterpretation(IntentType.TERMS_ACCEPTANCE, null, null));
 
         Conversation updated = conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "de acordo com os termos", ""),
+            new InboundWhatsAppMessage(phoneNumber, "sim, aceito", ""),
             now
         );
 
@@ -389,7 +417,6 @@ class ConversationFlowServiceTest {
         );
 
         when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
-        when(aiGateway.interpret(any())).thenReturn(new AiInterpretation(IntentType.NEGATION, null, null));
 
         Conversation updated = conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "não era isso", ""),
