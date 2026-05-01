@@ -54,7 +54,13 @@ public class ConversationContextAssembler {
             StepContract stepContract) {
         String playbook = resolvePlaybook(conversation.currentStep());
         LinkedList<ServiceSummary> businessKnowledge = availableServices.stream()
-            .map(service -> new ServiceSummary(service.type(), service.name(), service.scenarioText()))
+            .map(service -> new ServiceSummary(
+                service.type(),
+                service.name(),
+                service.scenarioText(),
+                service.price(),
+                service.available()
+            ))
             .collect(Collectors.toCollection(LinkedList::new));
         LinkedList<String> sessionMemory = new LinkedList<>(toSessionMemory(conversation.id(), 10));
         List<String> includedLayers = new ArrayList<>(List.of(
@@ -139,7 +145,9 @@ public class ConversationContextAssembler {
     private int serviceSummarySize(ServiceSummary summary) {
         return summary.type().name().length()
             + nullSafeLength(summary.name())
-            + nullSafeLength(summary.scenarioText());
+            + nullSafeLength(summary.scenarioText())
+            + nullSafeLength(summary.price() == null ? null : summary.price().toPlainString())
+            + Boolean.toString(summary.available()).length();
     }
 
     private int nullSafeLength(String value) {

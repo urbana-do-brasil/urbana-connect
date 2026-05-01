@@ -130,6 +130,25 @@ class ConversationFlowServiceTest {
     }
 
     @Test
+    void shouldUseSingleQuestionIcpPromptWhenGreetingAdvancesToIcpQualification() {
+        Instant now = Instant.parse("2026-04-06T10:00:00Z");
+        String phoneNumber = "+5583999999999";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(60));
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+
+        conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "", "YES_HELP"),
+            now
+        );
+
+        ArgumentCaptor<String> textCaptor = ArgumentCaptor.forClass(String.class);
+        verify(whatsAppMessageGateway).sendTextMessage(eq(phoneNumber), textCaptor.capture());
+        assertThat(textCaptor.getValue()).contains("Como você prefere que eu te trate?");
+        assertThat(textCaptor.getValue().chars().filter(character -> character == '?').count()).isEqualTo(1);
+    }
+
+    @Test
     void shouldRepeatGreetingWhenMessageHasNoTextAndNoSelection() {
         Instant now = Instant.parse("2026-04-06T10:01:00Z");
         String phoneNumber = "+5583999900000";

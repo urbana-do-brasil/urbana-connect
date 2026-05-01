@@ -92,6 +92,26 @@ class ConversationResponseValidatorTest {
     }
 
     @Test
+    void shouldRejectUnknownServiceMentionEvenWhenActionIsNotProposeService() {
+        ResponseValidationResult result = validator.validate(
+            stepContract(),
+            new ConversationalAiReply(
+                "Projeto Premium parece uma ótima opção para o que você descreveu.",
+                ConversationalAiAction.CONFIRM_UNDERSTANDING,
+                List.of(),
+                0.9,
+                false,
+                null,
+                false,
+                null
+            ),
+            List.of(decor())
+        );
+
+        assertThat(result.reason()).isEqualTo("unknown_service_mention");
+    }
+
+    @Test
     void shouldRejectReplyWithDivergentPrice() {
         ResponseValidationResult result = validator.validate(
             stepContract(),
@@ -129,6 +149,26 @@ class ConversationResponseValidatorTest {
         );
 
         assertThat(result.reason()).isEqualTo("too_many_questions");
+    }
+
+    @Test
+    void shouldAcceptGenericReplyThatDoesNotMentionAnyService() {
+        ResponseValidationResult result = validator.validate(
+            stepContract(),
+            new ConversationalAiReply(
+                "Entendi 😊 Me conta um pouco mais do ambiente que você quer transformar.",
+                ConversationalAiAction.ASK_CLARIFYING_QUESTION,
+                List.of(),
+                0.88,
+                false,
+                null,
+                false,
+                null
+            ),
+            List.of(decor())
+        );
+
+        assertThat(result.valid()).isTrue();
     }
 
     private StepContract stepContract() {

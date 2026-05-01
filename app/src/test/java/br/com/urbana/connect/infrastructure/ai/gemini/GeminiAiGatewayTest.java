@@ -37,6 +37,8 @@ class GeminiAiGatewayTest {
             .andExpect(method(HttpMethod.POST))
             .andExpect(content().string(containsString("ASK_CLARIFYING_QUESTION")))
             .andExpect(content().string(containsString("needsDiscoveryHelp")))
+            .andExpect(content().string(containsString("preço=R$ 490.00")))
+            .andExpect(content().string(containsString("disponibilidade=disponível")))
             .andRespond(withSuccess("""
                 {
                   "candidates": [
@@ -115,7 +117,13 @@ class GeminiAiGatewayTest {
             "A Urba fala como uma atendente humana.",
             "Máximo de 3 frases. Máximo de 1 pergunta.",
             "Pergunte se a pessoa quer ajuda para descobrir o serviço.",
-            List.of(new ServiceSummary(br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR, "Decor", "Renovar espaço interno")),
+            List.of(new ServiceSummary(
+                br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR,
+                "Decor",
+                "Renovar espaço interno",
+                new java.math.BigDecimal("490.00"),
+                true
+            )),
             List.of("USER: oi"),
             Map.of(
                 ConversationSlotName.NEEDS_DISCOVERY_HELP,

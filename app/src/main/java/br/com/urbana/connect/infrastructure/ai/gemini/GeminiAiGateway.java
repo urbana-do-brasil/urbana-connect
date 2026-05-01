@@ -174,7 +174,13 @@ public class GeminiAiGateway implements AiGateway {
     }
 
     private String formatService(ServiceSummary service) {
-        return "- %s (%s): %s".formatted(service.name(), service.type(), service.scenarioText());
+        return "- %s (%s): cenário=%s | preço=%s | disponibilidade=%s".formatted(
+            service.name(),
+            service.type(),
+            service.scenarioText(),
+            service.price() == null ? "não informado" : "R$ " + service.price().toPlainString(),
+            service.available() ? "disponível" : "indisponível"
+        );
     }
 
     private String sanitize(String value) {

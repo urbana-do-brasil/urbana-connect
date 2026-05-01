@@ -11,7 +11,10 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Component
 public class ConversationResponseValidator {
@@ -22,6 +25,14 @@ public class ConversationResponseValidator {
         "(agora vou|agora eu vou|o próximo passo|vou coletar|vamos coletar|neste passo)",
         Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE | Pattern.CANON_EQ
     );
+    private static final Pattern SERVICE_REFERENCE_CUE_PATTERN = Pattern.compile(
+        "\\b(serviço|opção|pacote|projeto)\\b",
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+    );
+    private static final Pattern CAPITALIZED_SERVICE_PHRASE_PATTERN = Pattern.compile(
+        "\\b([A-ZÀ-Ý][\\p{L}]+(?:\\s+[A-ZÀ-Ý][\\p{L}]+)+)\\b"
+    );
+    private static final Set<String> IGNORED_NAMED_PHRASES = Set.of("a urba", "urbana do brasil");
 
     public ResponseValidationResult validate(
             StepContract stepContract,
@@ -32,7 +43,7 @@ public class ConversationResponseValidator {
             return structuralValidation;
         }
 
-        ResponseValidationResult replyValidation = validateReplyText(reply.replyText(), availableServices, reply.action());
+        ResponseValidationResult replyValidation = validateReplyText(reply.replyText(), availableServices);
         if (!replyValidation.valid()) {
             return replyValidation;
         }
@@ -55,8 +66,7 @@ public class ConversationResponseValidator {
 
     private ResponseValidationResult validateReplyText(
             String replyText,
-            List<ServiceCatalogItem> availableServices,
-            ConversationalAiAction action) {
+            List<ServiceCatalogItem> availableServices) {
         if (replyText.length() > MAX_REPLY_LENGTH) {
             return ResponseValidationResult.rejected("reply_too_long");
         }
@@ -69,7 +79,7 @@ public class ConversationResponseValidator {
         if (META_SPEECH_PATTERN.matcher(replyText).find()) {
             return ResponseValidationResult.rejected("meta_speech");
         }
-        if (mentionsUnknownService(replyText, action, availableServices)) {
+        if (mentionsUnknownService(replyText, availableServices)) {
             return ResponseValidationResult.rejected("unknown_service_mention");
         }
         if (mentionsDivergentPrice(replyText, availableServices)) {
@@ -89,17 +99,39 @@ public class ConversationResponseValidator {
 
     private boolean mentionsUnknownService(
             String replyText,
-            ConversationalAiAction action,
             List<ServiceCatalogItem> availableServices) {
-        if (action != ConversationalAiAction.PROPOSE_SERVICE) {
+        String normalizedReply = normalize(replyText);
+        Set<String> availableAliases = availableServices.stream()
+            .flatMap(service -> Stream.of(
+                normalize(service.name()),
+                normalize(service.type().name().replace('_', ' '))
+            ))
+            .filter(alias -> !alias.isBlank())
+            .collect(Collectors.toSet());
+        if (availableAliases.stream().anyMatch(normalizedReply::contains)) {
             return false;
         }
 
-        String normalizedReply = replyText.toLowerCase(Locale.ROOT);
-        return availableServices.stream().noneMatch(service ->
-            normalizedReply.contains(service.name().toLowerCase(Locale.ROOT))
-                || normalizedReply.contains(service.type().name().toLowerCase(Locale.ROOT).replace('_', ' '))
-        );
+        boolean mentionsUnavailableCatalogAlias = Stream.of(br.com.urbana.connect.domain.servicecatalog.model.ServiceType.values())
+            .map(serviceType -> normalize(serviceType.name().replace('_', ' ')))
+            .filter(alias -> !availableAliases.contains(alias))
+            .anyMatch(normalizedReply::contains);
+        if (mentionsUnavailableCatalogAlias) {
+            return true;
+        }
+
+        if (!SERVICE_REFERENCE_CUE_PATTERN.matcher(replyText).find()) {
+            return false;
+        }
+
+        var matcher = CAPITALIZED_SERVICE_PHRASE_PATTERN.matcher(replyText);
+        while (matcher.find()) {
+            String candidate = normalize(matcher.group(1));
+            if (!IGNORED_NAMED_PHRASES.contains(candidate) && !availableAliases.contains(candidate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean mentionsDivergentPrice(String replyText, List<ServiceCatalogItem> availableServices) {
@@ -127,5 +159,9 @@ public class ConversationResponseValidator {
 
     private int countQuestions(String replyText) {
         return (int) replyText.chars().filter(character -> character == '?').count();
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
     }
 }

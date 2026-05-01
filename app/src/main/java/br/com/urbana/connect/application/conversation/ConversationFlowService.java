@@ -749,9 +749,9 @@ public class ConversationFlowService {
 
     private String defaultIcpPrompt(Conversation conversation) {
         if (needsDiscoveryHelp(conversation)) {
-            return "Perfeito. Antes de te indicar o melhor caminho, quero te conhecer um pouquinho. Como você prefere que eu te trate? E me conta: é sua primeira vez contratando um serviço assim? O que você faz hoje?";
+            return "Perfeito. Antes de te indicar o melhor caminho, quero te conhecer um pouquinho 😊 Como você prefere que eu te trate?";
         }
-        return "Perfeito. Antes de seguirmos, quero te conhecer rapidinho para te atender melhor. Como você prefere que eu te trate? É sua primeira vez contratando um serviço assim? E o que você faz hoje?";
+        return "Perfeito. Antes de seguirmos, quero te conhecer rapidinho para te atender melhor 😊 Como você prefere que eu te trate?";
     }
 
     private String defaultServiceDiscoveryPrompt(Conversation conversation) {
