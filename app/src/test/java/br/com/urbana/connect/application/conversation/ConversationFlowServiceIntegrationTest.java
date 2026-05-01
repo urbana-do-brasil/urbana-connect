@@ -2,7 +2,6 @@ package br.com.urbana.connect.application.conversation;
 
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
 import br.com.urbana.connect.domain.conversation.model.ConversationMessageType;
-import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotLevel;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotSource;

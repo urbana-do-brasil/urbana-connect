@@ -3,6 +3,7 @@ package br.com.urbana.connect.domain.conversation.model;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 public record ConversationContext(
@@ -31,7 +32,7 @@ public record ConversationContext(
         EnumMap<ConversationSlotName, ConversationSlotValue> updatedSlots = new EnumMap<>(ConversationSlotName.class);
         updatedSlots.putAll(slots);
         updatedSlots.put(slotName, slotValue == null ? null : slotValue.normalized());
-        updatedSlots.values().removeIf(value -> value == null);
+        updatedSlots.values().removeIf(Objects::isNull);
         return new ConversationContext(paymentMethod, updatedSlots);
     }
 

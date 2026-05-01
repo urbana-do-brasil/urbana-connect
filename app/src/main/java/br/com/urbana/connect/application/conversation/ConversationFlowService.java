@@ -10,7 +10,6 @@ import br.com.urbana.connect.domain.conversation.model.ConversationSlotLevel;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotSource;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
-import br.com.urbana.connect.domain.conversation.model.ConversationSlotValue;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
 import br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest;
@@ -41,6 +40,7 @@ public class ConversationFlowService {
     private static final String NO_TEXT_FALLBACK = "sem texto";
     private static final double MIN_CONFIDENCE_TO_ADVANCE = 0.85;
     private static final String TERMS_ACCEPTED_VALUE = "accepted";
+    private static final String PAYMENT_METHOD_CARD = "CARTÃO";
 
     private static final Logger log = LoggerFactory.getLogger(ConversationFlowService.class);
     private static final Pattern HUMAN_HANDOFF_PATTERN = Pattern.compile(
@@ -52,7 +52,7 @@ public class ConversationFlowService {
     private static final Pattern TERMS_NEGATIVE_PATTERN = Pattern.compile(
         "\\b(n[aã]o aceito|n[aã]o li ainda|n[aã]o concordo|tenho d[uú]vidas)\\b"
     );
-    private static final List<String> SUPPORTED_PAYMENT_METHODS = List.of("PIX", "CARTÃO");
+    private static final List<String> SUPPORTED_PAYMENT_METHODS = List.of("PIX", PAYMENT_METHOD_CARD);
 
     private final ConversationLifecycleService conversationLifecycleService;
     private final ConversationGateway conversationGateway;
@@ -922,7 +922,7 @@ public class ConversationFlowService {
     private String resolvePaymentMethod(String replyId) {
         return switch (replyId) {
             case "PAYMENT_PIX" -> "PIX";
-            case "PAYMENT_CARD" -> "CARTÃO";
+            case "PAYMENT_CARD" -> PAYMENT_METHOD_CARD;
             default -> null;
         };
     }
@@ -937,7 +937,7 @@ public class ConversationFlowService {
             return "PIX";
         }
         if (normalized.contains("cart")) {
-            return "CARTÃO";
+            return PAYMENT_METHOD_CARD;
         }
         return null;
     }

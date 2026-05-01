@@ -2,9 +2,6 @@ package br.com.urbana.connect.infrastructure.ai.gemini;
 
 import br.com.urbana.connect.domain.conversation.model.AiContext;
 import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
-import br.com.urbana.connect.domain.conversation.model.ConversationSlotLevel;
-import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
-import br.com.urbana.connect.domain.conversation.model.ConversationSlotSource;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiAction;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
@@ -22,7 +19,6 @@ import org.springframework.web.client.RestClient;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Stream;
 import java.util.stream.Collectors;
 
 public class GeminiAiGateway implements AiGateway {
