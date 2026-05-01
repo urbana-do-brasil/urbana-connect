@@ -13,6 +13,7 @@ import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
 import br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest;
+import br.com.urbana.connect.domain.conversation.model.StructuredEscapeType;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
@@ -695,7 +696,12 @@ public class ConversationFlowService {
                         availableServices
                     )
                 );
-                yield saveTransition(conversation, decision.updatedConversation(), inboundMessage.phoneNumber(), decision.reason());
+                Conversation escapedConversation = applyStructuredEscapeTransition(
+                    decision.updatedConversation(),
+                    stepContract.structuredEscapeType(),
+                    receivedAt
+                );
+                yield saveTransition(conversation, escapedConversation, inboundMessage.phoneNumber(), decision.reason());
             }
         };
     }
@@ -745,6 +751,16 @@ public class ConversationFlowService {
 
     private String usableReplyOrDefault(String replyText, String fallbackText) {
         return replyText == null || replyText.isBlank() ? fallbackText : replyText;
+    }
+
+    private Conversation applyStructuredEscapeTransition(
+            Conversation conversation,
+            StructuredEscapeType structuredEscapeType,
+            Instant receivedAt) {
+        return switch (structuredEscapeType) {
+            case ICP_ADVANCE_TO_DISCOVERY -> conversation.moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt);
+            default -> conversation;
+        };
     }
 
     private String defaultIcpPrompt(Conversation conversation) {

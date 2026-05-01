@@ -149,6 +149,41 @@ class ConversationFlowServiceTest {
     }
 
     @Test
+    void shouldAdvanceToServiceDiscoveryWhenIcpStructuredEscapeIsTriggered() {
+        Instant now = Instant.parse("2026-04-06T10:00:30Z");
+        String phoneNumber = "+5583999911111";
+        Conversation conversation = Conversation.start(phoneNumber, now.minusSeconds(120))
+            .moveTo(ConversationStep.ICP_QUALIFICATION, now.minusSeconds(60))
+            .withContext(
+                ConversationContext.empty().withTurnsWithoutProgress(ConversationStep.ICP_QUALIFICATION, 3),
+                now.minusSeconds(60)
+            );
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+        when(aiGateway.converse(any())).thenReturn(new ConversationalAiReply(
+            "Me conta um pouco mais.",
+            ConversationalAiAction.ASK_CLARIFYING_QUESTION,
+            List.of(),
+            0.7,
+            false,
+            null,
+            false,
+            null
+        ));
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "não sei bem", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
+        verify(whatsAppMessageGateway).sendTextMessage(
+            phoneNumber,
+            "Sem problema. Vou te ajudar a descobrir a melhor opção da Urba com base no que você precisa agora 😊"
+        );
+    }
+
+    @Test
     void shouldRepeatGreetingWhenMessageHasNoTextAndNoSelection() {
         Instant now = Instant.parse("2026-04-06T10:01:00Z");
         String phoneNumber = "+5583999900000";
