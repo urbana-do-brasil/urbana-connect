@@ -115,6 +115,159 @@ class ConversationPolicyEngineTest {
         assertThat(decision.reason()).isEqualTo("meta_speech");
     }
 
+    @Test
+    void shouldAcceptReplyAndResetCounterWhenThereIsProgressWithoutAdvance() {
+        Instant now = Instant.parse("2026-05-01T12:00:00Z");
+        Conversation conversation = Conversation.start("+5583999999999", now)
+            .withContext(Conversation.start("+5583999999999", now).context()
+                .withTurnsWithoutProgress(ConversationStep.GREETING, 1), now);
+        Conversation updated = conversation.withContext(
+            conversation.context().withSlot(
+                ConversationSlotName.NEEDS_DISCOVERY_HELP,
+                new br.com.urbana.connect.domain.conversation.model.ConversationSlotValue(
+                    "true",
+                    ConversationSlotLevel.TENTATIVE,
+                    ConversationSlotSource.INFERRED,
+                    0.7
+                )
+            ),
+            now
+        );
+
+        ConversationPolicyDecision decision = policyEngine.decide(
+            conversation,
+            greetingContract(),
+            new ConversationalAiReply(
+                "Entendi. Me conta só mais um detalhe 😊",
+                ConversationalAiAction.ASK_CLARIFYING_QUESTION,
+                List.of(new ConversationSlotUpdate(
+                    ConversationSlotName.NEEDS_DISCOVERY_HELP,
+                    "true",
+                    ConversationSlotLevel.TENTATIVE,
+                    0.7,
+                    ConversationSlotSource.INFERRED
+                )),
+                0.7,
+                false,
+                null,
+                false,
+                null
+            ),
+            ResponseValidationResult.accepted(),
+            updated,
+            now
+        );
+
+        assertThat(decision.type()).isEqualTo(ConversationPolicyDecisionType.ACCEPT_REPLY);
+        assertThat(decision.updatedConversation().context().turnsWithoutProgress()).isZero();
+    }
+
+    @Test
+    void shouldNotAdvanceDeterministicContractsEvenWithHighConfidence() {
+        Instant now = Instant.parse("2026-05-01T12:00:00Z");
+        Conversation conversation = Conversation.start("+5583999999999", now)
+            .moveTo(ConversationStep.AWAITING_TERMS, now);
+        Conversation updated = conversation.withContext(
+            conversation.context().withSlot(
+                ConversationSlotName.TERMS_ACCEPTED,
+                new br.com.urbana.connect.domain.conversation.model.ConversationSlotValue(
+                    "true",
+                    ConversationSlotLevel.CONFIRMED,
+                    ConversationSlotSource.EXPLICIT,
+                    1.0
+                )
+            ),
+            now
+        );
+
+        ConversationPolicyDecision decision = policyEngine.decide(
+            conversation,
+            deterministicTermsContract(),
+            new ConversationalAiReply(
+                "Perfeito, vou seguir.",
+                ConversationalAiAction.ACKNOWLEDGE_AND_ADVANCE,
+                List.of(),
+                0.99,
+                true,
+                ConversationStep.AWAITING_PAYMENT_METHOD,
+                false,
+                null
+            ),
+            ResponseValidationResult.accepted(),
+            updated,
+            now
+        );
+
+        assertThat(decision.type()).isEqualTo(ConversationPolicyDecisionType.ACCEPT_REPLY);
+    }
+
+    @Test
+    void shouldNotAdvanceWhenConfidenceIsTooLow() {
+        Instant now = Instant.parse("2026-05-01T12:00:00Z");
+        Conversation conversation = Conversation.start("+5583999999999", now);
+        Conversation updated = conversation.withContext(
+            conversation.context().withSlot(
+                ConversationSlotName.NEEDS_DISCOVERY_HELP,
+                new br.com.urbana.connect.domain.conversation.model.ConversationSlotValue(
+                    "true",
+                    ConversationSlotLevel.CONFIRMED,
+                    ConversationSlotSource.EXPLICIT,
+                    1.0
+                )
+            ),
+            now
+        );
+
+        ConversationPolicyDecision decision = policyEngine.decide(
+            conversation,
+            greetingContract(),
+            new ConversationalAiReply(
+                "Posso seguir com a próxima etapa.",
+                ConversationalAiAction.ACKNOWLEDGE_AND_ADVANCE,
+                List.of(),
+                0.5,
+                true,
+                ConversationStep.ICP_QUALIFICATION,
+                false,
+                null
+            ),
+            ResponseValidationResult.accepted(),
+            updated,
+            now
+        );
+
+        assertThat(decision.type()).isEqualTo(ConversationPolicyDecisionType.ACCEPT_REPLY);
+        assertThat(decision.updatedConversation().currentStep()).isEqualTo(ConversationStep.GREETING);
+    }
+
+    @Test
+    void shouldNotAdvanceWhenSuggestedNextStepIsNotAllowed() {
+        Instant now = Instant.parse("2026-05-01T12:00:00Z");
+        Conversation conversation = Conversation.start("+5583999999999", now)
+            .moveTo(ConversationStep.AWAITING_CONFIRMATION, now);
+
+        ConversationPolicyDecision decision = policyEngine.decide(
+            conversation,
+            nonDeterministicConfirmationContract(),
+            new ConversationalAiReply(
+                "Vou te levar para a próxima etapa.",
+                ConversationalAiAction.ACKNOWLEDGE_AND_ADVANCE,
+                List.of(),
+                0.95,
+                true,
+                ConversationStep.SERVICE_DISCOVERY,
+                false,
+                null
+            ),
+            ResponseValidationResult.accepted(),
+            conversation,
+            now
+        );
+
+        assertThat(decision.type()).isEqualTo(ConversationPolicyDecisionType.ACCEPT_REPLY);
+        assertThat(decision.updatedConversation().currentStep()).isEqualTo(ConversationStep.AWAITING_CONFIRMATION);
+    }
+
     private StepContract greetingContract() {
         return new StepContract(
             ConversationStep.GREETING,
@@ -154,6 +307,36 @@ class ConversationPolicyEngineTest {
             StepFallbackBehavior.REPEAT_SERVICE_DISCOVERY_WITH_OPTIONS,
             3,
             StructuredEscapeType.SERVICE_DISCOVERY_OPTIONS,
+            false
+        );
+    }
+
+    private StepContract deterministicTermsContract() {
+        return new StepContract(
+            ConversationStep.AWAITING_TERMS,
+            "coletar aceite dos termos",
+            List.of(),
+            List.of(),
+            Set.of(ConversationalAiAction.ACKNOWLEDGE_AND_ADVANCE),
+            Set.of(),
+            StepFallbackBehavior.REPEAT_TERMS,
+            1,
+            StructuredEscapeType.TERMS_RETRY,
+            true
+        );
+    }
+
+    private StepContract nonDeterministicConfirmationContract() {
+        return new StepContract(
+            ConversationStep.AWAITING_CONFIRMATION,
+            "confirmar serviço",
+            List.of(),
+            List.of(),
+            Set.of(ConversationalAiAction.ACKNOWLEDGE_AND_ADVANCE),
+            Set.of(),
+            StepFallbackBehavior.REPEAT_CONFIRMATION,
+            2,
+            StructuredEscapeType.CONFIRMATION_OPTIONS,
             false
         );
     }

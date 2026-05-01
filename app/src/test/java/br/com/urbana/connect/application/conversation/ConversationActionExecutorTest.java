@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
@@ -93,6 +94,24 @@ class ConversationActionExecutorTest {
     }
 
     @Test
+    void shouldExecuteConfirmationFallback() {
+        Conversation conversation = Conversation.start("+5583999999999", Instant.now())
+            .withSelectedService(ServiceType.DECOR, Instant.now());
+
+        actionExecutor.executeFallback(
+            "+5583999999999",
+            conversation,
+            contract(StepFallbackBehavior.REPEAT_CONFIRMATION, StructuredEscapeType.CONFIRMATION_OPTIONS),
+            List.of(decor()),
+            "icp prompt",
+            "discovery prompt"
+        );
+
+        verify(whatsAppMessageGateway).sendUnknownInputFallback("+5583999999999");
+        verify(whatsAppMessageGateway).sendServicePresentation("+5583999999999", decor());
+    }
+
+    @Test
     void shouldExecutePaymentOptionsEscape() {
         actionExecutor.sendStructuredEscape(
             "+5583999999999",
@@ -102,6 +121,94 @@ class ConversationActionExecutorTest {
         );
 
         verify(whatsAppMessageGateway).sendPaymentMethodOptions("+5583999999999");
+    }
+
+    @Test
+    void shouldExecuteDirectDiscoveryStructuredEscapeWhenClientDoesNotNeedHelp() {
+        Conversation conversation = Conversation.start("+5583999999999", Instant.now()).withContext(
+            Conversation.start("+5583999999999", Instant.now()).context().withSlot(
+                ConversationSlotName.NEEDS_DISCOVERY_HELP,
+                new ConversationSlotValue("false", ConversationSlotLevel.CONFIRMED, ConversationSlotSource.EXPLICIT, 1.0)
+            ),
+            Instant.now()
+        );
+
+        actionExecutor.sendStructuredEscape(
+            "+5583999999999",
+            conversation,
+            StructuredEscapeType.SERVICE_DISCOVERY_OPTIONS,
+            List.of(decor())
+        );
+
+        verify(whatsAppMessageGateway).sendDirectTriageOptions("+5583999999999", List.of(decor()));
+    }
+
+    @Test
+    void shouldSendIcpAdvanceEscapeText() {
+        actionExecutor.sendStructuredEscape(
+            "+5583999999999",
+            Conversation.start("+5583999999999", Instant.now()),
+            StructuredEscapeType.ICP_ADVANCE_TO_DISCOVERY,
+            List.of(decor())
+        );
+
+        verify(whatsAppMessageGateway).sendTextMessage(
+            "+5583999999999",
+            "Sem problema. Vou te ajudar a descobrir a melhor opção da Urba com base no que você precisa agora 😊"
+        );
+    }
+
+    @Test
+    void shouldExecuteTermsRetryEscape() {
+        actionExecutor.sendStructuredEscape(
+            "+5583999999999",
+            Conversation.start("+5583999999999", Instant.now()),
+            StructuredEscapeType.TERMS_RETRY,
+            List.of(decor())
+        );
+
+        verify(whatsAppMessageGateway).sendTermsOfUse("+5583999999999");
+    }
+
+    @Test
+    void shouldExecuteGenericHelpEscape() {
+        actionExecutor.sendStructuredEscape(
+            "+5583999999999",
+            Conversation.start("+5583999999999", Instant.now()),
+            StructuredEscapeType.GENERIC_HELP,
+            List.of(decor())
+        );
+
+        verify(whatsAppMessageGateway).sendUnknownInputFallback("+5583999999999");
+    }
+
+    @Test
+    void shouldExecutePaymentOptionsFallback() {
+        actionExecutor.executeFallback(
+            "+5583999999999",
+            Conversation.start("+5583999999999", Instant.now()),
+            contract(StepFallbackBehavior.REPEAT_PAYMENT_OPTIONS, StructuredEscapeType.PAYMENT_OPTIONS),
+            List.of(decor()),
+            "icp prompt",
+            "discovery prompt"
+        );
+
+        verify(whatsAppMessageGateway).sendUnknownInputFallback("+5583999999999");
+        verify(whatsAppMessageGateway).sendPaymentMethodOptions("+5583999999999");
+    }
+
+    @Test
+    void shouldExecuteGenericSafeFallback() {
+        actionExecutor.executeFallback(
+            "+5583999999999",
+            Conversation.start("+5583999999999", Instant.now()),
+            contract(StepFallbackBehavior.GENERIC_SAFE_FALLBACK, StructuredEscapeType.GENERIC_HELP),
+            List.of(decor()),
+            "icp prompt",
+            "discovery prompt"
+        );
+
+        verify(whatsAppMessageGateway, times(2)).sendUnknownInputFallback("+5583999999999");
     }
 
     @Test

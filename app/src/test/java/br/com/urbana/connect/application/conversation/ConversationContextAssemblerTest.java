@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,7 +37,7 @@ class ConversationContextAssemblerTest {
         ConversationMessageGateway messageGateway = mock(ConversationMessageGateway.class);
         ConversationContextAssembler assembler = new ConversationContextAssembler(contentGateway, messageGateway);
 
-        when(contentGateway.findActiveValue(eq(ConversationContentKey.PLAYBOOK_GREETING)))
+        when(contentGateway.findActiveValue(ConversationContentKey.PLAYBOOK_GREETING))
             .thenReturn(Optional.of("Playbook greeting"));
         when(messageGateway.findRecentByConversationId(any(), eq(10))).thenReturn(List.of(
             ConversationMessage.inbound("conv-1", "+5583", ConversationMessageType.TEXT, "Oi", null, "wamid-1", Instant.now(), "GREETING")
@@ -86,7 +87,69 @@ class ConversationContextAssemblerTest {
         );
 
         assertThat(assembled.includedLayers()).contains("currentTurn");
-        assertThat(assembled.sessionMemory().size()).isLessThan(3);
+        assertThat(assembled.sessionMemory()).hasSizeLessThan(3);
+    }
+
+    @Test
+    void shouldTruncateBusinessKnowledgeAndPlaybookWhenContextStillExceedsLimit() {
+        ConversationContentGateway contentGateway = mock(ConversationContentGateway.class);
+        ConversationMessageGateway messageGateway = mock(ConversationMessageGateway.class);
+        ConversationContextAssembler assembler = new ConversationContextAssembler(contentGateway, messageGateway);
+
+        String playbook = String.join("\n",
+            "Linha 1 do playbook " + "a".repeat(900),
+            "Linha 2 do playbook " + "b".repeat(900),
+            "Linha 3 do playbook " + "c".repeat(900),
+            "Linha 4 do playbook " + "d".repeat(900),
+            "Linha 5 do playbook " + "e".repeat(900),
+            "Linha 6 do playbook " + "f".repeat(900)
+        );
+        when(contentGateway.findActiveValue(ConversationContentKey.PLAYBOOK_GREETING)).thenReturn(Optional.of(playbook));
+        when(messageGateway.findRecentByConversationId(any(), eq(10))).thenReturn(List.of());
+
+        List<ServiceCatalogItem> manyServices = new ArrayList<>();
+        for (int index = 0; index < 8; index++) {
+            manyServices.add(service(
+                ServiceType.DECOR,
+                "Decor " + index,
+                "Cenário muito longo ".repeat(120),
+                "490.00"
+            ));
+        }
+
+        StepContractRegistry registry = new StepContractRegistry();
+        var assembled = assembler.assemble(
+            Conversation.start("+5583999999999", Instant.now()),
+            new InboundWhatsAppMessage("+5583999999999", "Quero ajuda com meu apartamento " + "detalhe ".repeat(220), ""),
+            manyServices,
+            registry.findByStep(ConversationStep.GREETING).orElseThrow()
+        );
+
+        assertThat(assembled.businessKnowledge().size()).isLessThan(manyServices.size());
+        assertThat(assembled.includedLayers()).contains("businessKnowledge(truncated)", "conversationPlaybook(truncated)");
+        assertThat(assembled.conversationPlaybook()).isEqualTo(String.join("\n",
+            "Linha 1 do playbook " + "a".repeat(900),
+            "Linha 2 do playbook " + "b".repeat(900),
+            "Linha 3 do playbook " + "c".repeat(900),
+            "Linha 4 do playbook " + "d".repeat(900)
+        ));
+    }
+
+    @Test
+    void shouldReturnBlankPlaybookForDeterministicStepsWithoutConfiguredPlaybook() {
+        ConversationContentGateway contentGateway = mock(ConversationContentGateway.class);
+        ConversationMessageGateway messageGateway = mock(ConversationMessageGateway.class);
+        ConversationContextAssembler assembler = new ConversationContextAssembler(contentGateway, messageGateway);
+        StepContractRegistry registry = new StepContractRegistry();
+
+        var assembled = assembler.assemble(
+            Conversation.start("+5583999999999", Instant.now()).moveTo(ConversationStep.AWAITING_TERMS, Instant.now()),
+            new InboundWhatsAppMessage("+5583999999999", "aceito", ""),
+            List.of(decor()),
+            registry.findByStep(ConversationStep.AWAITING_TERMS).orElseThrow()
+        );
+
+        assertThat(assembled.conversationPlaybook()).isBlank();
     }
 
     private ConversationMessage outbound(String text) {
