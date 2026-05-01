@@ -631,8 +631,6 @@ public class ConversationFlowService {
             .orElse(ConversationalAiReply.fallback("null_reply"));
         Conversation updatedConversation = applySlotUpdates(conversation, reply.slotUpdates(), receivedAt);
         ResponseValidationResult validationResult = responseValidator.validate(
-            conversation,
-            assembledContext,
             stepContract,
             reply,
             availableServices
@@ -1060,13 +1058,6 @@ public class ConversationFlowService {
         return conversationMessageGateway.findRecentByConversationId(conversationId, 5).stream()
             .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), NO_TEXT_FALLBACK)))
             .toList();
-    }
-
-    private String buildConversationHistory(String conversationId) {
-        return conversationMessageGateway.findRecentByConversationId(conversationId, 10).stream()
-            .map(message -> "%s: %s".formatted(message.senderType().name(), blankToDefault(message.rawText(), NO_TEXT_FALLBACK)))
-            .reduce((left, right) -> left + "\n" + right)
-            .orElse("");
     }
 
     private String blankToDefault(String value, String fallback) {

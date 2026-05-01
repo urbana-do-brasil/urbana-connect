@@ -4,7 +4,6 @@ import br.com.urbana.connect.domain.conversation.model.Conversation;
 import br.com.urbana.connect.domain.conversation.model.ConversationContext;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotName;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
-import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotValue;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
 import br.com.urbana.connect.domain.conversation.model.StepContract;

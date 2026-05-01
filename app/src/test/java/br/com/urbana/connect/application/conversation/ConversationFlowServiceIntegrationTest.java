@@ -19,6 +19,8 @@ import br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog.S
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -35,6 +37,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -376,31 +379,15 @@ class ConversationFlowServiceIntegrationTest {
         verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), anyList());
     }
 
-    @Test
-    void shouldMoveToAwaitingPaymentMethodWhenTermsAreAccepted() {
+    @ParameterizedTest
+    @MethodSource("termsAcceptanceInputs")
+    void shouldMoveToAwaitingPaymentMethodWhenTermsAreAccepted(String phoneNumber, String textBody, String replyId) {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
-        String phoneNumber = "+5583111111111";
 
         advanceToAwaitingTerms(phoneNumber, now);
 
         var updated = conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "sim aceito", ""),
-            now.plusSeconds(240)
-        );
-
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
-        verify(whatsAppMessageGateway).sendPaymentMethodOptions(phoneNumber);
-    }
-
-    @Test
-    void shouldMoveToAwaitingPaymentMethodWhenCustomerAcceptsTermsByButton() {
-        Instant now = Instant.parse("2026-04-05T09:00:00Z");
-        String phoneNumber = "+5583111212121";
-
-        advanceToAwaitingTerms(phoneNumber, now);
-
-        var updated = conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "", "TERMS_ACCEPT"),
+            new InboundWhatsAppMessage(phoneNumber, textBody, replyId),
             now.plusSeconds(240)
         );
 
@@ -422,22 +409,6 @@ class ConversationFlowServiceIntegrationTest {
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
         verify(whatsAppMessageGateway, times(2)).sendTermsOfUse(phoneNumber);
-    }
-
-    @Test
-    void shouldMoveToAwaitingPaymentMethodWhenCustomerAcceptsTermsByText() {
-        Instant now = Instant.parse("2026-04-05T09:00:00Z");
-        String phoneNumber = "+5583110000000";
-
-        advanceToAwaitingTerms(phoneNumber, now);
-
-        var updated = conversationFlowService.handleIncomingMessage(
-            new InboundWhatsAppMessage(phoneNumber, "sim, aceito", ""),
-            now.plusSeconds(240)
-        );
-
-        assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_PAYMENT_METHOD);
-        verify(whatsAppMessageGateway).sendPaymentMethodOptions(phoneNumber);
     }
 
     @Test
@@ -610,6 +581,14 @@ class ConversationFlowServiceIntegrationTest {
         conversationFlowService.handleIncomingMessage(
             new InboundWhatsAppMessage(phoneNumber, "", "CONFIRM_SERVICE"),
             now.plusSeconds(180)
+        );
+    }
+
+    private static Stream<org.junit.jupiter.params.provider.Arguments> termsAcceptanceInputs() {
+        return Stream.of(
+            org.junit.jupiter.params.provider.Arguments.of("+5583111111111", "sim aceito", ""),
+            org.junit.jupiter.params.provider.Arguments.of("+5583111212121", "", "TERMS_ACCEPT"),
+            org.junit.jupiter.params.provider.Arguments.of("+5583110000000", "sim, aceito", "")
         );
     }
 

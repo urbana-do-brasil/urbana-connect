@@ -1,7 +1,6 @@
 package br.com.urbana.connect.application.conversation;
 
-import br.com.urbana.connect.domain.conversation.model.AssembledContext;
-import br.com.urbana.connect.domain.conversation.model.Conversation;
+import br.com.urbana.connect.domain.conversation.model.ConversationalAiAction;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
 import br.com.urbana.connect.domain.conversation.model.StepContract;
@@ -11,6 +10,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 @Component
@@ -20,15 +20,27 @@ public class ConversationResponseValidator {
     private static final Pattern PRICE_PATTERN = Pattern.compile("R\\$\\s*\\d+[\\d.,]*");
     private static final Pattern META_SPEECH_PATTERN = Pattern.compile(
         "(agora vou|agora eu vou|o próximo passo|vou coletar|vamos coletar|neste passo)",
-        Pattern.CASE_INSENSITIVE
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE | Pattern.CANON_EQ
     );
 
     public ResponseValidationResult validate(
-            Conversation conversation,
-            AssembledContext assembledContext,
             StepContract stepContract,
             ConversationalAiReply reply,
             List<ServiceCatalogItem> availableServices) {
+        ResponseValidationResult structuralValidation = validateStructure(stepContract, reply);
+        if (!structuralValidation.valid()) {
+            return structuralValidation;
+        }
+
+        ResponseValidationResult replyValidation = validateReplyText(reply.replyText(), availableServices, reply.action());
+        if (!replyValidation.valid()) {
+            return replyValidation;
+        }
+
+        return validateSlotUpdates(reply.slotUpdates());
+    }
+
+    private ResponseValidationResult validateStructure(StepContract stepContract, ConversationalAiReply reply) {
         if (reply == null || !reply.isStructurallyValid()) {
             return ResponseValidationResult.rejected("invalid_structure");
         }
@@ -38,48 +50,56 @@ public class ConversationResponseValidator {
         if (reply.replyText() == null || reply.replyText().isBlank()) {
             return ResponseValidationResult.rejected("empty_reply");
         }
-        if (reply.replyText().length() > MAX_REPLY_LENGTH) {
+        return ResponseValidationResult.accepted();
+    }
+
+    private ResponseValidationResult validateReplyText(
+            String replyText,
+            List<ServiceCatalogItem> availableServices,
+            ConversationalAiAction action) {
+        if (replyText.length() > MAX_REPLY_LENGTH) {
             return ResponseValidationResult.rejected("reply_too_long");
         }
-        if (countSentences(reply.replyText()) > 3) {
+        if (countSentences(replyText) > 3) {
             return ResponseValidationResult.rejected("too_many_sentences");
         }
-        if (countQuestions(reply.replyText()) > 1) {
+        if (countQuestions(replyText) > 1) {
             return ResponseValidationResult.rejected("too_many_questions");
         }
-        if (META_SPEECH_PATTERN.matcher(reply.replyText()).find()) {
+        if (META_SPEECH_PATTERN.matcher(replyText).find()) {
             return ResponseValidationResult.rejected("meta_speech");
         }
-        if (mentionsUnknownService(reply, availableServices)) {
+        if (mentionsUnknownService(replyText, action, availableServices)) {
             return ResponseValidationResult.rejected("unknown_service_mention");
         }
-        if (mentionsDivergentPrice(reply.replyText(), availableServices)) {
+        if (mentionsDivergentPrice(replyText, availableServices)) {
             return ResponseValidationResult.rejected("divergent_price");
-        }
-        for (ConversationSlotUpdate slotUpdate : reply.slotUpdates()) {
-            if (slotUpdate == null || slotUpdate.slot() == null || slotUpdate.value() == null || slotUpdate.value().isBlank()) {
-                return ResponseValidationResult.rejected("invalid_slot_update");
-            }
         }
         return ResponseValidationResult.accepted();
     }
 
-    private boolean mentionsUnknownService(ConversationalAiReply reply, List<ServiceCatalogItem> availableServices) {
-        if (reply.replyText() == null || reply.replyText().isBlank()) {
+    private ResponseValidationResult validateSlotUpdates(List<ConversationSlotUpdate> slotUpdates) {
+        boolean invalidSlotUpdate = slotUpdates.stream().anyMatch(slotUpdate ->
+            slotUpdate == null || slotUpdate.slot() == null || slotUpdate.value() == null || slotUpdate.value().isBlank()
+        );
+        return invalidSlotUpdate
+            ? ResponseValidationResult.rejected("invalid_slot_update")
+            : ResponseValidationResult.accepted();
+    }
+
+    private boolean mentionsUnknownService(
+            String replyText,
+            ConversationalAiAction action,
+            List<ServiceCatalogItem> availableServices) {
+        if (action != ConversationalAiAction.PROPOSE_SERVICE) {
             return false;
         }
 
-        String normalizedReply = reply.replyText().toLowerCase(Locale.ROOT);
-        boolean mentionsDecor = normalizedReply.contains("decor");
-        if (!mentionsDecor) {
-            return false;
-        }
-
-        boolean validMention = availableServices.stream().anyMatch(service ->
+        String normalizedReply = replyText.toLowerCase(Locale.ROOT);
+        return availableServices.stream().noneMatch(service ->
             normalizedReply.contains(service.name().toLowerCase(Locale.ROOT))
                 || normalizedReply.contains(service.type().name().toLowerCase(Locale.ROOT).replace('_', ' '))
         );
-        return !validMention && reply.action() == br.com.urbana.connect.domain.conversation.model.ConversationalAiAction.PROPOSE_SERVICE;
     }
 
     private boolean mentionsDivergentPrice(String replyText, List<ServiceCatalogItem> availableServices) {
@@ -92,7 +112,7 @@ public class ConversationResponseValidator {
             BigDecimal quoted = new BigDecimal(normalized);
             return availableServices.stream()
                 .map(ServiceCatalogItem::price)
-                .filter(price -> price != null)
+                .filter(Objects::nonNull)
                 .noneMatch(price -> price.compareTo(quoted) == 0);
         } catch (NumberFormatException exception) {
             return true;
