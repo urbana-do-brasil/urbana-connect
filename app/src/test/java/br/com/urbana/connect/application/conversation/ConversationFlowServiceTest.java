@@ -397,8 +397,56 @@ class ConversationFlowServiceTest {
         );
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
+        assertThat(updated.selectedService()).isNull();
+        assertThat(updated.context().slotValue(ConversationSlotName.SUGGESTED_SERVICE)).isEmpty();
+        assertThat(updated.context().slotValue(ConversationSlotName.CONFIRMED_SERVICE)).isEmpty();
         verify(whatsAppMessageGateway).sendTextMessage(eq(phoneNumber), any());
         verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), any());
+    }
+
+    @Test
+    void shouldNotReuseRejectedSuggestedServiceWhenAiAdvancesWithoutNewSlotUpdate() {
+        Instant now = Instant.parse("2026-04-06T10:24:00Z");
+        String phoneNumber = "+5583550003333";
+        Conversation conversation = new Conversation(
+            "conv-2",
+            phoneNumber,
+            ConversationStatus.ACTIVE,
+            ConversationStep.SERVICE_DISCOVERY,
+            null,
+            ConversationContext.empty().withSlot(
+                ConversationSlotName.NEEDS_DISCOVERY_HELP,
+                new br.com.urbana.connect.domain.conversation.model.ConversationSlotValue(
+                    "false",
+                    ConversationSlotLevel.CONFIRMED,
+                    ConversationSlotSource.EXPLICIT,
+                    1.0
+                )
+            ),
+            now.minusSeconds(240),
+            now.minusSeconds(60),
+            now.plusSeconds(24 * 60 * 60)
+        );
+
+        when(conversationLifecycleService.resumeOrStart(phoneNumber, now)).thenReturn(conversation);
+        when(aiGateway.converse(any())).thenReturn(new ConversationalAiReply(
+            "Entendi melhor agora.",
+            ConversationalAiAction.ACKNOWLEDGE_AND_ADVANCE,
+            List.of(),
+            0.95,
+            true,
+            ConversationStep.AWAITING_CONFIRMATION,
+            false,
+            null
+        ));
+
+        Conversation updated = conversationFlowService.handleIncomingMessage(
+            new InboundWhatsAppMessage(phoneNumber, "agora entendi melhor", ""),
+            now
+        );
+
+        assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
+        verify(whatsAppMessageGateway).sendTextMessage(eq(phoneNumber), any());
     }
 
     @Test

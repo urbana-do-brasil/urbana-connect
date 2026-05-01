@@ -90,6 +90,20 @@ public record Conversation(
         );
     }
 
+    public Conversation clearSelectedService(Instant now) {
+        return new Conversation(
+            id,
+            phoneNumber,
+            status,
+            currentStep,
+            null,
+            context,
+            createdAt,
+            now,
+            expiresAt
+        );
+    }
+
     public Conversation selectService(ServiceType serviceType, ConversationStep nextStep, Instant now) {
         return new Conversation(
             id,

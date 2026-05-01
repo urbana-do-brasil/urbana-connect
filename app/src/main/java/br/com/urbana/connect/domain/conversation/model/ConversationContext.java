@@ -36,6 +36,17 @@ public record ConversationContext(
         return new ConversationContext(paymentMethod, updatedSlots);
     }
 
+    public ConversationContext withoutSlot(ConversationSlotName slotName) {
+        if (!slots.containsKey(slotName)) {
+            return this;
+        }
+
+        EnumMap<ConversationSlotName, ConversationSlotValue> updatedSlots = new EnumMap<>(ConversationSlotName.class);
+        updatedSlots.putAll(slots);
+        updatedSlots.remove(slotName);
+        return new ConversationContext(paymentMethod, updatedSlots);
+    }
+
     public Optional<ConversationSlotValue> slot(ConversationSlotName slotName) {
         return Optional.ofNullable(slots.get(slotName));
     }

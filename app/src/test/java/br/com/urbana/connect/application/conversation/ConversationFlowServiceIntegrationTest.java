@@ -359,6 +359,9 @@ class ConversationFlowServiceIntegrationTest {
         );
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
+        assertThat(updated.selectedService()).isNull();
+        assertThat(updated.context().slotValue(ConversationSlotName.SUGGESTED_SERVICE)).isEmpty();
+        assertThat(updated.context().slotValue(ConversationSlotName.CONFIRMED_SERVICE)).isEmpty();
         verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), anyList());
     }
 

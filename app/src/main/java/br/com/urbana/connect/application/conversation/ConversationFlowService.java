@@ -346,7 +346,7 @@ public class ConversationFlowService {
             if (interpretation.intent() == IntentType.NEGATION) {
                 Conversation updated = saveTransition(
                     conversation,
-                    conversation.moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt),
+                    resetServiceDiscoveryState(conversation, receivedAt).moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt),
                     inboundMessage.phoneNumber(),
                     "confirmation_ai_negation"
                 );
@@ -382,7 +382,7 @@ public class ConversationFlowService {
         if ("RESELECT_SERVICE".equals(replyId)) {
             Conversation updated = saveTransition(
                 conversation,
-                conversation.moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt),
+                resetServiceDiscoveryState(conversation, receivedAt).moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt),
                 inboundMessage.phoneNumber(),
                 "confirmation_reselect"
             );
@@ -536,7 +536,7 @@ public class ConversationFlowService {
             }
             Conversation updated = saveTransition(
                 conversation,
-                conversation.moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt),
+                resetServiceDiscoveryState(conversation, receivedAt).moveTo(ConversationStep.SERVICE_DISCOVERY, receivedAt),
                 inboundMessage.phoneNumber(),
                 "payment_service_missing"
             );
@@ -660,6 +660,15 @@ public class ConversationFlowService {
                 ConversationSlotSource.EXPLICIT
             )
         ), receivedAt);
+    }
+
+    private Conversation resetServiceDiscoveryState(Conversation conversation, Instant receivedAt) {
+        ConversationContext resetContext = conversation.context()
+            .withoutSlot(ConversationSlotName.SUGGESTED_SERVICE)
+            .withoutSlot(ConversationSlotName.CONFIRMED_SERVICE);
+        return conversation
+            .withContext(resetContext, receivedAt)
+            .clearSelectedService(receivedAt);
     }
 
     private Conversation applySlotUpdates(
