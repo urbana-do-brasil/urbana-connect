@@ -13,7 +13,6 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.EnumMap;
-import java.util.HashMap;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -94,7 +93,7 @@ class MongoConversationGatewayTest {
         slotDocument.setSource(ConversationSlotSource.EXPLICIT);
         slotDocument.setConfidence(0.95);
 
-        HashMap<ConversationSlotName, ConversationSlotValueDocument> slots = new HashMap<>();
+        EnumMap<ConversationSlotName, ConversationSlotValueDocument> slots = new EnumMap<>(ConversationSlotName.class);
         slots.put(ConversationSlotName.SUGGESTED_SERVICE, slotDocument);
         slots.put(ConversationSlotName.CONFIRMED_SERVICE, null);
 

@@ -125,7 +125,7 @@ class ConversationContextAssemblerTest {
             registry.findByStep(ConversationStep.GREETING).orElseThrow()
         );
 
-        assertThat(assembled.businessKnowledge().size()).isLessThan(manyServices.size());
+        assertThat(assembled.businessKnowledge()).hasSizeLessThan(manyServices.size());
         assertThat(assembled.includedLayers()).contains("businessKnowledge(truncated)", "conversationPlaybook(truncated)");
         assertThat(assembled.conversationPlaybook()).isEqualTo(String.join("\n",
             "Linha 1 do playbook " + "a".repeat(900),

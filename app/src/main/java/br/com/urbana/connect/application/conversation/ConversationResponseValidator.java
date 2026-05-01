@@ -1,13 +1,14 @@
 package br.com.urbana.connect.application.conversation;
 
-import br.com.urbana.connect.domain.conversation.model.ConversationalAiAction;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
 import br.com.urbana.connect.domain.conversation.model.StepContract;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
+import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -27,10 +28,7 @@ public class ConversationResponseValidator {
     );
     private static final Pattern SERVICE_REFERENCE_CUE_PATTERN = Pattern.compile(
         "\\b(serviço|opção|pacote|projeto)\\b",
-        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
-    );
-    private static final Pattern CAPITALIZED_SERVICE_PHRASE_PATTERN = Pattern.compile(
-        "\\b([A-ZÀ-Ý][\\p{L}]+(?:\\s+[A-ZÀ-Ý][\\p{L}]+)+)\\b"
+        Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE | Pattern.CANON_EQ
     );
     private static final Set<String> IGNORED_NAMED_PHRASES = Set.of("a urba", "urbana do brasil");
 
@@ -112,7 +110,7 @@ public class ConversationResponseValidator {
             return false;
         }
 
-        boolean mentionsUnavailableCatalogAlias = Stream.of(br.com.urbana.connect.domain.servicecatalog.model.ServiceType.values())
+        boolean mentionsUnavailableCatalogAlias = Stream.of(ServiceType.values())
             .map(serviceType -> normalize(serviceType.name().replace('_', ' ')))
             .filter(alias -> !availableAliases.contains(alias))
             .anyMatch(normalizedReply::contains);
@@ -124,9 +122,7 @@ public class ConversationResponseValidator {
             return false;
         }
 
-        var matcher = CAPITALIZED_SERVICE_PHRASE_PATTERN.matcher(replyText);
-        while (matcher.find()) {
-            String candidate = normalize(matcher.group(1));
+        for (String candidate : extractCapitalizedPhrases(replyText)) {
             if (!IGNORED_NAMED_PHRASES.contains(candidate) && !availableAliases.contains(candidate)) {
                 return true;
             }
@@ -163,5 +159,41 @@ public class ConversationResponseValidator {
 
     private String normalize(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
+    }
+
+    private List<String> extractCapitalizedPhrases(String replyText) {
+        List<String> phrases = new ArrayList<>();
+        StringBuilder currentPhrase = new StringBuilder();
+        int capitalizedWords = 0;
+
+        for (String token : replyText.replaceAll("[^\\p{L}\\s]", " ").split("\\s+")) {
+            if (token.isBlank()) {
+                continue;
+            }
+            if (startsWithUppercase(token)) {
+                if (!currentPhrase.isEmpty()) {
+                    currentPhrase.append(' ');
+                }
+                currentPhrase.append(token);
+                capitalizedWords++;
+                continue;
+            }
+            addPhraseIfRelevant(phrases, currentPhrase, capitalizedWords);
+            currentPhrase.setLength(0);
+            capitalizedWords = 0;
+        }
+
+        addPhraseIfRelevant(phrases, currentPhrase, capitalizedWords);
+        return phrases;
+    }
+
+    private void addPhraseIfRelevant(List<String> phrases, StringBuilder currentPhrase, int capitalizedWords) {
+        if (capitalizedWords >= 2 && !currentPhrase.isEmpty()) {
+            phrases.add(normalize(currentPhrase.toString()));
+        }
+    }
+
+    private boolean startsWithUppercase(String token) {
+        return !token.isBlank() && Character.isUpperCase(token.codePointAt(0));
     }
 }
