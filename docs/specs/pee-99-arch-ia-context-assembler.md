@@ -69,13 +69,13 @@ Reorganizar a participação da IA como um **Assembler de Contexto Conversaciona
 
 ### 2.4 Resposta estruturada e validação
 
-9. Dado que o Agent Adapter receba resposta do modelo LLM, quando a resposta for parseada, então deve seguir o contrato `ConversationalAiReply` com todos os campos obrigatórios: `replyText`, `action`, `slotUpdates`, `shouldAdvance`, `suggestedNextStep`, `confidence`, `shouldOfferStructuredOptions` e `fallbackReason`.
+9. Dado que o Agent Adapter receba resposta do modelo LLM, quando a resposta for parseada, então deve seguir o contrato `ConversationalAiReply` com todos os campos obrigatórios (`replyText`, `action`, `slotUpdates`, `shouldAdvance`, `confidence`, `shouldOfferStructuredOptions`) presentes. Os campos opcionais (`suggestedNextStep`, `fallbackReason`) podem ser `null`.
 
 10. Dado que o Response Validator avalie a resposta, quando `replyText` mencionar um serviço que não existe no catálogo ativo, ou contiver preço divergente do catálogo, então a resposta deve ser descartada e o motivo logado.
 
 11. Dado que o Response Validator avalie a resposta, quando `replyText` exceder o limite de caracteres da política de turno, então a resposta deve ser descartada e o motivo logado.
 
-12. Dado que `shouldAdvance = true` e `slotUpdates` esteja vazio e nenhum slot novo tenha sido preenchido neste turno, então o Response Validator deve reportar inconsistência ao Policy Engine.
+12. Dado que `shouldAdvance = true` e `slotUpdates` esteja vazio, quando o Policy Engine avaliar, então ele deve verificar se os `requiredSlots` do `StepContract` já estavam preenchidos em turnos anteriores ou se o avanço veio de confirmação determinística. Se sim, o avanço é válido. Se não, o Policy Engine deve tratar como avanço indevido e aplicar fallback.
 
 ### 2.5 Unificação converse/interpret
 
@@ -132,6 +132,7 @@ allowedActions:
   - CONFIRM_UNDERSTANDING
   - ACKNOWLEDGE_AND_ADVANCE
   - OFFER_STRUCTURED_OPTIONS
+  - REPEAT_WITH_REFRAME
 forbiddenActions:
   - PROPOSE_SERVICE
 advanceCriteria:
@@ -157,6 +158,7 @@ allowedActions:
   - ASK_CLARIFYING_QUESTION
   - CONFIRM_UNDERSTANDING
   - ACKNOWLEDGE_AND_ADVANCE
+  - REPEAT_WITH_REFRAME
 forbiddenActions:
   - PROPOSE_SERVICE
   - OFFER_STRUCTURED_OPTIONS (exceto via circuit breaker)
@@ -183,6 +185,7 @@ allowedActions:
   - PROPOSE_SERVICE
   - OFFER_STRUCTURED_OPTIONS
   - ACKNOWLEDGE_AND_ADVANCE
+  - REPEAT_WITH_REFRAME
 forbiddenActions:
   - inventar serviço fora do catálogo
   - afirmar preço sem consultar catálogo
@@ -195,7 +198,83 @@ maxTurnsWithoutProgress: 3
 structuredEscapeOptions: lista interativa com serviços disponíveis e cenários
 ```
 
-As etapas `AWAITING_CONFIRMATION`, `AWAITING_TERMS` e `AWAITING_PAYMENT_METHOD` continuam com lógica determinística. Seus StepContracts devem existir para consistência, mas o avanço depende de confirmação explícita (botão ou texto livre inequívoco), não de confiança probabilística.
+#### AWAITING_CONFIRMATION
+
+```
+step: AWAITING_CONFIRMATION
+goal: confirmar com o cliente que o serviço sugerido é o correto
+requiredSlots:
+  - confirmedService (confirmed)
+optionalSlots: []
+allowedActions:
+  - CONFIRM_UNDERSTANDING
+  - OFFER_STRUCTURED_OPTIONS
+  - REPEAT_WITH_REFRAME
+  - ACKNOWLEDGE_AND_ADVANCE
+forbiddenActions:
+  - PROPOSE_SERVICE
+  - ASK_CLARIFYING_QUESTION
+advanceCriteria:
+  - confirmedService em nível CONFIRMED por confirmação explícita (botão ou texto inequívoco)
+  - NÃO depende de confidence probabilística — avanço é determinístico
+fallbackBehavior: reapresentar o serviço com botões SIM / NÃO
+maxTurnsWithoutProgress: 2
+structuredEscapeOptions: botões SIM / NÃO / VER OUTROS SERVIÇOS
+deterministic: true
+```
+
+#### AWAITING_TERMS
+
+```
+step: AWAITING_TERMS
+goal: obter aceite explícito dos termos de uso
+requiredSlots:
+  - termsAccepted (confirmed)
+optionalSlots: []
+allowedActions:
+  - CONFIRM_UNDERSTANDING
+  - REPEAT_WITH_REFRAME
+  - ACKNOWLEDGE_AND_ADVANCE
+forbiddenActions:
+  - PROPOSE_SERVICE
+  - ASK_CLARIFYING_QUESTION
+  - OFFER_STRUCTURED_OPTIONS
+advanceCriteria:
+  - termsAccepted em nível CONFIRMED por aceite explícito ("aceito", "sim, aceito") ou botão
+  - NÃO depende de confidence probabilística — avanço é determinístico
+  - texto ambíguo ("ok", "certo", "beleza") NÃO conta como aceite
+fallbackBehavior: reenviar link dos termos e pedir aceite explícito
+maxTurnsWithoutProgress: 3
+structuredEscapeOptions: reenviar link + botão ACEITO
+deterministic: true
+```
+
+#### AWAITING_PAYMENT_METHOD
+
+```
+step: AWAITING_PAYMENT_METHOD
+goal: coletar a forma de pagamento escolhida pelo cliente
+requiredSlots:
+  - paymentMethod (confirmed)
+optionalSlots: []
+allowedActions:
+  - CONFIRM_UNDERSTANDING
+  - OFFER_STRUCTURED_OPTIONS
+  - REPEAT_WITH_REFRAME
+  - ACKNOWLEDGE_AND_ADVANCE
+forbiddenActions:
+  - PROPOSE_SERVICE
+  - ASK_CLARIFYING_QUESTION
+advanceCriteria:
+  - paymentMethod em nível CONFIRMED com valor válido (PIX ou CARTAO)
+  - NÃO depende de confidence probabilística — avanço é determinístico
+fallbackBehavior: reenviar opções de pagamento com botões PIX / CARTÃO
+maxTurnsWithoutProgress: 2
+structuredEscapeOptions: botões PIX / CARTÃO DE CRÉDITO
+deterministic: true
+```
+
+**Nota sobre etapas determinísticas:** os StepContracts com `deterministic: true` indicam que o Policy Engine não deve usar `confidence` para decidir avanço. O avanço depende exclusivamente de confirmação explícita validada por regra determinística (match de texto ou botão). O campo `confidence` da IA pode ser usado para logging, mas não influencia a decisão.
 
 ### 3.2 ConversationalAiReply
 
@@ -203,19 +282,23 @@ Contrato formal da resposta estruturada que o Agent Adapter devolve:
 
 ```
 ConversationalAiReply:
+
+  # Campos obrigatórios — sempre presentes
   replyText: string           # texto a enviar ao cliente (máx 3 frases curtas)
   action: enum                # ação pretendida (validada contra allowedActions do StepContract)
-  slotUpdates: list           # alterações propostas de slot
+  slotUpdates: list           # alterações propostas de slot (pode ser lista vazia)
     - slot: enum              #   nome do slot (ConversationSlotName)
       value: string           #   valor proposto
       level: TENTATIVE | CONFIRMED
       confidence: float       #   0.0–1.0
       source: INFERRED | EXPLICIT
   shouldAdvance: boolean      # sugestão de avanço (Policy Engine valida)
-  suggestedNextStep: enum?    # próximo passo sugerido (ou null)
   confidence: float           # confiança geral (0.0–1.0)
   shouldOfferStructuredOptions: boolean  # se deve acompanhar botões/lista
-  fallbackReason: string?     # justificativa quando não conseguiu saída confiável
+
+  # Campos opcionais — podem ser null
+  suggestedNextStep: enum?    # próximo passo sugerido (null quando shouldAdvance=false)
+  fallbackReason: string?     # presente apenas quando a IA não conseguiu saída confiável
 ```
 
 Enums de `action`:
@@ -281,7 +364,7 @@ Enums de `action`:
 - `replyText` não excede limite de caracteres da política de turno
 - `replyText` não menciona serviços fora do catálogo ativo
 - `replyText` não contém preços divergentes do catálogo
-- `shouldAdvance = true` com `slotUpdates` vazio → inconsistência
+- `shouldAdvance = true` com `slotUpdates` vazio → reportar ao Policy Engine para avaliação contextual (pode ser válido se requiredSlots já estavam preenchidos ou se avanço é determinístico)
 - `suggestedNextStep` consistente com fluxo permitido da etapa
 - `action` está na `allowedActions` do StepContract ativo
 
@@ -352,7 +435,7 @@ Catálogo de serviços (via `ServiceCatalogGateway`): nome, tipo, preço, descri
 
 ## 6. Critérios de aceite
 
-1. Existe um `StepContract` formal e completo para cada etapa conversacional da primeira iteração (GREETING, ICP_QUALIFICATION, SERVICE_DISCOVERY).
+1. Existe um `StepContract` formal e completo para cada etapa da state machine: GREETING, ICP_QUALIFICATION e SERVICE_DISCOVERY (conversacionais) e AWAITING_CONFIRMATION, AWAITING_TERMS e AWAITING_PAYMENT_METHOD (determinísticas).
 2. O `AiGateway` expõe apenas `converse()`. O método `interpret()` foi removido e sua lógica absorvida pelo contrato `ConversationalAiReply`.
 3. O Context Assembler monta contexto hierarquizado com as 6 camadas, com política de corte documentada.
 4. O Policy Engine consome StepContracts para decidir avanço, bloqueio e fallback.
@@ -373,7 +456,8 @@ Catálogo de serviços (via `ServiceCatalogGateway`): nome, tipo, preço, descri
 - IA sugere serviço que não existe no catálogo → Response Validator rejeita, Policy Engine aplica fallback.
 - IA retorna `shouldAdvance = true` mas slots mínimos não estão preenchidos → Policy Engine bloqueia avanço.
 - IA propõe `action` que está em `forbiddenActions` da etapa → Response Validator rejeita.
-- Cliente envia mensagem em etapa que não tem StepContract configurado → sistema usa fallback genérico seguro (mensagem de desculpas + botão de ajuda).
+- Cliente envia mensagem em etapa que não tem StepContract configurado (ex: `PAYMENT_LINK_SENT` ou etapa futura) → sistema usa fallback genérico seguro (mensagem de desculpas + botão de ajuda).
+- Modelo LLM retorna `REPEAT_WITH_REFRAME` como ação de fallback própria → o Policy Engine aceita essa ação se ela constar em `allowedActions` do StepContract. Se não constar, aplica `fallbackBehavior` do contrato em vez de rejeitar silenciosamente.
 - Catálogo muda enquanto conversa está em andamento → Assembler sempre consulta catálogo atualizado a cada turno.
 - Circuit breaker aciona mas as `structuredEscapeOptions` falham ao enviar → logar erro, não travar a conversa.
 - Cliente responde de forma ambígua e contraditória na mesma mensagem → IA deve pedir esclarecimento (`ASK_CLARIFYING_QUESTION`) em vez de escolher uma interpretação.
@@ -407,8 +491,11 @@ Catálogo de serviços (via `ServiceCatalogGateway`): nome, tipo, preço, descri
 - Response Validator rejeita resposta com serviço fora do catálogo.
 - Response Validator rejeita resposta com mais de 3 frases.
 - Response Validator rejeita resposta com mais de 1 pergunta.
-- Response Validator detecta inconsistência `shouldAdvance=true` + sem slots novos.
+- Response Validator reporta `shouldAdvance=true` + sem slots novos → Policy Engine valida contextualmente.
+- Policy Engine aceita avanço com slotUpdates vazio quando requiredSlots já estavam preenchidos.
+- Policy Engine rejeita avanço com slotUpdates vazio quando requiredSlots não estão preenchidos.
 - Fallback do StepContract é aplicado corretamente quando resposta é rejeitada.
+- `REPEAT_WITH_REFRAME` é aceito como action válida em todas as etapas.
 
 ### Testes de integração
 
