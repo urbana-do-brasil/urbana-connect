@@ -6,6 +6,8 @@ import java.util.List;
 
 public interface WhatsAppMessageGateway {
 
+    void sendTextMessage(String phoneNumber, String bodyText);
+
     void sendGreeting(String phoneNumber);
 
     void sendGuidedTriageOptions(String phoneNumber, List<ServiceCatalogItem> availableServices);

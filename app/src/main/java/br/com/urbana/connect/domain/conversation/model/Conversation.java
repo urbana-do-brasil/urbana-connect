@@ -62,6 +62,48 @@ public record Conversation(
         );
     }
 
+    public Conversation withContext(ConversationContext updatedContext, Instant now) {
+        return new Conversation(
+            id,
+            phoneNumber,
+            status,
+            currentStep,
+            selectedService,
+            updatedContext,
+            createdAt,
+            now,
+            expiresAt
+        );
+    }
+
+    public Conversation withSelectedService(ServiceType serviceType, Instant now) {
+        return new Conversation(
+            id,
+            phoneNumber,
+            status,
+            currentStep,
+            serviceType,
+            context,
+            createdAt,
+            now,
+            expiresAt
+        );
+    }
+
+    public Conversation clearSelectedService(Instant now) {
+        return new Conversation(
+            id,
+            phoneNumber,
+            status,
+            currentStep,
+            null,
+            context,
+            createdAt,
+            now,
+            expiresAt
+        );
+    }
+
     public Conversation selectService(ServiceType serviceType, ConversationStep nextStep, Instant now) {
         return new Conversation(
             id,

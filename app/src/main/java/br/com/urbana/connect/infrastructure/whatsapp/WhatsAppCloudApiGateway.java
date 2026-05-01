@@ -77,6 +77,11 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     }
 
     @Override
+    public void sendTextMessage(String phoneNumber, String bodyText) {
+        sendPayload(textPayload(phoneNumber, bodyText), phoneNumber, "TEXT", bodyText, ConversationMessageType.TEXT);
+    }
+
+    @Override
     public void sendGreeting(String phoneNumber) {
         String bodyText = resolveContent(ConversationContentKey.GREETING_TEXT, GREETING_TEXT);
         sendPayload(
