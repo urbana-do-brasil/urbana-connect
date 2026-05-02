@@ -1,15 +1,12 @@
 package br.com.urbana.connect.infrastructure.ai.gemini;
 
-import br.com.urbana.connect.domain.conversation.model.AiContext;
-import br.com.urbana.connect.domain.conversation.model.AiInterpretation;
+import br.com.urbana.connect.domain.conversation.model.AssembledContext;
 import br.com.urbana.connect.domain.conversation.model.ConversationSlotUpdate;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiAction;
 import br.com.urbana.connect.domain.conversation.model.ConversationalAiReply;
-import br.com.urbana.connect.domain.conversation.model.IntentType;
 import br.com.urbana.connect.domain.conversation.model.ServiceSummary;
 import br.com.urbana.connect.domain.conversation.model.ConversationStep;
 import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
-import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -38,55 +35,7 @@ public class GeminiAiGateway implements AiGateway {
     }
 
     @Override
-    public AiInterpretation interpret(AiContext context) {
-        if (apiKey == null || apiKey.isBlank()) {
-            log.warn("GEMINI_API_KEY ausente; retornando UNKNOWN para etapa {}", context.currentStep());
-            return AiInterpretation.unknown();
-        }
-
-        try {
-            GeminiResponse response = restClient.post()
-                .uri(uriBuilder -> uriBuilder
-                    .path("/v1beta/models/{model}:generateContent")
-                    .queryParam("key", apiKey)
-                    .build(model))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(new GeminiRequest(
-                    List.of(new Content(List.of(new Part(buildPrompt(context))))),
-                    new GenerationConfig("application/json")
-                ))
-                .retrieve()
-                .body(GeminiResponse.class);
-
-            String jsonPayload = Optional.ofNullable(response)
-                .map(GeminiResponse::candidates)
-                .filter(candidates -> !candidates.isEmpty())
-                .map(List::getFirst)
-                .map(Candidate::content)
-                .map(ContentResponse::parts)
-                .filter(parts -> !parts.isEmpty())
-                .map(List::getFirst)
-                .map(PartResponse::text)
-                .orElse(null);
-
-            if (jsonPayload == null || jsonPayload.isBlank()) {
-                return AiInterpretation.unknown();
-            }
-
-            GeminiInterpretationPayload payload = objectMapper.readValue(jsonPayload, GeminiInterpretationPayload.class);
-            return new AiInterpretation(
-                payload.intent() != null ? payload.intent() : IntentType.UNKNOWN,
-                payload.selectedService(),
-                payload.suggestedResponse()
-            );
-        } catch (Exception exception) {
-            log.error("Falha ao interpretar mensagem com Gemini na etapa {}: {}", context.currentStep(), exception.getMessage());
-            return AiInterpretation.unknown();
-        }
-    }
-
-    @Override
-    public ConversationalAiReply converse(AiContext context) {
+    public ConversationalAiReply converse(AssembledContext context) {
         if (apiKey == null || apiKey.isBlank()) {
             log.warn("GEMINI_API_KEY ausente; retornando fallback conversacional para etapa {}", context.currentStep());
             return ConversationalAiReply.fallback("missing_api_key");
@@ -128,52 +77,8 @@ public class GeminiAiGateway implements AiGateway {
         }
     }
 
-    private String buildPrompt(AiContext context) {
-        String availableServices = context.availableServices().stream()
-            .map(this::formatService)
-            .collect(Collectors.joining("\n"));
-
-        return """
-            Você é um classificador de intenção da Urba.
-            Responda SOMENTE em JSON válido.
-
-            Intents permitidos:
-            - SERVICE_SELECTION
-            - AFFIRMATION
-            - NEGATION
-            - TERMS_ACCEPTANCE
-            - UNKNOWN
-
-            Regras:
-            - Se o cliente escolher ou descrever claramente um serviço do catálogo, retorne SERVICE_SELECTION e selectedService.
-            - Se a mensagem significar "sim", retorne AFFIRMATION.
-            - Se a mensagem significar "não", retorne NEGATION.
-            - Se a mensagem indicar aceite de termos, retorne TERMS_ACCEPTANCE.
-            - Se houver dúvida razoável, retorne UNKNOWN.
-            - Nunca invente selectedService.
-
-            Etapa atual: %s
-            Mensagem do cliente: %s
-            Histórico resumido: %s
-            Serviços disponíveis:
-            %s
-
-            Formato de resposta:
-            {
-              "intent": "SERVICE_SELECTION|AFFIRMATION|NEGATION|TERMS_ACCEPTANCE|UNKNOWN",
-              "selectedService": "DECOR|DECOR_PINTURA|DECOR_FACHADA|DECOR_REFORMA|null",
-              "suggestedResponse": null
-            }
-            """.formatted(
-            context.currentStep(),
-            sanitize(context.userMessage()),
-            sanitize(context.conversationHistory()),
-            availableServices
-        );
-    }
-
-    private String buildConversationalPrompt(AiContext context) {
-        String availableServices = context.availableServices().stream()
+    private String buildConversationalPrompt(AssembledContext context) {
+        String availableServices = context.businessKnowledge().stream()
             .map(this::formatService)
             .collect(Collectors.joining("\n"));
         String serializedSlots = context.slots().entrySet().stream()
@@ -185,11 +90,22 @@ public class GeminiAiGateway implements AiGateway {
                 entry.getValue().confidence()
             ))
             .collect(Collectors.joining("\n"));
+        String recentHistory = context.sessionMemory().isEmpty()
+            ? "- sem histórico recente"
+            : context.sessionMemory().stream().map(this::sanitize).collect(Collectors.joining("\n"));
 
         return """
-            Você é a Urba, uma assistente conversacional de atendimento inicial.
-            Sua tarefa é responder SOMENTE em JSON válido, seguindo o contrato abaixo.
-            Você está dentro de uma state machine. Nunca invente serviços, preços, links ou etapas.
+            Você é a Urba, atendente conversacional da Urbana do Brasil.
+            Responda SOMENTE em JSON válido.
+
+            Core Identity:
+            %s
+
+            Operational Policy:
+            %s
+
+            Conversation Playbook da etapa:
+            %s
 
             Etapa atual: %s
             Objetivo da etapa: %s
@@ -203,10 +119,10 @@ public class GeminiAiGateway implements AiGateway {
             Serviços disponíveis:
             %s
 
-            Regras duras:
-            - Em GREETING, descubra se o cliente precisa de ajuda para encontrar o serviço ou se já sabe o que quer.
-            - Em ICP_QUALIFICATION, converse de forma natural para coletar pronome de tratamento, primeira experiência e ocupação, sem travar a conversa se a pessoa não quiser responder tudo.
-            - Em SERVICE_DISCOVERY, ajude a descobrir qual serviço faz mais sentido e nunca invente serviço fora do catálogo.
+            Regras duras adicionais:
+            - Nunca invente serviços, preços, links ou etapas.
+            - Faça no máximo uma pergunta por turno.
+            - Prefira respostas curtas e humanas.
             - Só use suggestedNextStep quando realmente fizer sentido avançar.
             - Só marque shouldAdvance=true quando houver dados suficientes para a etapa atual.
             - Se estiver insegura, faça pergunta de esclarecimento e mantenha shouldAdvance=false.
@@ -232,23 +148,16 @@ public class GeminiAiGateway implements AiGateway {
               "fallbackReason": null
             }
             """.formatted(
+            sanitize(context.coreIdentity()),
+            sanitize(context.operationalPolicy()),
+            sanitize(context.conversationPlaybook()),
             context.currentStep(),
-            stageObjective(context.currentStep()),
+            sanitize(context.stageGoal()),
             sanitize(context.userMessage()),
-            sanitize(context.conversationHistory()),
+            recentHistory,
             serializedSlots.isBlank() ? "- nenhum slot preenchido" : serializedSlots,
             availableServices
         );
-    }
-
-    private String stageObjective(ConversationStep step) {
-        return switch (step) {
-            case GREETING -> "entender se o cliente precisa de ajuda para descobrir o serviço";
-            case ICP_QUALIFICATION -> "coletar contexto pessoal leve para humanizar e qualificar a conversa";
-            case SERVICE_DISCOVERY, TRIAGE_DIRECT, TRIAGE_GUIDED ->
-                "descobrir ou confirmar qual serviço do catálogo melhor atende o cliente";
-            default -> "respeitar o fluxo atual sem inventar informação";
-        };
     }
 
     private String extractJsonPayload(GeminiResponse response) {
@@ -265,7 +174,13 @@ public class GeminiAiGateway implements AiGateway {
     }
 
     private String formatService(ServiceSummary service) {
-        return "- %s (%s): %s".formatted(service.name(), service.type(), service.scenarioText());
+        return "- %s (%s): cenário=%s | preço=%s | disponibilidade=%s".formatted(
+            service.name(),
+            service.type(),
+            service.scenarioText(),
+            service.price() == null ? "não informado" : "R$ " + service.price().toPlainString(),
+            service.available() ? "disponível" : "indisponível"
+        );
     }
 
     private String sanitize(String value) {
@@ -300,13 +215,6 @@ public class GeminiAiGateway implements AiGateway {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record PartResponse(String text) {
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record GeminiInterpretationPayload(
-            IntentType intent,
-            ServiceType selectedService,
-            String suggestedResponse) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
