@@ -38,6 +38,15 @@ data:
           }
         ]
       },
+      "plugins": {
+        "allow": [
+          "google"
+        ],
+        "slots": {
+          "memory": "none",
+          "contextEngine": "none"
+        }
+      },
       "cron": {
         "enabled": false
       }
