@@ -1,0 +1,18 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: urbana-claw-allow-urbana-connect
+spec:
+  podSelector:
+    matchLabels:
+      app: urbana-claw
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: urbana-connect
+      ports:
+        - protocol: TCP
+          port: 18789
