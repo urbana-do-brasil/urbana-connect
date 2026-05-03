@@ -1,6 +1,6 @@
 package br.com.urbana.connect.interfaces.rest;
 
-import br.com.urbana.connect.application.conversation.ConversationFlowService;
+import br.com.urbana.connect.application.conversation.InboundWhatsAppRouterService;
 import br.com.urbana.connect.application.conversation.InboundWhatsAppMessage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,7 +32,7 @@ class WebhookControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private ConversationFlowService conversationFlowService;
+    private InboundWhatsAppRouterService inboundWhatsAppRouterService;
 
     @Test
     void shouldAcceptWebhookPayload(CapturedOutput output) throws Exception {
@@ -64,7 +64,7 @@ class WebhookControllerTest {
                     """))
             .andExpect(status().isOk());
 
-        verify(conversationFlowService).handleIncomingMessage(
+        verify(inboundWhatsAppRouterService).handleIncomingMessage(
             eq(new InboundWhatsAppMessage("+5583999999999", "oi", "", "", "text", "")),
             any()
         );
@@ -145,7 +145,7 @@ class WebhookControllerTest {
                     """))
             .andExpect(status().isOk());
 
-        verify(conversationFlowService).handleIncomingMessage(
+        verify(inboundWhatsAppRouterService).handleIncomingMessage(
             eq(new InboundWhatsAppMessage("+5583999999999", "", "DECOR", "Decor", "list_reply", "wamid-123")),
             any()
         );

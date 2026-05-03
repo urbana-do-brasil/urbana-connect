@@ -52,3 +52,12 @@ ai:
 handoff:
   human:
     recipient: ${HANDOFF_EMAIL_RECIPIENT:comunicacao@urbanadobrasil.com}
+
+openclaw:
+  poc:
+    enabled: ${OPENCLAW_POC_ENABLED:false}
+    base-url: ${OPENCLAW_POC_BASE_URL:http://localhost:8787}
+    turn-path: ${OPENCLAW_POC_TURN_PATH:/conversation-turn}
+    timeout-ms: ${OPENCLAW_POC_TIMEOUT_MS:4000}
+    max-reply-length: ${OPENCLAW_POC_MAX_REPLY_LENGTH:1024}
+    fallback-text: ${OPENCLAW_POC_FALLBACK_TEXT:Estou com uma instabilidade momentanea aqui. Pode me enviar sua mensagem novamente em instantes?}

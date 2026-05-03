@@ -1,6 +1,6 @@
 package br.com.urbana.connect.interfaces.rest;
 
-import br.com.urbana.connect.application.conversation.ConversationFlowService;
+import br.com.urbana.connect.application.conversation.InboundWhatsAppRouterService;
 import br.com.urbana.connect.application.conversation.InboundWhatsAppMessage;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -27,13 +27,13 @@ public class WebhookController {
     private static final Logger log = LoggerFactory.getLogger(WebhookController.class);
 
     private final String verifyToken;
-    private final ConversationFlowService conversationFlowService;
+    private final InboundWhatsAppRouterService inboundWhatsAppRouterService;
 
     public WebhookController(
             @Value("${whatsapp.webhook.verify-token:}") String verifyToken,
-            ConversationFlowService conversationFlowService) {
+            InboundWhatsAppRouterService inboundWhatsAppRouterService) {
         this.verifyToken = verifyToken;
-        this.conversationFlowService = conversationFlowService;
+        this.inboundWhatsAppRouterService = inboundWhatsAppRouterService;
     }
 
     @GetMapping("/api/webhook")
@@ -104,7 +104,7 @@ public class WebhookController {
             return;
         }
 
-        conversationFlowService.handleIncomingMessage(
+        inboundWhatsAppRouterService.handleIncomingMessage(
             new InboundWhatsAppMessage(
                 phoneNumber,
                 message.path("text").path("body").asText(""),
