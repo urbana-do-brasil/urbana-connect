@@ -107,6 +107,7 @@ infra/k8s/urbana-claw/
     configmap.yaml
     deployment.yaml
     kustomization.yaml
+    networkpolicy.yaml
     pvc.yaml
     service.yaml
   overlays/
@@ -253,6 +254,26 @@ Uso:
 /home/node/.openclaw
 ```
 
+Tamanho inicial para homologação:
+
+```text
+5Gi
+```
+
+Justificativa:
+
+- o cluster de homologação atual roda em VPS de nó único com disco de 145G;
+- há aproximadamente 116G livres no filesystem usado pelo k3s/local-path;
+- os PVCs atuais somam 27Gi provisionados;
+- o StorageClass `local-path` não permite expansão automática
+  (`ALLOWVOLUMEEXPANSION=false`), então qualquer aumento futuro exigirá plano
+  operacional próprio.
+
+Para a POC, 5Gi é suficiente para estado/configuração do Gateway e evita copiar
+sem necessidade o padrão oficial de 10Gi. Se a validação evoluir para retenção
+maior de histórico, cache, arquivos ou múltiplos agentes persistentes, o tamanho
+do PVC deve ser reavaliado antes de promover a arquitetura.
+
 ### ConfigMap
 
 Nome:
@@ -297,8 +318,49 @@ Regras mínimas:
 6. Não habilitar cron.
 7. Não habilitar sandbox Docker-in-Docker nesta POC inicial.
 8. Não reutilizar secrets da Urbana Connect sem decisão explícita.
-9. Se o cluster suportar NetworkPolicy, limitar acesso ao `urbana-claw` a pods
-   necessários no namespace.
+9. Criar NetworkPolicy desde a primeira aplicação, permitindo entrada no
+   `urbana-claw` apenas a partir de pods da Urbana Connect.
+
+### NetworkPolicy obrigatória
+
+A POC só faz sentido se o `urbana-claw` nascer como serviço interno e restrito.
+O namespace `urbana-connect-hml` já possui pods da aplicação com label
+`app=urbana-connect`, portanto a policy deve:
+
+- selecionar pods `app=urbana-claw`;
+- restringir `Ingress` à porta `18789`;
+- permitir origem apenas de pods com label `app=urbana-connect` no mesmo
+  namespace;
+- não criar regra de entrada ampla por namespace;
+- não expor acesso externo.
+
+Exemplo conceitual:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: urbana-claw-allow-urbana-connect
+spec:
+  podSelector:
+    matchLabels:
+      app: urbana-claw
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: urbana-connect
+      ports:
+        - protocol: TCP
+          port: 18789
+```
+
+Observação: antes de aplicar em homologação, validar se o CNI do k3s está
+enforcing NetworkPolicy no cluster. A API `networking.k8s.io/v1/NetworkPolicy`
+existe no cluster atual, mas o comportamento prático deve ser confirmado no
+teste de comunicação negada/permitida.
 
 ---
 
@@ -437,22 +499,28 @@ Critério:
 
 - DNS resolve `urbana-claw` para um IP de Service.
 
-### 9.7 Validar comunicação a partir do mesmo namespace da Urbana Connect
+### 9.7 Validar comunicação permitida pela NetworkPolicy
 
-Usar pod efêmero no namespace `urbana-connect-hml` é suficiente para validar a
-comunicação básica se ainda não houver NetworkPolicy restritiva.
-
-Se uma NetworkPolicy for adicionada permitindo apenas pods com label
-`app=urbana-connect`, repetir o teste com um pod efêmero que possua label
-compatível ou validar a partir do pod da própria Urbana Connect, caso a imagem
-tenha ferramenta HTTP disponível.
+Com a NetworkPolicy aplicada, validar a comunicação a partir de um workload com
+label `app=urbana-connect`.
 
 Critério:
 
-- um workload do namespace consegue acessar `http://urbana-claw:18789/healthz`
-  via DNS interno.
+- um workload com label `app=urbana-connect` consegue acessar
+  `http://urbana-claw:18789/healthz` via DNS interno.
 
-### 9.8 Validar health autenticado do Gateway
+### 9.8 Validar bloqueio da NetworkPolicy
+
+Validar também que um workload sem a label `app=urbana-connect` não consegue
+acessar o `urbana-claw`.
+
+Critério:
+
+- um pod efêmero sem a label permitida recebe timeout/conexão bloqueada ao
+  tentar acessar `http://urbana-claw:18789/healthz`;
+- isso confirma que a POC não está aceitando tráfego interno amplo no namespace.
+
+### 9.9 Validar health autenticado do Gateway
 
 Depois que o token real estiver no secret, validar também um comando autenticado
 do OpenClaw Gateway usando o token do `Secret`.
@@ -477,10 +545,12 @@ da versão pinada do OpenClaw.
 5. Após aplicação autorizada, deployment `urbana-claw` sobe com pod `Ready`.
 6. Service `urbana-claw` responde internamente na porta `18789`.
 7. Health e readiness respondem via DNS interno do cluster.
-8. Logs não mostram tentativa de iniciar canais externos.
-9. Urbana Connect ainda não é alterada nem habilitada para usar OpenClaw nesta
+8. NetworkPolicy permite acesso apenas a partir de pods com label
+   `app=urbana-connect`.
+9. Logs não mostram tentativa de iniciar canais externos.
+10. Urbana Connect ainda não é alterada nem habilitada para usar OpenClaw nesta
    entrega.
-10. O resultado deixa o cluster pronto para o próximo spike: client direto da
+11. O resultado deixa o cluster pronto para o próximo spike: client direto da
     Urbana Connect para OpenClaw Gateway.
 
 ---
@@ -492,10 +562,7 @@ da versão pinada do OpenClaw.
 3. Criaremos um secret dedicado `urbana-claw-secrets` ou reutilizaremos algum
    secret existente com decisão explícita?
 4. O `controlUi` deve ficar desabilitado ou habilitado apenas sem Ingress?
-5. Será necessário NetworkPolicy nesta primeira fase?
-6. O PVC de 10Gi dos manifests oficiais é adequado para a POC ou podemos usar
-   menor?
-7. O OpenClaw precisa de algum arquivo adicional de workspace além de
+5. O OpenClaw precisa de algum arquivo adicional de workspace além de
    `AGENTS.md` nesta fase?
 
 ---
