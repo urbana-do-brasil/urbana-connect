@@ -379,13 +379,200 @@ Nao registrar:
 
 ## 10. Decisao esperada apos os testes
 
-Preencher depois da execucao:
+Execucao em homologacao:
 
 ```text
-Contrato recomendado:
+Data: 2026-05-05
+Namespace: urbana-connect-hml
+OpenClaw image: ghcr.io/openclaw/openclaw:2026.5.2
+Urbana Connect image: ghcr.io/urbana-do-brasil/urbana-connect:hml-523eb5fab49cf8ba1813c0ce90c436ccd64f39f9
+```
+
+### 10.1 Baseline `/v1/chat/completions`
+
+Resultado:
+
+1. `GET /v1/models` retornou `openclaw`, `openclaw/default` e
+   `openclaw/urba`.
+2. `POST /v1/chat/completions` respondeu texto em
+   `choices[0].message.content`.
+3. Com session key no formato atual:
+
+   ```text
+   agent:urba:whatsapp:wa_spec_baseline_<id>
+   ```
+
+   a primeira chamada respondeu `OK`, mas a segunda chamada, usando a mesma
+   session key, respondeu que o servico ainda nao tinha sido informado.
+4. A chamada de isolamento com outra session key no baseline estourou timeout.
+
+Conclusao:
+
+- o endpoint esta funcional para turno unico;
+- o endpoint nao preservou contexto de turno anterior no formato atual;
+- manter historico recente no prompt continua sendo a unica mitigacao estavel
+  dentro de `/v1/chat/completions`.
+
+### 10.2 Session key com `direct` e `dm`
+
+Formatos testados:
+
+```text
+agent:urba:whatsapp:direct:wa_spec_direct_<id>
+agent:urba:whatsapp:dm:wa_spec_dm_<id>
+```
+
+Resultado:
+
+1. Com `direct`, a primeira chamada respondeu `OK`, mas a segunda chamada com a
+   mesma session key nao retornou em 120s.
+2. Com `dm`, a primeira chamada nao retornou em 120s.
+3. Logs do Gateway mostraram timeouts do modelo e warnings de liveness/event
+   loop durante esses testes.
+
+Conclusao:
+
+- adicionar `direct` ou `dm` pode ser necessario para elegibilidade de memoria
+  ativa, mas nao resolveu a continuidade via Chat Completions;
+- no estado atual de HML, o formato `direct/dm` nao e suficiente para aprovar
+  mudanca no resolver da Urbana Connect.
+
+### 10.3 `/v1/responses` com `previous_response_id`
+
+Estado inicial:
+
+- `/v1/responses` retornava `404`, porque o endpoint estava desabilitado.
+
+Acao controlada:
+
+- `gateway.http.endpoints.responses.enabled=true` foi aplicado
+  temporariamente no configmap de HML;
+- `deployment/urbana-claw` foi reiniciado para carregar a config;
+- apos o teste, a config foi revertida para manter apenas
+  `chatCompletions.enabled=true`.
+
+Resultado:
+
+1. Apos habilitar o endpoint, `GET /v1/models` continuou respondendo `200`.
+2. Uma chamada simples para `/v1/responses` nao retornou em 30s.
+3. Uma segunda chamada simples para `/v1/responses`, com timeout de 150s, tambem
+   nao retornou.
+4. Logs do Gateway mostraram `resp_*` chegando a `stream-ready`, mas depois
+   falhando por timeout do modelo.
+
+Conclusao:
+
+- `/v1/responses` nao e viavel como contrato agora em HML;
+- nao foi possivel validar `previous_response_id`, porque nem a primeira
+  resposta simples finalizou;
+- nao versionar `responses.enabled=true` enquanto esse comportamento persistir.
+
+### 10.4 Gateway RPC `sessions.create` + `sessions.send`
+
+Teste executado via WebSocket RPC com `openclaw gateway call`.
+
+Resultado:
+
+1. `sessions.create` funcionou para:
+
+   ```text
+   agent:urba:whatsapp:direct:wa_spec_rpc_<id>
+   ```
+
+2. O Gateway criou a session key e apontou `sessionFile` em:
+
+   ```text
+   /home/node/.openclaw/agents/urba/sessions/<sessionId>.jsonl
+   ```
+
+3. `sessions.send` aceitou a primeira mensagem e retornou:
+
+   ```text
+   runId: spec-rpc-1
+   status: started
+   messageSeq: 1
+   ```
+
+4. Ao tentar continuar a sessao, a conexao WebSocket fechou com `1006`.
+5. O pod `urbana-claw` reiniciou durante o teste.
+6. O estado do container mostrou:
+
+   ```text
+   Last State: Terminated
+   Reason: Error
+   Exit Code: 137
+   ```
+
+7. Eventos do Kubernetes registraram falhas de liveness/readiness por timeout.
+
+Conclusao:
+
+- RPC nativo e o caminho mais promissor conceitualmente, porque cria sessao
+  persistente real e transcript;
+- o runtime atual de HML nao esta estavel para `sessions.send`;
+- nao e seguro migrar a Urbana Connect para RPC antes de estabilizar o
+  `urbana-claw`.
+
+### 10.5 Active Memory
+
+Resultado:
+
+- nao foi habilitado nesta rodada.
+
 Motivo:
-Testes que passaram:
-Testes que falharam:
+
+1. A config atual do `urbana-claw` mantem:
+
+   ```json
+   {
+     "plugins": {
+       "allow": ["google"],
+       "slots": {
+         "memory": "none",
+         "contextEngine": "none"
+       }
+     }
+   }
+   ```
+
+2. O Gateway ja apresentou timeouts e restart ao testar `/v1/responses` e RPC.
+3. Habilitar `memory-core` e `active-memory` neste estado aumentaria carga e
+   misturaria duas variaveis: estabilidade do runtime e qualidade da memoria.
+
+Conclusao:
+
+- Active Memory continua sendo o objetivo correto para validar o diferencial do
+  OpenClaw;
+- antes disso, e preciso estabilizar o caminho nativo de sessao ou reduzir o
+  custo operacional do Gateway em HML.
+
+### 10.6 Decisao tecnica desta execucao
+
+```text
+Contrato recomendado agora:
+  Manter /v1/chat/completions com historico recente enviado pela Urbana Connect
+  como contingencia da POC atual.
+
+Contrato preferido para evolucao:
+  Gateway RPC sessions.create + sessions.send, depois que o urbana-claw estiver
+  estavel para sessoes persistentes.
+
+Motivo:
+  Chat Completions funciona para resposta textual, mas nao preserva contexto.
+  Responses nao respondeu em HML. RPC criou sessao real, mas derrubou a saude
+  do pod durante sessions.send.
+
 Impacto na Urbana Connect:
+  Nao alterar o contrato Java para RPC ou Responses ainda.
+  Nao trocar o formato da session key para direct/dm ainda.
+  Manter OPENCLAW_POC_ENABLED=false por padrao.
+
 Proxima spec necessaria:
+  Estabilizacao do urbana-claw para sessoes persistentes e memoria ativa:
+  - revisar imagem OpenClaw, pois HML esta em 2026.5.2 e o Gateway indicou
+    update disponivel para 2026.5.4;
+  - revisar recursos/probes do pod;
+  - reduzir ferramentas/plugins carregados no caminho conversacional;
+  - habilitar memory-core e active-memory em uma etapa isolada;
+  - repetir RPC sessions.send antes de qualquer bridge ou client Java novo.
 ```
