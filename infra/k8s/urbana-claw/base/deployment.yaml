@@ -34,6 +34,9 @@ spec:
               rm -f /home/node/.openclaw/openclaw.json.last-good
               cp /config/openclaw.json /home/node/.openclaw/openclaw.json
               mkdir -p /home/node/.openclaw/workspace
+              rm -f /home/node/.openclaw/workspace/HEARTBEAT.md
+              rm -f /home/node/.openclaw/workspace/IDENTITY.md
+              rm -f /home/node/.openclaw/workspace/USER.md
               cp /config/AGENTS.md /home/node/.openclaw/workspace/AGENTS.md
               cp /config/SOUL.md /home/node/.openclaw/workspace/SOUL.md
               cp /config/TOOLS.md /home/node/.openclaw/workspace/TOOLS.md

@@ -14,7 +14,22 @@ public class OpenClawResponseValidator {
         if (sanitized.length() > maxReplyLength) {
             return OpenClawResponseValidationResult.rejected("reply_too_long");
         }
+        if (containsToolOutput(sanitized)) {
+            return OpenClawResponseValidationResult.rejected("tool_output");
+        }
 
         return OpenClawResponseValidationResult.accepted(sanitized);
+    }
+
+    private boolean containsToolOutput(String replyText) {
+        String normalized = replyText.toLowerCase();
+        return normalized.contains("<tool_code>")
+            || normalized.contains("</tool_code>")
+            || normalized.contains("default_api.")
+            || normalized.contains("agents.md")
+            || normalized.contains("soul.md")
+            || normalized.contains("tools.md")
+            || normalized.contains("function_call")
+            || normalized.contains("\"tool_calls\"");
     }
 }

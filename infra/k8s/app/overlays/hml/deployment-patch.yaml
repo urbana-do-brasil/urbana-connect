@@ -20,6 +20,8 @@ spec:
                 name: urbana-connect-ai
             - secretRef:
                 name: urbana-connect-smtp
+            - secretRef:
+                name: urbana-claw-secrets
           readinessProbe:
             httpGet:
               path: /api/v1/readiness

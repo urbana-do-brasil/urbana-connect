@@ -25,6 +25,8 @@ Estado validado:
 - `NetworkPolicy` permite entrada apenas de pods com label
   `app=urbana-connect`;
 - o Gateway usa token em `urbana-claw-secrets`;
+- o endpoint OpenAI-compatible precisa estar habilitado via
+  `gateway.http.endpoints.chatCompletions.enabled=true`;
 - o OpenClaw sobe com agente `urba`, modelo `google/gemini-2.5-flash-lite`,
   cron desabilitado e sem plugins extras carregados.
 
@@ -65,7 +67,7 @@ POST http://urbana-claw:18789/v1/chat/completions
 
 Motivos:
 
-- usa HTTP simples, fácil de encapsular com `WebClient`;
+- usa HTTP simples, fácil de encapsular com `RestClient`;
 - não exige SDK Node dentro da Urbana Connect;
 - aceita autenticação via `Authorization: Bearer <token>`;
 - suporta resposta não-streaming;
@@ -103,6 +105,7 @@ Body:
 {
   "model": "openclaw/urba",
   "stream": false,
+  "user": "agent:urba:whatsapp:<conversation-key>",
   "messages": [
     {
       "role": "user",
@@ -116,10 +119,16 @@ Observações:
 
 - `conversation-key` deve ser derivado de um identificador estável da conversa,
   sem expor telefone puro em logs.
-- A primeira implementação deve enviar apenas a mensagem atual; a continuidade
-  deve ser responsabilidade da sessão do OpenClaw.
-- Histórico manual no array `messages` só deve ser considerado se o teste
-  mostrar que o OpenClaw não preserva contexto suficiente por sessão.
+- o mesmo valor de sessão deve ser enviado tanto em `x-openclaw-session-key`
+  quanto no campo OpenAI `user`, porque o Gateway usa `user` para derivar
+  estabilidade de sessão em alguns fluxos OpenAI-compatible.
+- A primeira tentativa usou apenas a mensagem atual e delegou continuidade à
+  sessão do OpenClaw, mas o smoke em homologação mostrou que o endpoint
+  OpenAI-compatible não recuperou o turno anterior de forma confiável, mesmo
+  com `x-openclaw-session-key` e `user` preenchidos.
+- Por isso, a Urbana Connect deve enriquecer a mensagem enviada ao OpenClaw com
+  um histórico textual recente da conversa já salvo na base, limitado por
+  `OPENCLAW_POC_HISTORY_LIMIT`.
 
 ### 4.2 Response esperada
 
@@ -147,6 +156,33 @@ choices[0].message.content
 Qualquer resposta sem esse campo textual deve ser tratada como resposta
 inválida.
 
+### 4.3 Contexto estático do agente
+
+O `urbana-claw` deve receber um contexto mínimo real no workspace do agente
+`urba`, via `AGENTS.md`, extraído dos scripts existentes em `docs/scripts`.
+
+Este contexto estático faz parte da POC porque permite validar duas hipóteses ao
+mesmo tempo:
+
+- se a comunicação Urbana Connect -> OpenClaw funciona; e
+- se o agente responde melhor quando conhece o catálogo real da Urbana.
+
+Conteúdo mínimo esperado:
+
+- postura conversacional da Urba;
+- instrução explícita para responder apenas com texto final, sem `tool_code`,
+  chamadas de ferramenta ou tentativa de ler arquivos;
+- triagem inicial usada nos scripts;
+- serviços `Decor`, `Decor Pintura`, `Decor Fachada` e `Decor Reforma`;
+- preços por ambiente;
+- links de pagamento/briefing quando disponíveis nos scripts;
+- restrição explícita para `Decor Reforma`, que aparece no catálogo, mas está
+  indisponível para pagamento automático no sistema atual;
+- termo de uso, links de agendamento e resumo da entrega.
+
+Catálogo dinâmico vindo da base de dados continua fora do escopo. Nesta etapa,
+o contexto é deliberadamente estático e versionado junto com a infra da POC.
+
 ---
 
 ## 5. Configuração da Urbana Connect
@@ -155,12 +191,14 @@ Novas configurações esperadas:
 
 ```text
 OPENCLAW_POC_ENABLED=false
-OPENCLAW_GATEWAY_BASE_URL=http://urbana-claw:18789
-OPENCLAW_GATEWAY_TOKEN=<secret>
-OPENCLAW_GATEWAY_MODEL=openclaw/urba
-OPENCLAW_GATEWAY_TIMEOUT_MS=45000
-OPENCLAW_GATEWAY_CONNECT_TIMEOUT_MS=3000
-OPENCLAW_GATEWAY_MAX_RESPONSE_CHARS=3500
+OPENCLAW_POC_BASE_URL=http://urbana-claw:18789
+OPENCLAW_POC_CHAT_COMPLETIONS_PATH=/v1/chat/completions
+OPENCLAW_POC_GATEWAY_TOKEN=<secret>
+OPENCLAW_POC_MODEL=openclaw/urba
+OPENCLAW_POC_TIMEOUT_MS=45000
+OPENCLAW_POC_CONNECT_TIMEOUT_MS=3000
+OPENCLAW_POC_MAX_REPLY_LENGTH=3500
+OPENCLAW_POC_HISTORY_LIMIT=8
 ```
 
 Regras:
@@ -204,10 +242,10 @@ record ConversationalRuntimeResponse(
 Implementação inicial:
 
 ```text
-OpenClawGatewayClient implements ConversationalRuntimeClient
+HttpOpenClawClient implements OpenClawClient
 ```
 
-Responsabilidades do `OpenClawGatewayClient`:
+Responsabilidades do `HttpOpenClawClient`:
 
 - montar `x-openclaw-session-key`;
 - montar payload OpenAI-compatible;
@@ -258,12 +296,14 @@ Testes:
 
 1. `GET /v1/models` retorna `openclaw/default` ou `openclaw/urba`.
 2. `POST /v1/chat/completions` retorna texto para uma mensagem simples.
-3. Duas chamadas com a mesma `x-openclaw-session-key` preservam contexto.
-4. Chamada com outra `x-openclaw-session-key` não compartilha contexto.
+3. `POST /v1/chat/completions` responde corretamente a uma pergunta sobre os
+   serviços reais da Urbana.
+4. Duas chamadas com a mesma `x-openclaw-session-key` preservam contexto.
+5. Chamada com outra `x-openclaw-session-key` não compartilha contexto.
 
 Critério:
 
-- se esses quatro testes passarem, seguir para client Java direto;
+- se esses cinco testes passarem, seguir para client Java direto;
 - se falhar apenas por configuração do `urbana-claw`, ajustar infra/config;
 - se o contrato HTTP não suportar sessão do jeito necessário, avaliar RPC.
 
@@ -285,6 +325,12 @@ Critério:
 - dado um payload HTTP válido, o client retorna texto;
 - dado timeout, HTTP 401/500, body inválido ou resposta vazia, o client falha de
   forma controlada;
+- a sessão enviada no header não contém telefone puro;
+- quando houver histórico persistido, a mensagem enviada ao OpenClaw inclui os
+  últimos turnos textuais da conversa em vez de depender só da memória interna
+  do Gateway;
+- saídas com `tool_code`, `default_api` ou estrutura de ferramenta são
+  rejeitadas pelo validador antes de qualquer envio ao WhatsApp;
 - nenhum fluxo real de WhatsApp é alterado.
 
 ### Fase 3 — Smoke de integração controlado
@@ -369,14 +415,17 @@ Cada chamada do client deve registrar:
 2. Smoke manual confirma que `GET /v1/models` funciona a partir de pod com
    label `app=urbana-connect`.
 3. Smoke manual confirma que `POST /v1/chat/completions` retorna texto.
-4. Smoke manual confirma que a mesma `x-openclaw-session-key` preserva contexto
+4. Smoke manual confirma que o agente responde sobre os serviços reais da
+   Urbana com base no contexto dos scripts.
+5. Smoke manual confirma que a mesma `x-openclaw-session-key` preserva contexto
    entre dois turnos.
-5. Smoke manual confirma que session keys diferentes não compartilham contexto.
-6. `OpenClawGatewayClient` existe atrás de interface interna.
-7. Client possui testes para sucesso, timeout, HTTP error e resposta inválida.
-8. Token vem de `Secret`.
-9. Nenhuma mensagem real do WhatsApp é delegada ao OpenClaw nesta entrega.
-10. O resultado deixa uma decisão documentada: HTTP direto aprovado, RPC direto
+6. Smoke manual confirma que session keys diferentes não compartilham contexto.
+7. `HttpOpenClawClient` existe atrás de interface interna.
+8. Client possui testes para sucesso, timeout, HTTP error e resposta inválida.
+9. Validador rejeita saída de ferramenta/código do agente.
+10. Token vem de `Secret`.
+11. Nenhuma mensagem real do WhatsApp é delegada ao OpenClaw nesta entrega.
+12. O resultado deixa uma decisão documentada: HTTP direto aprovado, RPC direto
     necessário ou bridge mínimo necessário.
 
 ---
@@ -394,15 +443,23 @@ Cada chamada do client deve registrar:
 
 ---
 
-## 14. Perguntas em aberto
+## 14. Decisões e perguntas em aberto
 
-1. O `model` deve ser `openclaw/urba` ou `openclaw/default` com header
-   `x-openclaw-agent-id: urba`?
-2. O HTTP OpenAI-compatible preserva contexto com
+Decisões desta iteração:
+
+1. O `model` inicial será `openclaw/urba`.
+2. O contexto mínimo real da Urbana será carregado estaticamente no `AGENTS.md`
+   do `urbana-claw`, com base em `docs/scripts`.
+3. A session key da Urbana Connect será derivada por hash determinístico do
+   identificador do WhatsApp e não conterá telefone puro.
+4. A POC continuará desligada no webhook real por padrão.
+
+Perguntas ainda abertas:
+
+1. O HTTP OpenAI-compatible preserva contexto com
    `x-openclaw-session-key: agent:urba:whatsapp:<key>` de forma suficiente para
    nossa conversa?
-3. Qual timeout real é aceitável para a experiência WhatsApp sem parecer que o
+2. Qual timeout real é aceitável para a experiência WhatsApp sem parecer que o
    atendimento travou?
-4. Vamos precisar enriquecer a mensagem com contexto mínimo da Urbana Connect já
-   neste spike, ou a primeira validação deve usar somente texto cru do usuário?
-
+3. O contexto estático no `AGENTS.md` é suficiente para a POC ou o próximo passo
+   precisa buscar catálogo/serviços da base da Urbana Connect?

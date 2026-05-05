@@ -56,8 +56,12 @@ handoff:
 openclaw:
   poc:
     enabled: ${OPENCLAW_POC_ENABLED:false}
-    base-url: ${OPENCLAW_POC_BASE_URL:http://localhost:8787}
-    turn-path: ${OPENCLAW_POC_TURN_PATH:/conversation-turn}
-    timeout-ms: ${OPENCLAW_POC_TIMEOUT_MS:4000}
-    max-reply-length: ${OPENCLAW_POC_MAX_REPLY_LENGTH:1024}
+    base-url: ${OPENCLAW_POC_BASE_URL:http://localhost:18789}
+    chat-completions-path: ${OPENCLAW_POC_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+    gateway-token: ${OPENCLAW_POC_GATEWAY_TOKEN:${OPENCLAW_GATEWAY_TOKEN:}}
+    model: ${OPENCLAW_POC_MODEL:openclaw/urba}
+    connect-timeout-ms: ${OPENCLAW_POC_CONNECT_TIMEOUT_MS:3000}
+    timeout-ms: ${OPENCLAW_POC_TIMEOUT_MS:45000}
+    max-reply-length: ${OPENCLAW_POC_MAX_REPLY_LENGTH:3500}
+    history-limit: ${OPENCLAW_POC_HISTORY_LIMIT:8}
     fallback-text: ${OPENCLAW_POC_FALLBACK_TEXT:Estou com uma instabilidade momentanea aqui. Pode me enviar sua mensagem novamente em instantes?}

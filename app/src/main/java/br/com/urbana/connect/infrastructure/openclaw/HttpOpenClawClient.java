@@ -8,50 +8,89 @@ import org.springframework.http.MediaType;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
+
+import java.util.List;
 
 public class HttpOpenClawClient implements OpenClawClient {
 
     private final RestClient restClient;
-    private final String turnPath;
+    private final String chatCompletionsPath;
+    private final String gatewayToken;
+    private final String model;
 
-    public HttpOpenClawClient(RestClient restClient, String turnPath) {
+    public HttpOpenClawClient(RestClient restClient, String chatCompletionsPath, String gatewayToken, String model) {
         this.restClient = restClient;
-        this.turnPath = turnPath;
+        this.chatCompletionsPath = chatCompletionsPath;
+        this.gatewayToken = gatewayToken;
+        this.model = model;
     }
 
     @Override
     public OpenClawTurnResult sendTurn(OpenClawTurnRequest request) {
         try {
-            BridgeResponse response = restClient.post()
-                .uri(turnPath)
+            ChatCompletionResponse response = restClient.post()
+                .uri(chatCompletionsPath)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
+                .headers(headers -> {
+                    if (gatewayToken != null && !gatewayToken.isBlank()) {
+                        headers.setBearerAuth(gatewayToken);
+                    }
+                    headers.set("x-openclaw-session-key", request.sessionKey());
+                    headers.set("x-openclaw-message-channel", "whatsapp");
+                })
+                .body(new ChatCompletionRequest(
+                    model,
+                    false,
+                    request.sessionKey(),
+                    List.of(new ChatMessage("user", request.text()))
+                ))
                 .retrieve()
-                .body(BridgeResponse.class);
+                .body(ChatCompletionResponse.class);
 
-            if (response == null || response.status == null) {
-                return OpenClawTurnResult.error("invalid_bridge_response");
+            String text = extractText(response);
+            if (text == null || text.isBlank()) {
+                return OpenClawTurnResult.error("invalid_gateway_response");
             }
-            return switch (response.status) {
-                case "ok" -> OpenClawTurnResult.success(response.text);
-                case "timeout" -> OpenClawTurnResult.timeout(blankToDefault(response.errorReason, "bridge_timeout"));
-                default -> OpenClawTurnResult.error(blankToDefault(response.errorReason, "bridge_error"));
-            };
+            return OpenClawTurnResult.success(text.trim());
         } catch (ResourceAccessException exception) {
             return OpenClawTurnResult.timeout("client_timeout");
+        } catch (RestClientResponseException exception) {
+            return OpenClawTurnResult.error("gateway_http_" + exception.getStatusCode().value());
         } catch (RestClientException exception) {
             return OpenClawTurnResult.error("client_error");
         }
     }
 
-    private String blankToDefault(String value, String defaultValue) {
-        return value == null || value.isBlank() ? defaultValue : value;
+    private String extractText(ChatCompletionResponse response) {
+        if (response == null || response.choices == null || response.choices.isEmpty()) {
+            return null;
+        }
+        Choice firstChoice = response.choices.getFirst();
+        if (firstChoice == null || firstChoice.message == null) {
+            return null;
+        }
+        return firstChoice.message.content;
+    }
+
+    private record ChatCompletionRequest(String model, boolean stream, String user, List<ChatMessage> messages) {
+    }
+
+    private record ChatMessage(String role, String content) {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private static class BridgeResponse {
-        public String text;
-        public String status;
-        public String errorReason;
+    private static class ChatCompletionResponse {
+        public List<Choice> choices;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private static class Choice {
+        public ChatMessageResponse message;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private static class ChatMessageResponse {
+        public String content;
     }
 }

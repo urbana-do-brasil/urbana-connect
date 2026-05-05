@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -31,6 +32,7 @@ public class OpenClawPocService {
     private final WhatsAppMessageGateway whatsAppMessageGateway;
     private final String fallbackText;
     private final int maxReplyLength;
+    private final int historyLimit;
 
     public OpenClawPocService(
             ConversationLifecycleService conversationLifecycleService,
@@ -40,7 +42,8 @@ public class OpenClawPocService {
             OpenClawResponseValidator responseValidator,
             WhatsAppMessageGateway whatsAppMessageGateway,
             @Value("${openclaw.poc.fallback-text:Estou com uma instabilidade momentânea aqui. Pode me enviar sua mensagem novamente em instantes?}") String fallbackText,
-            @Value("${openclaw.poc.max-reply-length:1024}") int maxReplyLength) {
+            @Value("${openclaw.poc.max-reply-length:1024}") int maxReplyLength,
+            @Value("${openclaw.poc.history-limit:8}") int historyLimit) {
         this.conversationLifecycleService = conversationLifecycleService;
         this.conversationMessageGateway = conversationMessageGateway;
         this.openClawClient = openClawClient;
@@ -49,6 +52,7 @@ public class OpenClawPocService {
         this.whatsAppMessageGateway = whatsAppMessageGateway;
         this.fallbackText = fallbackText;
         this.maxReplyLength = maxReplyLength;
+        this.historyLimit = historyLimit;
     }
 
     public void handleTextTurn(InboundWhatsAppMessage inboundMessage, Instant receivedAt) {
@@ -59,11 +63,12 @@ public class OpenClawPocService {
 
         String correlationId = UUID.randomUUID().toString();
         String sessionKey = sessionKeyResolver.resolve(inboundMessage.phoneNumber());
+        String promptText = buildPromptText(conversation, inboundMessage.textBody());
         Instant startedAt = Instant.now();
 
         OpenClawTurnResult turnResult = openClawClient.sendTurn(new OpenClawTurnRequest(
             sessionKey,
-            inboundMessage.textBody(),
+            promptText,
             inboundMessage.phoneNumber(),
             conversation.id(),
             receivedAt.toString()
@@ -148,6 +153,44 @@ public class OpenClawPocService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value;
+    }
+
+    private String buildPromptText(Conversation conversation, String currentText) {
+        if (conversation.id() == null || historyLimit <= 1) {
+            return currentText;
+        }
+
+        List<ConversationMessage> history = conversationMessageGateway.findRecentByConversationId(conversation.id(), historyLimit);
+        if (history == null) {
+            return currentText;
+        }
+
+        List<ConversationMessage> textHistory = history.stream()
+            .filter(message -> message.rawText() != null && !message.rawText().isBlank())
+            .toList();
+        if (textHistory.size() <= 1) {
+            return currentText;
+        }
+
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("Historico recente da conversa no WhatsApp. Use isto apenas como contexto e responda a ultima mensagem do cliente.\n\n");
+        for (ConversationMessage message : textHistory) {
+            prompt
+                .append(message.direction() == br.com.urbana.connect.domain.conversation.model.ConversationMessageDirection.INBOUND ? "Cliente" : "Urba")
+                .append(": ")
+                .append(truncateForPrompt(message.rawText()))
+                .append("\n");
+        }
+        prompt.append("\nResponda somente com a proxima mensagem da Urba para o cliente.");
+        return prompt.toString();
+    }
+
+    private String truncateForPrompt(String value) {
+        String trimmed = value.trim();
+        if (trimmed.length() <= 500) {
+            return trimmed;
+        }
+        return trimmed.substring(0, 500) + "...";
     }
 
     private String maskPhoneNumber(String phoneNumber) {

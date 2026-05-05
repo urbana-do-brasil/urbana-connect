@@ -15,10 +15,11 @@ public class OpenClawPocConfiguration {
     @Bean("openClawPocRestClient")
     public RestClient openClawPocRestClient(
             RestClient.Builder builder,
-            @Value("${openclaw.poc.base-url:http://localhost:8787}") String baseUrl,
-            @Value("${openclaw.poc.timeout-ms:4000}") int timeoutMs) {
+            @Value("${openclaw.poc.base-url:http://localhost:18789}") String baseUrl,
+            @Value("${openclaw.poc.connect-timeout-ms:3000}") int connectTimeoutMs,
+            @Value("${openclaw.poc.timeout-ms:45000}") int timeoutMs) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(timeoutMs);
+        requestFactory.setConnectTimeout(connectTimeoutMs);
         requestFactory.setReadTimeout(timeoutMs);
         return builder
             .baseUrl(baseUrl)
@@ -29,7 +30,9 @@ public class OpenClawPocConfiguration {
     @Bean
     public OpenClawClient openClawClient(
             @Qualifier("openClawPocRestClient") RestClient openClawPocRestClient,
-            @Value("${openclaw.poc.turn-path:/conversation-turn}") String turnPath) {
-        return new HttpOpenClawClient(openClawPocRestClient, turnPath);
+            @Value("${openclaw.poc.chat-completions-path:/v1/chat/completions}") String chatCompletionsPath,
+            @Value("${openclaw.poc.gateway-token:}") String gatewayToken,
+            @Value("${openclaw.poc.model:openclaw/urba}") String model) {
+        return new HttpOpenClawClient(openClawPocRestClient, chatCompletionsPath, gatewayToken, model);
     }
 }
