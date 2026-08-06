@@ -1,0 +1,41 @@
+# Synthetic, non-transactional values for the local POC only.
+version: 1
+environment: local-poc
+catalog:
+  services:
+    - serviceType: DECOR
+      name: Decor
+      description: Solução de decoração para ambientes de até 20m².
+      price: 400.00
+      termsUrl: https://fixtures.urbana.local/terms/decor
+      paymentUrl: https://fixtures.urbana.local/payment/decor
+      briefingUrl: https://fixtures.urbana.local/briefing/decor
+    - serviceType: DECOR_PINTURA
+      name: Decor Pintura
+      description: Renovação com pintura, sem quebra-quebra.
+      price: 250.00
+      termsUrl: https://fixtures.urbana.local/terms/decor-pintura
+      paymentUrl: https://fixtures.urbana.local/payment/decor-pintura
+      briefingUrl: https://fixtures.urbana.local/briefing/decor-pintura
+    - serviceType: DECOR_FACHADA
+      name: Decor Fachada
+      description: Renovação de fachadas ou muros externos.
+      price: 350.00
+      termsUrl: https://fixtures.urbana.local/terms/decor-fachada
+      paymentUrl: https://fixtures.urbana.local/payment/decor-fachada
+      briefingUrl: https://fixtures.urbana.local/briefing/decor-fachada
+    - serviceType: DECOR_REFORMA
+      name: Decor Reforma
+      description: Reforma completa de um espaço interno.
+      price: 450.00
+      termsUrl: https://fixtures.urbana.local/terms/decor-reforma
+      paymentUrl: https://fixtures.urbana.local/payment/decor-reforma
+      briefingUrl: https://fixtures.urbana.local/briefing/decor-reforma
+terms:
+  acceptance: "Aceito"
+  note: Este link é uma fixture local e não representa termos jurídicos reais.
+payment:
+  methods: [PIX, CARD]
+  note: Links de pagamento são fixtures locais; nenhum valor é cobrado.
+briefing:
+  note: Briefings são fixtures locais e não iniciam prestação de serviço.

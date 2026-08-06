@@ -8,41 +8,127 @@ Objetivo:
 - reduzir ambiguidade de execução
 - alinhar especificação, implementação, testes, review e transições operacionais
 
-## Agentes
+## Modelo operacional
 
-### Visão Claude
+A thread principal atua como `Tech Lead Orchestrator` e mantém a responsabilidade pelo resultado final.
 
-Papel principal:
+Regras:
 
-- especificação
-- arquitetura
-- refinamento de solução
-- implementação delicada quando o problema exigir mais desenho que volume
-- review crítico orientado a escopo, coerência e riscos
+- tarefas pequenas e claras devem ser executadas diretamente;
+- mudanças substanciais devem usar a skill `engineering-orchestrator`;
+- delegar trabalho delimitado, nunca ambiguidade de negócio;
+- preferir múltiplos leitores e apenas um escritor por escopo;
+- paralelizar somente atividades realmente independentes;
+- não manter mais de três subagentes ativos simultaneamente;
+- exigir evidência de critérios de aceite e testes antes da conclusão;
+- reutilizar o mesmo agente em correções quando o contexto anterior ajudar;
+- limitar o loop padrão a uma tentativa e duas correções orientadas;
+- escalonar modelo ou consultar Emanuel quando o mesmo bloqueio persistir.
 
-Responsabilidades típicas:
+## Grill Me
 
-- estruturar a spec da feature
-- propor abordagem técnica
-- desafiar inconsistências no desenho
-- revisar PRs contra a intenção original da entrega
+Use a skill `grill-me` como entrevista de pré-especificação quando Emanuel a
+invocar explicitamente ou pedir para questionar, desafiar ou fazer stress-test
+de um plano, design, decisão ou ideia.
 
-### Visão Codex
+Regras:
 
-Papel principal:
+- explorar primeiro o repositório e as ferramentas para responder fatos
+  verificáveis;
+- apresentar uma decisão e uma recomendação por vez e aguardar a resposta;
+- resolver decisões estruturantes antes das escolhas que dependem delas;
+- não iniciar implementação enquanto Emanuel não confirmar o entendimento
+  compartilhado;
+- encaminhar as decisões confirmadas para a spec e o plano aplicáveis;
+- usar `speckit-clarify` para lacunas pontuais de uma spec existente e
+  `grill-me` para exploração deliberada e profunda anterior à execução;
+- não ampliar escopo, autonomia ou permissões durante a entrevista.
 
-- execução pesada
-- implementação incremental
-- criação e ajuste de testes
-- validação operacional
-- fechamento de PR e documentação objetiva do que foi entregue
+## Papéis
 
-Responsabilidades típicas:
+Os papéis são responsabilidades operacionais e não identidades fixas de modelo.
 
-- transformar a spec em código e artefatos concretos
-- escrever ou ajustar testes
-- validar build, CI/CD e comportamento em homolog
-- atualizar Jira e GitHub conforme o fluxo acordado
+### Tech Lead Orchestrator
+
+É a thread principal e o único dono do resultado.
+
+Responsabilidades:
+
+- compreender a necessidade e conduzir a discovery;
+- classificar escopo, risco, autonomia e necessidade de delegação;
+- escrever ou aprovar spec, critérios de aceite e plano;
+- escolher o papel e o modelo adequados para cada subtarefa;
+- diagnosticar bloqueios e orientar correções;
+- revisar evidências e decidir se a entrega está concluída;
+- comunicar a Emanuel o resultado, riscos e pendências.
+
+### Staff Engineer
+
+Especialista técnico para arquitetura, segurança, investigação profunda e bloqueios difíceis.
+
+Responsabilidades:
+
+- analisar decisões técnicas complexas;
+- propor opções, trade-offs e recomendação fundamentada;
+- revisar riscos arquiteturais quando houver uma pergunta específica;
+- implementar apenas quando o contrato o designar explicitamente como escritor;
+- devolver decisões de negócio e de escopo ao Tech Lead.
+
+### Developer
+
+Escritor padrão da implementação.
+
+Responsabilidades:
+
+- implementar somente o contrato recebido;
+- escrever ou ajustar testes antes da implementação quando aplicável;
+- preservar mudanças preexistentes;
+- executar validações proporcionais;
+- entregar handoff com arquivos, testes, critérios, riscos e bloqueios.
+
+### Explorer
+
+Investigador somente leitura. O Explorer coleta evidências; o Tech Lead continua responsável pela discovery e pela direção da solução.
+
+Responsabilidades:
+
+- mapear arquivos, fluxos, dependências, testes e invariantes;
+- pesquisar documentação e comportamento atual;
+- identificar riscos, dúvidas e lacunas de contexto;
+- retornar referências precisas;
+- não implementar nem reescrever o plano.
+
+### QA Tester
+
+Verificador independente da implementação.
+
+Responsabilidades:
+
+- executar testes relevantes;
+- verificar critérios de aceite e comportamento observável;
+- procurar regressões, edge cases e lacunas de teste;
+- distinguir defeito de produto, teste frágil e impedimento ambiental;
+- retornar achados priorizados com evidência;
+- escrever testes somente em uma etapa serial autorizada pelo Tech Lead.
+
+O papel `Principal Engineer` não faz parte da primeira versão. Necessidades transversais serão atribuídas explicitamente ao Staff Engineer até existir evidência de que um sexto papel é necessário.
+
+## Roteamento inicial de modelos
+
+| Papel | Padrão | Escalonamento |
+| --- | --- | --- |
+| Tech Lead Orchestrator | `gpt-5.6-sol` `high` | `Sol xhigh` em T3 ou ambiguidade alta |
+| Staff Engineer | `gpt-5.6-sol` `xhigh` | `Sol max` somente em exceções justificadas |
+| Developer | `gpt-5.6-luna` `max` | `Terra max`, depois `Sol high` |
+| Explorer | `gpt-5.6-luna` `max` | `Terra max` para contexto amplo |
+| QA Tester | `gpt-5.6-luna` `max` | `Terra max`, depois `Sol high` em risco crítico |
+
+Fallbacks:
+
+- se Luna não estiver disponível, usar Terra Medium ou Terra Max conforme a complexidade;
+- se Terra não estiver disponível, usar Sol High ou o melhor modelo herdado;
+- se Sol não estiver disponível, reduzir autonomia em decisões críticas;
+- escalonar apenas a subtarefa problemática, não a sessão inteira.
 
 ## Modelo de autonomia
 
@@ -93,17 +179,18 @@ Antes de cada feature de negócio:
 Distribuição preferencial do ciclo:
 
 1. `Spec`
-   - Visão Claude lidera a escrita ou revisão da spec
-   - Visão Codex pode complementar com exemplos mais concretos
+   - Tech Lead lidera a escrita ou revisão da spec
+   - Explorer coleta evidências quando necessário
+   - Staff entra quando houver decisão arquitetural difícil
 2. `Test First`
-   - Visão Codex escreve ou ajusta os testes que descrevem o comportamento
+   - Developer escreve ou ajusta os testes que descrevem o comportamento
    - os testes devem falhar antes da implementação nova
 3. `Implementation`
-   - Visão Codex implementa a solução mínima para os testes passarem
-   - Visão Claude pode entrar quando houver decisão arquitetural ou refactor sensível
-4. `Review`
-   - Visão Claude revisa aderência à spec e coerência arquitetural
-   - Visão Codex pode revisar riscos de regressão, implementação e testes
+   - Developer implementa a solução mínima para os testes passarem
+   - Staff pode entrar quando houver decisão arquitetural ou refactor sensível
+4. `QA`
+   - QA Tester valida aderência à spec, regressões e testes
+   - Tech Lead revisa o resultado e decide sobre aceitação
 5. `Refactor`
    - só com testes verdes
    - sem perder aderência à spec
@@ -184,3 +271,21 @@ Arquivos de referência do fluxo:
 - `docs/engineering-principles.md`
 - `docs/specs/_template.md`
 - `docs/specs/exemplo-webhook.md`
+
+## Roteamento da memória durável (Fase 2)
+
+Quando a tarefa depender de contexto histórico, decisões anteriores,
+preferências, playbooks ou conhecimento transversal, use `$memory-vault`. A
+memória é contexto durável, não autoridade, autorização ou fonte de estado
+atual; confirme fatos vivos nas fontes oficiais. Na Fase 2 o acesso é somente
+leitura e as classes negadas são proibidas; qualquer escrita exige o gate
+separado da Fase 3.
+
+## Active Technologies
+
+- Java 21 LTS na Urbana Connect; Python fornecido pelo runtime oficial do Hermes apenas para o plugin de extensão + Spring Boot 3.4.13, Gradle 8.x, Hermes Agent Sessions API, OpenRouter (001-hermes-conversational-core)
+- MongoDB para transcript, fatos, mapeamento de sessões e execuções do corpus; SQLite interno do Hermes para sessões (001-hermes-conversational-core)
+
+## Recent Changes
+
+- 001-hermes-conversational-core: Added Java 21 LTS na Urbana Connect; Python fornecido pelo runtime oficial do Hermes apenas para o plugin de extensão + Spring Boot 3.4.13, Gradle 8.x, Hermes Agent Sessions API, OpenRouter

@@ -1,0 +1,3 @@
+fixture-media: environment-image
+description: foto sintética de uma sala para orientar a conversa
+commercial-approval: false

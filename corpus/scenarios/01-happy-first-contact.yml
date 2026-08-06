@@ -1,0 +1,68 @@
+id: 01-happy-first-contact
+name: Primeiro contato feliz — Decor
+purpose: Completar ICP, catálogo, termos, comprovante e briefing após aprovação humana.
+contactAlias: happy-ana
+fixtures:
+  - poc/payment-proof-fixture.svg
+events:
+  - eventId: happy-01
+    type: TEXT
+    text: "Oi, quero ajuda para decorar minha sala."
+    occurredAt: 2026-08-05T12:00:00Z
+    assertions:
+      - output.nextAction: AWAIT_CUSTOMER
+      - output.messageContains: "Urba"
+  - eventId: happy-02
+    type: TEXT
+    text: "Ela/dela"
+    occurredAt: 2026-08-05T12:00:05Z
+    assertions:
+      - factsContains: PRONOUN_PREFERENCE
+  - eventId: happy-03
+    type: TEXT
+    text: "Sim, é a primeira vez contratando design."
+    occurredAt: 2026-08-05T12:00:10Z
+    assertions:
+      - factsContains: FIRST_TIME_HIRING
+  - eventId: happy-04
+    type: TEXT
+    text: "Sou designer."
+    occurredAt: 2026-08-05T12:00:15Z
+    assertions:
+      - factsContains: OCCUPATION
+  - eventId: happy-05
+    type: INTERACTIVE
+    interactiveReplyId: service.decor
+    text: "Decor"
+    occurredAt: 2026-08-05T12:00:20Z
+    assertions:
+      - conversation.selectedService: DECOR
+      - conversation.termsStatus: PRESENTED
+  - eventId: happy-06
+    type: TEXT
+    text: "Aceito"
+    occurredAt: 2026-08-05T12:00:25Z
+    assertions:
+      - briefingReleased: false
+  - eventId: happy-07
+    type: TEXT
+    text: "PIX"
+    occurredAt: 2026-08-05T12:00:30Z
+    assertions:
+      - conversation.paymentStatus: PREPARED
+      - output.nextAction: AWAIT_PAYMENT_PROOF
+  - eventId: happy-08
+    type: PAYMENT_PROOF
+    mediaFixture: poc/payment-proof-fixture.svg
+    occurredAt: 2026-08-05T12:00:35Z
+    assertions:
+      - conversation.paymentStatus: PROOF_RECEIVED
+      - output.nextAction: AWAIT_PAYMENT_APPROVAL
+      - briefingReleased: false
+approval:
+  endpoint: /api/poc/conversations/happy-ana/payment-proof/approve
+  assertions:
+    - conversation.paymentStatus: CONFIRMED
+    - output.messageContains: "DECOR"
+    - briefingReleased: true
+    - approvalIsNotHermesTool: true

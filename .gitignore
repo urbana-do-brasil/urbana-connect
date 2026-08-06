@@ -77,6 +77,9 @@ build/
 .env.*
 .env.dev
 !.env.example
+.env.poc
+!.env.poc.example
+.hermes-poc/
 .kubeconfig.yaml
 
 # Terraform
@@ -132,12 +135,16 @@ terraform.rc
 # Diretórios de dependências
 node_modules/
 vendor/
+__pycache__/
+*.py[cod]
 
 # Exceções para arquivos que devem ser versionados mesmo sendo de tipos ignorados
 !terraform.tfvars.example
 !terraform/environments/dev/terraform.tfvars
 !terraform/environments/staging/terraform.tfvars
 !terraform/environments/prod/terraform.tfvars
+# O contrato JSON do corpus não contém credenciais; outros JSON continuam ignorados.
+!corpus/schema/scenario.schema.json
 
 # Permitir o versionamento do Gradle Wrapper JAR
 !app/gradle/wrapper/gradle-wrapper.jar

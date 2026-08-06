@@ -1,0 +1,115 @@
+openapi: 3.1.0
+info:
+  title: Urbana Connect Local Conversation Simulator
+  version: 0.1.0
+paths:
+  /api/poc/conversations/{contactAlias}/messages:
+    post:
+      summary: Inject one synthetic inbound event through the production-equivalent ingress contract
+      parameters:
+        - in: path
+          name: contactAlias
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]{1,64}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyntheticInboundEvent'
+      responses:
+        '202':
+          description: Event persisted and queued or processed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnReceipt'
+        '409':
+          description: Duplicate event; returns the original receipt without reprocessing
+  /api/poc/conversations/{contactAlias}:
+    get:
+      summary: Inspect transcript, facts and operational state for a synthetic contact
+      parameters:
+        - in: path
+          name: contactAlias
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Synthetic conversation projection
+  /api/poc/conversations/{contactAlias}/flush:
+    post:
+      summary: Flush the pending synthetic batch for a contact before inspecting its projection
+      parameters:
+        - in: path
+          name: contactAlias
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]{1,64}$'
+      responses:
+        '200':
+          description: Receipts produced by the flushed batch
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TurnReceipt'
+        '401':
+          description: Missing or invalid POC bearer token
+  /api/poc/conversations/{contactAlias}/payment-proof/approve:
+    post:
+      summary: Simulate explicit human approval of a persisted payment proof
+      parameters:
+        - in: path
+          name: contactAlias
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payment moved to CONFIRMED
+        '409':
+          description: No proof is awaiting approval
+components:
+  schemas:
+    SyntheticInboundEvent:
+      type: object
+      additionalProperties: false
+      required: [eventId, type, occurredAt]
+      properties:
+        eventId:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          enum: [TEXT, AUDIO, IMAGE, DOCUMENT, INTERACTIVE, PAYMENT_PROOF]
+        text:
+          type: string
+        transcript:
+          type: string
+        mediaFixture:
+          type: string
+          description: Relative allowlisted fixture path, never an arbitrary filesystem path
+        interactiveReplyId:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+    TurnReceipt:
+      type: object
+      required: [eventId, correlationId, status]
+      properties:
+        eventId:
+          type: string
+        correlationId:
+          type: string
+        status:
+          type: string
+          enum: [QUEUED, COMPLETED, DUPLICATE, BLOCKED_BY_HUMAN, FAILED, FAILED_RETRYABLE]
+        output:
+          $ref: './agent-output.schema.json'
