@@ -15,8 +15,9 @@ description: "Tarefas de implementação do chat local para testes manuais da Ur
 
 Reconciliado em 2026-08-06 com base nos arquivos existentes, artefatos de
 testes e validações registradas no ambiente. O tracker passa a registrar
-**59/60 tarefas concluídas**. Permanece aberta apenas a rastreabilidade da
-subtask/PR.
+**60/60 tarefas concluídas**. A implementação foi publicada em `feat/pee-101`,
+o PR #60 foi aberto para `hml` e a subtask PEE-101 foi atualizada e movida para
+`Awaiting approval`.
 
 Situação atual: implementação principal, UI, estado, proxy e integração Compose
 existem. O smoke live falhou inicialmente porque o tracker encerrava a espera
@@ -36,7 +37,8 @@ Inspeção final concluída: o bundle não contém padrões de token, `Authoriza
 armazenamento e tráfego; o webhook e escopos de produção não têm diff; `.env.poc`
 permanece ignorado; e `git diff --check` passou.
 
-Pendência conhecida: atualização da subtask/PR.
+Não há tarefas técnicas pendentes nesta spec. O próximo passo obrigatório é a
+revisão humana e a validação em `hml`; nenhum deploy foi executado.
 
 **Regra de execução**: tarefas de teste devem ser escritas e executadas antes da implementação correspondente. Os marcadores `[P]` indicam trabalho paralelo somente quando os arquivos não se sobrepõem e a dependência indicada já foi satisfeita.
 
@@ -212,7 +214,7 @@ Pendência conhecida: atualização da subtask/PR.
 - [x] T057 Executar os gates de regressão `./gradlew check --offline --no-daemon --console=plain`, `python3 -m unittest discover -s hermes/plugins/urbana-domain -p 'test*.py'`, `./hermes/scripts/smoke-contract.sh`, `./hermes/scripts/smoke-isolation.sh` e `./hermes/scripts/verify-tool-surface.sh`
 - [x] T058 Executar smoke live Browser → poc-chat → Urbana Connect → Hermes → MongoDB → browser com pelo menos três contatos, fragmentação, troca, reload e isolamento
 - [x] T059 Inspecionar diff final, bundle, armazenamento e tráfego para confirmar FR-001–FR-022, ausência de alteração no webhook/produção e ausência de credenciais
-- [ ] T060 Atualizar a subtask PEE-101 com branch, resumo, arquivos, testes, critérios cobertos e riscos; preparar PR para `hml` sem fazer deploy
+- [x] T060 Atualizar a subtask PEE-101 com branch, resumo, arquivos, testes, critérios cobertos e riscos; preparar PR para `hml` sem fazer deploy
 
 ---
 
