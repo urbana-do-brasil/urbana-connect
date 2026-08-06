@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://urbana.local/specs/002-poc-manual-chat/browser-storage.schema.json",
+  "title": "Urbana POC Manual Chat Browser State",
+  "description": "Only local UI metadata. Conversation content and credentials are intentionally forbidden by additionalProperties=false.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contacts",
+    "activeContactAlias"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "contacts": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/localContact"
+      }
+    },
+    "activeContactAlias": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^manual-[a-f0-9-]{36}$"
+    }
+  },
+  "$defs": {
+    "localContact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contactAlias",
+        "displayName",
+        "createdAt",
+        "lastOpenedAt",
+        "archived",
+        "lastReadMessageId"
+      ],
+      "properties": {
+        "contactAlias": {
+          "type": "string",
+          "pattern": "^manual-[a-f0-9-]{36}$",
+          "maxLength": 64
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastOpenedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "archived": {
+          "type": "boolean"
+        },
+        "lastReadMessageId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

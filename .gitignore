@@ -138,6 +138,19 @@ vendor/
 __pycache__/
 *.py[cod]
 
+# Frontend-only generated files
+/poc-chat/node_modules/
+/poc-chat/dist/
+/poc-chat/coverage/
+/poc-chat/playwright-report/
+/poc-chat/test-results/
+/poc-chat/.env*
+!/poc-chat/.env.example
+!/poc-chat/package.json
+!/poc-chat/package-lock.json
+!/poc-chat/tsconfig.json
+!/specs/002-poc-manual-chat/contracts/browser-storage.schema.json
+
 # Exceções para arquivos que devem ser versionados mesmo sendo de tipos ignorados
 !terraform.tfvars.example
 !terraform/environments/dev/terraform.tfvars

@@ -73,6 +73,40 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  poc-chat:
+    build:
+      context: ../poc-chat
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      urbana-connect:
+        condition: service_started
+    networks:
+      - poc_ingress
+    ports:
+      - "127.0.0.1:${POC_CHAT_HOST_PORT:-3000}:8080"
+    environment:
+      # Reuse the already-required local POC credential. It is consumed only
+      # by the Nginx startup renderer and never sent to the browser.
+      HERMES_POC_API_TOKEN: ${HERMES_INTERNAL_TOOL_TOKEN:?set HERMES_INTERNAL_TOOL_TOKEN in .env.poc}
+    read_only: true
+    user: "101:101"
+    tmpfs:
+      - /etc/nginx/conf.d:rw,noexec,nosuid,nodev,size=16m,uid=101,gid=101,mode=0755
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=16m,uid=101,gid=101,mode=0755
+      - /var/run:rw,nosuid,nodev,size=8m,uid=101,gid=101,mode=0755
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health | grep -qx 'ok'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
   hermes:
     image: urbana-hermes-agent:0.20.0
     restart: unless-stopped

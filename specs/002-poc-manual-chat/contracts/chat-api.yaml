@@ -1,0 +1,214 @@
+openapi: 3.1.0
+info:
+  title: Urbana POC Manual Chat Browser Contract
+  version: 0.1.0
+  description: >-
+    Subset of the existing synthetic conversation API exposed same-origin by the
+    local chat proxy. The browser never sends an Authorization header; the local
+    proxy supplies the POC credential only to the upstream request.
+servers:
+  - url: http://127.0.0.1:3000
+    description: Local POC chat
+paths:
+  /health:
+    get:
+      operationId: getChatHealth
+      summary: Verify that the static UI and its proxy runtime are available
+      responses:
+        '200':
+          description: Chat runtime is available
+          content:
+            text/plain:
+              schema:
+                type: string
+                const: ok
+  /api/poc/conversations/{contactAlias}/messages:
+    post:
+      operationId: sendTextMessage
+      summary: Queue one synthetic inbound text event without forcing the batch
+      parameters:
+        - $ref: '#/components/parameters/ContactAlias'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyntheticTextEvent'
+      responses:
+        '202':
+          description: Event accepted; it may still be waiting for the batching window
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnReceipt'
+        '400':
+          description: Invalid alias, text, event identifier or timestamp
+        '401':
+          description: Proxy credential is absent or invalid; local environment is misconfigured
+        '409':
+          description: The same event already exists; continue projection tracking
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnReceipt'
+        '502':
+          description: Urbana Connect is unavailable to the local proxy
+        '504':
+          description: Urbana Connect did not answer the proxy in time
+  /api/poc/conversations/{contactAlias}:
+    get:
+      operationId: getConversationProjection
+      summary: Retrieve the canonical transcript subset used by the chat
+      parameters:
+        - $ref: '#/components/parameters/ContactAlias'
+      responses:
+        '200':
+          description: Current synthetic conversation projection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationProjection'
+        '400':
+          description: Invalid alias
+        '401':
+          description: Proxy credential is absent or invalid; local environment is misconfigured
+        '502':
+          description: Urbana Connect is unavailable to the local proxy
+        '504':
+          description: Urbana Connect did not answer the proxy in time
+components:
+  parameters:
+    ContactAlias:
+      in: path
+      name: contactAlias
+      required: true
+      schema:
+        type: string
+        pattern: '^manual-[a-f0-9-]{36}$'
+        maxLength: 64
+  schemas:
+    SyntheticTextEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - type
+        - text
+        - occurredAt
+      properties:
+        eventId:
+          type: string
+          pattern: '^ui-[a-f0-9-]{36}$'
+          maxLength: 128
+        type:
+          type: string
+          const: TEXT
+        text:
+          type: string
+          minLength: 1
+          maxLength: 8000
+        occurredAt:
+          type: string
+          format: date-time
+    TurnReceipt:
+      type: object
+      additionalProperties: true
+      required:
+        - eventId
+        - correlationId
+        - status
+      properties:
+        eventId:
+          type: string
+        correlationId:
+          type: string
+        status:
+          type: string
+          enum:
+            - QUEUED
+            - COMPLETED
+            - DUPLICATE
+            - BLOCKED_BY_HUMAN
+            - FAILED
+            - FAILED_RETRYABLE
+        output:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+        error:
+          type:
+            - string
+            - 'null'
+    ConversationProjection:
+      type: object
+      additionalProperties: true
+      required:
+        - contactId
+        - conversation
+        - messages
+      properties:
+        contactId:
+          type: string
+        conversation:
+          oneOf:
+            - $ref: '#/components/schemas/ConversationSummary'
+            - type: object
+              maxProperties: 0
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CanonicalMessage'
+    ConversationSummary:
+      type: object
+      additionalProperties: true
+      required:
+        - mode
+      properties:
+        mode:
+          type: string
+          enum:
+            - AI
+            - HUMAN
+    CanonicalMessage:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - eventId
+        - correlationId
+        - contactId
+        - direction
+        - senderType
+        - type
+        - createdAt
+      properties:
+        id:
+          type: string
+        eventId:
+          type: string
+        correlationId:
+          type: string
+        contactId:
+          type: string
+        direction:
+          type: string
+          enum:
+            - INBOUND
+            - OUTBOUND
+        senderType:
+          type: string
+          enum:
+            - CONTACT
+            - URBA
+            - HUMAN
+            - SYSTEM
+        type:
+          type: string
+        text:
+          type:
+            - string
+            - 'null'
+        createdAt:
+          type: string
+          format: date-time
