@@ -56,7 +56,7 @@ specs/[###-feature]/
 -->
 
 ```text
-app/
+apps/urbana-connect-api/
 ├── src/main/java/br/com/urbana/connect/
 │   ├── domain/
 │   ├── application/
@@ -73,7 +73,9 @@ infra/
 └── k8s/
 ```
 
-**Structure Decision**: manter novas mudanças aderentes à estrutura atual do `urbana-connect`, evitando criar árvores paralelas ao modelo `app/` já consolidado.
+**Structure Decision**: manter mudanças aderentes aos limites do monorepo:
+`apps/urbana-connect-api/`, `apps/poc-chat/`, `integrations/`, `infra/` e
+`quality/`, evitando fontes paralelas ou cópias de runtime externo.
 
 ## Complexity Tracking
 

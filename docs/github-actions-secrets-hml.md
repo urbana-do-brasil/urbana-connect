@@ -91,7 +91,7 @@ No GitHub:
 3. Verifique:
    - autenticação do kubeconfig sem erro
    - build/push da imagem no GHCR
-   - `kubectl apply -k infra/k8s/app/overlays/hml`
+   - `kubectl apply -k infra/kubernetes/apps/urbana-connect-api/overlays/hml`
    - rollout do deployment `urbana-connect`
 
 ### CI com SonarCloud

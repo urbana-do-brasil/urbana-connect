@@ -1,0 +1,51 @@
+id: 04-non-prospect
+name: Contato sem intenção comercial
+purpose: Identificar a Urba, permitir uma única sondagem leve e evitar qualquer progressão comercial sem sinal de compra.
+contactAlias: non-prospect-carol
+persona: Pessoa que chegou ao canal sem conhecer a Urba e quer apenas esclarecer o assunto, sem intenção de contratar.
+events:
+  - eventId: non-prospect-01
+    type: TEXT
+    text: "Quem está respondendo por aqui?"
+    occurredAt: 2026-08-05T12:00:00Z
+    assertions:
+      - output.nextAction: AWAIT_CUSTOMER
+      - output.messageContains: "Urba"
+      - output.messageContains: "Urbana do Brasil"
+      - factsCount: 0
+      - noIcpFacts: true
+      - conversation.selectedService: null
+      - conversation.termsStatus: NOT_PRESENTED
+      - conversation.paymentStatus: NOT_STARTED
+      - noCommercialProgression: true
+  - eventId: non-prospect-02
+    type: TEXT
+    text: "Tenho uma dúvida geral; posso explicar o assunto?"
+    occurredAt: 2026-08-05T12:00:05Z
+    assertions:
+      - output.nextAction: AWAIT_CUSTOMER
+      - output.messageContains: "assunto"
+      - output.messageContains: "?"
+      - lightProbesUsed: 1
+      - factsCount: 0
+      - noIcpFacts: true
+      - conversation.selectedService: null
+      - conversation.termsStatus: NOT_PRESENTED
+      - conversation.paymentStatus: NOT_STARTED
+      - noCommercialProgression: true
+  - eventId: non-prospect-03
+    type: TEXT
+    text: "Na verdade é sobre uma parceria institucional; não sei se vocês cuidam disso."
+    occurredAt: 2026-08-05T12:00:10Z
+    assertions:
+      - output.nextAction: HANDOFF
+      - output.handoffReasonContains: "institucional"
+      - output.messageContains: "atendimento humano"
+      - lightProbesUsed: 1
+      - factsCount: 0
+      - noIcpFacts: true
+      - conversation.selectedService: null
+      - conversation.termsStatus: NOT_PRESENTED
+      - conversation.paymentStatus: NOT_STARTED
+      - noCommercialProgression: true
+      - commercialOpportunityCreated: false

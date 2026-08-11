@@ -1,0 +1,23 @@
+id: 03-human-handoff
+name: Handoff humano exclusivo
+purpose: Interromper a automação e preservar mensagens enquanto uma pessoa atende.
+contactAlias: handoff-ana
+events:
+  - eventId: handoff-01
+    type: TEXT
+    text: "Preciso falar com uma pessoa, por favor."
+    occurredAt: 2026-08-05T12:00:00Z
+    assertions:
+      - tool: request_human_handoff
+      - conversation.mode: HUMAN
+  - eventId: handoff-02
+    type: TEXT
+    text: "Envio mais detalhes enquanto aguardo."
+    occurredAt: 2026-08-05T12:00:05Z
+    assertions:
+      - status: BLOCKED_BY_HUMAN
+      - inboundPersisted: true
+      - hermesChatCalls: 0
+      - outboundAiMessages: 0
+      - toolsExecuted: 0
+returnToAi: false

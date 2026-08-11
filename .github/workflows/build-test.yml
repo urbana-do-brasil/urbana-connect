@@ -34,16 +34,16 @@ jobs:
 
     - name: Garantir permissão de execução para gradlew
       run: chmod +x ./gradlew
-      working-directory: ./app
+      working-directory: ./apps/urbana-connect-api
 
     - name: Build e teste com Gradle
       run: ./gradlew build jacocoTestReport
-      working-directory: ./app
+      working-directory: ./apps/urbana-connect-api
 
     - name: Análise SonarCloud
       if: ${{ env.SONAR_TOKEN != '' }}
       run: ./gradlew sonar
-      working-directory: ./app
+      working-directory: ./apps/urbana-connect-api
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -53,11 +53,46 @@ jobs:
       if: always()  # Executa mesmo se passos anteriores falharem
       with:
         name: test-results
-        path: app/build/reports/tests/
+        path: apps/urbana-connect-api/build/reports/tests/
 
     - name: Publicar relatório de cobertura
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
       if: always()  # Executa mesmo se passos anteriores falharem
       with:
         name: coverage-report
-        path: app/build/reports/jacoco/test/html/
+        path: apps/urbana-connect-api/build/reports/jacoco/test/html/
+
+  frontend_test:
+    name: Testes do poc-chat
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout do código
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+    - name: Configurar Node.js 24
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+      with:
+        node-version: '24'
+        cache: npm
+        cache-dependency-path: apps/poc-chat/package-lock.json
+
+    - name: Instalar dependências do chat
+      run: npm ci
+      working-directory: ./apps/poc-chat
+
+    - name: Executar testes do chat
+      run: npm run test -- --run
+      working-directory: ./apps/poc-chat
+
+    - name: Validar tipos
+      run: npm run typecheck
+      working-directory: ./apps/poc-chat
+
+    - name: Validar lint
+      run: npm run lint
+      working-directory: ./apps/poc-chat
+
+    - name: Gerar build do chat
+      run: npm run build
+      working-directory: ./apps/poc-chat

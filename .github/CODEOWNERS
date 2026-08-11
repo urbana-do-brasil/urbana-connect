@@ -11,9 +11,11 @@
 # Pipelines e segurança — revisão humana obrigatória
 .github/                   @emanuelguimaraes
 
-# Infraestrutura Kubernetes e Docker — revisão humana obrigatória
+# Infraestrutura Kubernetes, Compose e Docker — revisão humana obrigatória
 infra/                     @emanuelguimaraes
 
-# Código da aplicação — revisão humana obrigatória em prod
-src/                       @emanuelguimaraes
-app/src/                   @emanuelguimaraes
+# Aplicações, integrações e qualidade — revisão humana obrigatória
+apps/                      @emanuelguimaraes
+integrations/              @emanuelguimaraes
+quality/                   @emanuelguimaraes
+contracts/                 @emanuelguimaraes

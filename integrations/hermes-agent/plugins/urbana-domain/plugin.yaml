@@ -1,0 +1,10 @@
+name: urbana-domain
+version: 0.1.0
+description: Restricted, authenticated bridge to Urbana Connect domain operations.
+provides_tools:
+  - get_customer_profile
+  - update_customer_fact
+  - list_available_services
+  - prepare_terms
+  - prepare_payment
+  - request_human_handoff

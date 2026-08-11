@@ -1,0 +1,84 @@
+id: 06-multimodal
+name: Mensagens fragmentadas e multimodais
+purpose: Normalizar fragmentos, áudio, imagem e comprovante sem aprovação automática.
+contactAlias: multimodal-clara
+fixtures:
+  - poc/audio-room.txt
+  - poc/environment-image.txt
+  - poc/payment-proof-fixture.svg
+events:
+  - eventId: multimodal-01
+    type: TEXT
+    text: "Quero"
+    occurredAt: 2026-08-05T12:00:00Z
+    assertions:
+      - batched: true
+  - eventId: multimodal-02
+    type: TEXT
+    text: "decorar a sala"
+    occurredAt: 2026-08-05T12:00:03Z
+    assertions:
+      - sameBatchAs: multimodal-01
+      - batchedWindowSeconds: 4
+  - eventId: multimodal-03
+    type: AUDIO
+    transcript: "Quero decorar a sala e preciso entender as opções."
+    mediaFixture: poc/audio-room.txt
+    occurredAt: 2026-08-05T12:00:15Z
+    assertions:
+      - transcriptParticipates: true
+      - originalMediaRetained: true
+  - eventId: multimodal-04
+    type: IMAGE
+    mediaFixture: poc/environment-image.txt
+    occurredAt: 2026-08-05T12:00:20Z
+    assertions:
+      - originalMediaRetained: true
+      - imageDoesNotApprovePayment: true
+  - eventId: multimodal-05
+    type: INTERACTIVE
+    interactiveReplyId: service.decor
+    text: "Decor"
+    occurredAt: 2026-08-05T12:00:25Z
+    assertions:
+      - conversation.selectedService: DECOR
+  - eventId: multimodal-06
+    type: TEXT
+    text: "Ela/dela"
+    occurredAt: 2026-08-05T12:00:30Z
+    assertions:
+      - factsContains: PRONOUN_PREFERENCE
+  - eventId: multimodal-07
+    type: TEXT
+    text: "Sim, é a primeira vez contratando design."
+    occurredAt: 2026-08-05T12:00:35Z
+    assertions:
+      - factsContains: FIRST_TIME_HIRING
+  - eventId: multimodal-08
+    type: TEXT
+    text: "Sou designer."
+    occurredAt: 2026-08-05T12:00:40Z
+    assertions:
+      - factsContains: OCCUPATION
+  - eventId: multimodal-09
+    type: TEXT
+    text: "Aceito"
+    occurredAt: 2026-08-05T12:00:45Z
+    assertions:
+      - briefingReleased: false
+  - eventId: multimodal-10
+    type: TEXT
+    text: "PIX"
+    occurredAt: 2026-08-05T12:00:50Z
+    assertions:
+      - conversation.paymentStatus: PREPARED
+      - output.nextAction: AWAIT_PAYMENT_PROOF
+  - eventId: multimodal-11
+    type: PAYMENT_PROOF
+    mediaFixture: poc/payment-proof-fixture.svg
+    occurredAt: 2026-08-05T12:00:55Z
+    assertions:
+      - immediate: true
+      - conversation.paymentStatus: PROOF_RECEIVED
+      - briefingReleased: false
+      - paymentApprovalIsHumanOnly: true

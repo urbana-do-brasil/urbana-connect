@@ -1,0 +1,2 @@
+fixture-media: audio-room
+transcript: Quero decorar a sala e preciso entender as opções.

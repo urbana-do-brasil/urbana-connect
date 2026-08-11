@@ -20,11 +20,13 @@ description: "Task list template for feature implementation"
 
 ## Path Conventions
 
-- código principal: `app/src/main/java/br/com/urbana/connect/`
-- testes: `app/src/test/java/br/com/urbana/connect/`
-- recursos/configuração: `app/src/main/resources/`
+- código principal: `apps/urbana-connect-api/src/main/java/br/com/urbana/connect/`
+- testes: `apps/urbana-connect-api/src/test/java/br/com/urbana/connect/`
+- recursos/configuração: `apps/urbana-connect-api/src/main/resources/`
 - documentação: `docs/`
-- infraestrutura: `infra/k8s/`
+- frontend local: `apps/poc-chat/`
+- integração Hermes: `integrations/hermes-agent/`
+- infraestrutura: `infra/local-poc/` e `infra/kubernetes/`
 
 <!-- 
   ============================================================================
@@ -84,15 +86,15 @@ Examples of foundational tasks (adjust based on your project):
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T010 [P] [US1] Criar teste WebMvc/JUnit para [endpoint] em `app/src/test/java/...`
-- [ ] T011 [P] [US1] Criar teste de integração para [cenário] em `app/src/test/java/...`
+- [ ] T010 [P] [US1] Criar teste WebMvc/JUnit para [endpoint] em `apps/urbana-connect-api/src/test/java/...`
+- [ ] T011 [P] [US1] Criar teste de integração para [cenário] em `apps/urbana-connect-api/src/test/java/...`
 
 ### Implementation for User Story 1
 
-- [ ] T012 [P] [US1] Criar/ajustar contrato ou entidade em `app/src/main/java/.../domain/`
-- [ ] T013 [P] [US1] Criar/ajustar caso de uso ou serviço em `app/src/main/java/.../application/`
-- [ ] T014 [US1] Implementar integração concreta em `app/src/main/java/.../infrastructure/` se necessário
-- [ ] T015 [US1] Implementar endpoint/adaptador em `app/src/main/java/.../interfaces/`
+- [ ] T012 [P] [US1] Criar/ajustar contrato ou entidade em `apps/urbana-connect-api/src/main/java/.../domain/`
+- [ ] T013 [P] [US1] Criar/ajustar caso de uso ou serviço em `apps/urbana-connect-api/src/main/java/.../application/`
+- [ ] T014 [US1] Implementar integração concreta em `apps/urbana-connect-api/src/main/java/.../infrastructure/` se necessário
+- [ ] T015 [US1] Implementar endpoint/adaptador em `apps/urbana-connect-api/src/main/java/.../interfaces/`
 - [ ] T016 [US1] Adicionar validação e tratamento de erro
 - [ ] T017 [US1] Adicionar logs/métricas relevantes para a operação
 
@@ -108,14 +110,14 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 2 (OPTIONAL - only if tests requested) ⚠️
 
-- [ ] T018 [P] [US2] Criar teste de contrato/WebMvc em `app/src/test/java/...`
-- [ ] T019 [P] [US2] Criar teste de integração em `app/src/test/java/...`
+- [ ] T018 [P] [US2] Criar teste de contrato/WebMvc em `apps/urbana-connect-api/src/test/java/...`
+- [ ] T019 [P] [US2] Criar teste de integração em `apps/urbana-connect-api/src/test/java/...`
 
 ### Implementation for User Story 2
 
-- [ ] T020 [P] [US2] Criar/ajustar contrato ou entidade em `app/src/main/java/.../domain/`
-- [ ] T021 [US2] Implementar caso de uso ou serviço em `app/src/main/java/.../application/`
-- [ ] T022 [US2] Implementar endpoint/integração em `app/src/main/java/...`
+- [ ] T020 [P] [US2] Criar/ajustar contrato ou entidade em `apps/urbana-connect-api/src/main/java/.../domain/`
+- [ ] T021 [US2] Implementar caso de uso ou serviço em `apps/urbana-connect-api/src/main/java/.../application/`
+- [ ] T022 [US2] Implementar endpoint/integração em `apps/urbana-connect-api/src/main/java/...`
 - [ ] T023 [US2] Integrate with User Story 1 components (if needed)
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently
@@ -130,14 +132,14 @@ Examples of foundational tasks (adjust based on your project):
 
 ### Tests for User Story 3 (OPTIONAL - only if tests requested) ⚠️
 
-- [ ] T024 [P] [US3] Criar teste de contrato/WebMvc em `app/src/test/java/...`
-- [ ] T025 [P] [US3] Criar teste de integração em `app/src/test/java/...`
+- [ ] T024 [P] [US3] Criar teste de contrato/WebMvc em `apps/urbana-connect-api/src/test/java/...`
+- [ ] T025 [P] [US3] Criar teste de integração em `apps/urbana-connect-api/src/test/java/...`
 
 ### Implementation for User Story 3
 
-- [ ] T026 [P] [US3] Criar/ajustar contrato ou entidade em `app/src/main/java/.../domain/`
-- [ ] T027 [US3] Implementar caso de uso ou serviço em `app/src/main/java/.../application/`
-- [ ] T028 [US3] Implementar endpoint/integração em `app/src/main/java/...`
+- [ ] T026 [P] [US3] Criar/ajustar contrato ou entidade em `apps/urbana-connect-api/src/main/java/.../domain/`
+- [ ] T027 [US3] Implementar caso de uso ou serviço em `apps/urbana-connect-api/src/main/java/.../application/`
+- [ ] T028 [US3] Implementar endpoint/integração em `apps/urbana-connect-api/src/main/java/...`
 
 **Checkpoint**: All user stories should now be independently functional
 
@@ -154,7 +156,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX [P] Atualizar documentação em `docs/`
 - [ ] TXXX Code cleanup and refactoring
 - [ ] TXXX Performance optimization across all stories
-- [ ] TXXX [P] Adicionar testes extras em `app/src/test/java/`
+- [ ] TXXX [P] Adicionar testes extras em `apps/urbana-connect-api/src/test/java/`
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
 
@@ -200,12 +202,12 @@ Examples of foundational tasks (adjust based on your project):
 
 ```bash
 # Launch all tests for User Story 1 together (if tests requested):
-Task: "Teste WebMvc para [endpoint] em app/src/test/java/..."
-Task: "Teste de integração para [jornada] em app/src/test/java/..."
+Task: "Teste WebMvc para [endpoint] em apps/urbana-connect-api/src/test/java/..."
+Task: "Teste de integração para [jornada] em apps/urbana-connect-api/src/test/java/..."
 
 # Launch all models for User Story 1 together:
-Task: "Criar contrato/entidade em app/src/main/java/.../domain/"
-Task: "Criar caso de uso em app/src/main/java/.../application/"
+Task: "Criar contrato/entidade em apps/urbana-connect-api/src/main/java/.../domain/"
+Task: "Criar caso de uso em apps/urbana-connect-api/src/main/java/.../application/"
 ```
 
 ---

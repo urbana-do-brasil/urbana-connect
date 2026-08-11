@@ -1,0 +1,136 @@
+id: 05-returning-customer
+name: Retomada de cliente recorrente e isolamento de memória
+purpose: Reutilizar fatos confirmados vigentes e o serviço anterior sem repetir ICP, mantendo um contato sentinela isolado.
+contactAlias: returning-ana
+persona: Cliente que já informou seu ICP e escolheu um serviço; retorna depois para continuar o atendimento.
+memory:
+  facts:
+    - type: PRONOUN_PREFERENCE
+      value: ELA_DELA
+      confidence: CONFIRMED
+      sourceMessageId: returning-seed-pronoun
+    - type: FIRST_TIME_HIRING
+      value: "YES"
+      confidence: CONFIRMED
+      sourceMessageId: returning-seed-first-hiring
+    - type: OCCUPATION
+      value: DESIGNER
+      confidence: CONFIRMED
+      sourceMessageId: returning-seed-occupation
+    - type: SELECTED_SERVICE
+      value: DECOR
+      confidence: CONFIRMED
+      sourceMessageId: returning-seed-service
+  setupEvents:
+    - eventId: returning-seed-pronoun-event
+      type: TEXT
+      text: "Meu pronome é ela/dela."
+      occurredAt: 2026-08-05T11:59:00Z
+      assertions:
+        - status: COMPLETED
+    - eventId: returning-seed-first-hiring-event
+      type: TEXT
+      text: "Sim, é a minha primeira vez contratando design."
+      occurredAt: 2026-08-05T11:59:05Z
+      assertions:
+        - status: COMPLETED
+    - eventId: returning-seed-occupation-event
+      type: TEXT
+      text: "Sou designer."
+      occurredAt: 2026-08-05T11:59:10Z
+      assertions:
+        - status: COMPLETED
+    - eventId: returning-seed-service-event
+      type: INTERACTIVE
+      text: "Decor"
+      interactiveReplyId: service.decor
+      occurredAt: 2026-08-05T11:59:15Z
+      assertions:
+        - status: COMPLETED
+events:
+  - eventId: returning-01
+    type: TEXT
+    text: "Oi, quero continuar o projeto da minha sala. Sou designer e já escolhi o Decor."
+    occurredAt: 2026-08-05T12:00:00Z
+    assertions:
+      - output.nextAction: AWAIT_CUSTOMER
+      - factsContains: PRONOUN_PREFERENCE
+      - factsContains: FIRST_TIME_HIRING
+      - factsContains: OCCUPATION
+      - factsContains: SELECTED_SERVICE
+      - conversation.selectedService: DECOR
+      - output.messageNotContains: "Como você prefere ser tratado"
+      - output.messageNotContains: "É a sua primeira contratação"
+      - output.messageNotContains: "qual é a sua ocupação"
+  - eventId: returning-02
+    type: TEXT
+    text: "Voltei depois de alguns dias; podemos retomar de onde paramos?"
+    occurredAt: 2026-08-12T12:00:00Z
+    assertions:
+      - output.nextAction: AWAIT_CUSTOMER
+      - factsContains: PRONOUN_PREFERENCE
+      - factsContains: FIRST_TIME_HIRING
+      - factsContains: OCCUPATION
+      - factsContains: SELECTED_SERVICE
+      - conversation.selectedService: DECOR
+      - output.messageNotContains: "Como você prefere ser tratado"
+      - output.messageNotContains: "É a sua primeira contratação"
+      - output.messageNotContains: "qual é a sua ocupação"
+isolationSentinel:
+  contactAlias: returning-sentinel
+  memory:
+    facts:
+      - type: PRONOUN_PREFERENCE
+        value: ELE_DELE
+        confidence: CONFIRMED
+        sourceMessageId: sentinel-seed-pronoun
+      - type: FIRST_TIME_HIRING
+        value: "NO"
+        confidence: CONFIRMED
+        sourceMessageId: sentinel-seed-first-hiring
+      - type: OCCUPATION
+        value: ENGENHEIRO
+        confidence: CONFIRMED
+        sourceMessageId: sentinel-seed-occupation
+      - type: SELECTED_SERVICE
+        value: DECOR_FACHADA
+        confidence: CONFIRMED
+        sourceMessageId: sentinel-seed-service
+    setupEvents:
+      - eventId: sentinel-seed-pronoun-event
+        type: TEXT
+        text: "Meu pronome é ele/dele."
+        occurredAt: 2026-08-05T11:58:00Z
+        assertions:
+          - status: COMPLETED
+      - eventId: sentinel-seed-first-hiring-event
+        type: TEXT
+        text: "Não é a minha primeira vez contratando design."
+        occurredAt: 2026-08-05T11:58:05Z
+        assertions:
+          - status: COMPLETED
+      - eventId: sentinel-seed-occupation-event
+        type: TEXT
+        text: "Sou engenheiro."
+        occurredAt: 2026-08-05T11:58:10Z
+        assertions:
+          - status: COMPLETED
+      - eventId: sentinel-seed-service-event
+        type: INTERACTIVE
+        text: "Decor Fachada"
+        interactiveReplyId: service.decor_fachada
+        occurredAt: 2026-08-05T11:58:15Z
+        assertions:
+          - status: COMPLETED
+  events:
+    - eventId: sentinel-01
+      type: TEXT
+      text: "Quero retomar o projeto da fachada."
+      occurredAt: 2026-08-05T12:00:00Z
+      assertions:
+        - factsContains: OCCUPATION
+        - factsContains: SELECTED_SERVICE
+        - conversation.selectedService: DECOR_FACHADA
+        - output.messageNotContains: "DESIGNER"
+        - output.messageNotContains: "DECOR"
+        - output.messageNotContains: "ELA_DELA"

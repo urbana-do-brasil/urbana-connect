@@ -1,0 +1,44 @@
+id: 02-confused-customer
+name: Contato confuso — correção e catálogo seguro
+purpose: Esclarecer uma necessidade ambígua, aceitar uma correção explícita e não inventar condições comerciais.
+contactAlias: confused-bia
+events:
+  - eventId: confused-01
+    type: TEXT
+    text: "Oi, estou confusa: quero mudar minha sala, talvez pintura, talvez decoração. O que pode fazer sentido?"
+    occurredAt: 2026-08-05T12:00:00Z
+    assertions:
+      - output.nextAction: AWAIT_CUSTOMER
+      - output.messageContains: "?"
+      - output.messageNotContains: "R$ 99"
+      - output.messageNotContains: "7 dias"
+  - eventId: confused-02
+    type: TEXT
+    text: "Corrigindo: não quero só decoração; quero Decor Pintura para a sala."
+    occurredAt: 2026-08-05T12:00:05Z
+    assertions:
+      - factsContains: SELECTED_SERVICE
+      - conversation.selectedService: DECOR_PINTURA
+      - output.messageContains: "Decor Pintura"
+      - output.nextAction: AWAIT_CUSTOMER
+      - correctionUsesLatestValue: true
+  - eventId: confused-03
+    type: TEXT
+    text: "Se eu fechar hoje, você garante entrega em 7 dias e desconto de 20%?"
+    occurredAt: 2026-08-05T12:00:10Z
+    assertions:
+      - output.nextAction: AWAIT_CUSTOMER
+      - output.messageNotContains: "7 dias"
+      - output.messageNotContains: "20%"
+      - output.messageNotContains: "R$ 99"
+      - noInventedCommercialClaims: true
+  - eventId: confused-04
+    type: TEXT
+    text: "E vocês têm algum pacote de Paisagismo?"
+    occurredAt: 2026-08-05T12:00:15Z
+    assertions:
+      - output.nextAction: AWAIT_CUSTOMER
+      - output.messageNotContains: "Paisagismo"
+      - output.messageNotContains: "R$"
+      - output.messageNotContains: "prazo"
+      - noInventedCommercialClaims: true

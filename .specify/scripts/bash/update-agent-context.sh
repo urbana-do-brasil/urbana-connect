@@ -250,9 +250,9 @@ get_project_structure() {
     local project_type="$1"
     
     if [[ "$project_type" == *"web"* ]] || [[ "$project_type" == *"service"* ]]; then
-        echo "app/src/main/java/\\napp/src/test/java/\\ndocs/\\ninfra/k8s/"
+        echo "apps/urbana-connect-api/src/main/java/\\napps/urbana-connect-api/src/test/java/\\napps/poc-chat/\\ndocs/\\ninfra/local-poc/\\ninfra/kubernetes/"
     else
-        echo "app/src/main/java/\\napp/src/test/java/"
+        echo "apps/urbana-connect-api/src/main/java/\\napps/urbana-connect-api/src/test/java/"
     fi
 }
 
@@ -270,7 +270,7 @@ get_commands_for_language() {
             echo "npm test \\&\\& npm run lint"
             ;;
         *"Java"*)
-            echo "cd app && ./gradlew test"
+            echo "cd apps/urbana-connect-api && ./gradlew test"
             ;;
         *)
             echo "# Add commands for $lang"

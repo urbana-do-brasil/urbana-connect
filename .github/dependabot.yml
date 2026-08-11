@@ -2,7 +2,7 @@ version: 2
 updates:
   # Dependências Java/Gradle
   - package-ecosystem: gradle
-    directory: "/app"
+    directory: "/apps/urbana-connect-api"
     schedule:
       interval: weekly
       day: monday
@@ -13,13 +13,24 @@ updates:
 
   # Imagens Docker
   - package-ecosystem: docker
-    directory: "/app"
+    directory: "/apps/urbana-connect-api"
     schedule:
       interval: weekly
       day: monday
     labels:
       - "dependencies"
       - "docker"
+
+  # Dependências do chat manual local
+  - package-ecosystem: npm
+    directory: "/apps/poc-chat"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "frontend"
 
   # GitHub Actions — mantém as Actions atualizadas (e os SHAs pinados)
   - package-ecosystem: github-actions

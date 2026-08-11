@@ -1,0 +1,8 @@
+.gradle
+build
+!build/
+!build/libs/
+!build/libs/urbana-connect-0.0.1-SNAPSHOT.jar
+.idea
+.vscode
+*.iml
