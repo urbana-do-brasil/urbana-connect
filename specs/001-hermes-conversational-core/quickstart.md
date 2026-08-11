@@ -1,6 +1,6 @@
 # Quickstart: POC local Hermes-first
 
-Os comandos abaixo foram validados no branch `001-hermes-conversational-core`
+Os comandos abaixo foram validados na branch consolidada `feat/pee-101`
 com Docker Desktop ativo, JDK 21 e o perfil local isolado.
 
 ## Prerequisites
@@ -27,7 +27,7 @@ Preencher localmente os valores indicados. `.env.poc` deve permanecer ignorado p
 ## 2. Install the isolated Hermes profile
 
 ```bash
-./hermes/scripts/install-local.sh
+./integrations/hermes-agent/scripts/install-local.sh
 ```
 
 O script deve criar/copiar apenas o profile `urba-receptionist`, habilitar o plugin `urbana-domain` e validar que nenhuma ferramenta ampla está exposta. Ele não deve alterar o profile Hermes pessoal existente.
@@ -40,16 +40,16 @@ real é opt-in e exige uma chave OpenRouter local.
 ## 3. Build and start the isolated POC stack
 
 ```bash
-./hermes/scripts/install-local.sh
-cd app
+./integrations/hermes-agent/scripts/install-local.sh
+cd apps/urbana-connect-api
 export JAVA_HOME=/Users/emanueljoseguimaraesbrito/.sdkman/candidates/java/21.0.12-tem
 export PATH="$JAVA_HOME/bin:$PATH"
 ./gradlew bootJar --offline --no-daemon --console=plain
-cd ..
-docker compose --env-file .env.poc -f hermes/docker-compose.poc.yml build urbana-connect
-docker compose --env-file .env.poc -f hermes/docker-compose.poc.yml up -d
-./hermes/scripts/smoke-contract.sh
-./hermes/scripts/verify-tool-surface.sh
+cd ../..
+docker compose --env-file .env.poc -f infra/local-poc/docker-compose.poc.yml build urbana-connect
+docker compose --env-file .env.poc -f infra/local-poc/docker-compose.poc.yml up -d
+./integrations/hermes-agent/scripts/smoke-contract.sh
+./integrations/hermes-agent/scripts/verify-tool-surface.sh
 curl -fsS http://127.0.0.1:8652/health
 curl -fsS http://127.0.0.1:8081/api/v1/health
 ```
@@ -57,18 +57,18 @@ curl -fsS http://127.0.0.1:8081/api/v1/health
 Para verificar o isolamento de rede e filesystem:
 
 ```bash
-./hermes/scripts/smoke-isolation.sh
+./integrations/hermes-agent/scripts/smoke-isolation.sh
 ```
 
 ## 4. Run deterministic tests first
 
 ```bash
-cd app
+cd apps/urbana-connect-api
 export PATH="$JAVA_HOME/bin:$PATH"
 ./gradlew test --offline --no-daemon --console=plain
 ./gradlew check --offline --no-daemon --console=plain
-cd ..
-python3 -m unittest discover -s hermes/plugins/urbana-domain -p 'test*.py'
+cd ../..
+python3 -m unittest discover -s integrations/hermes-agent/plugins/urbana-domain -p 'test*.py'
 ```
 
 Se o host já tiver a porta `58003` ocupada por outro processo, o Testcontainers
@@ -79,11 +79,11 @@ essa alternativa sem alterar o código da aplicação.
 ## 5. Run the synthetic corpus
 
 ```bash
-./corpus/run-local.sh \
+./quality/conversation-corpus/run-local.sh \
   --base-url http://127.0.0.1:8081 \
   --repetitions 3 \
   --memory-seed-mode setup-events \
-  --output corpus/results
+  --output quality/conversation-corpus/results
 ```
 
 O `run-local.sh` lê de forma restrita o `HERMES_INTERNAL_TOOL_TOKEN` do

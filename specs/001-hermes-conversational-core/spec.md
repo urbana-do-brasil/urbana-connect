@@ -1,8 +1,9 @@
 # Feature Specification: Recepcionista conversacional persistente
 
 **Feature Branch**: `001-hermes-conversational-core`  
+**Consolidated branch**: `feat/pee-101`
 **Created**: 2026-08-04  
-**Status**: Ready for planning  
+**Status**: Verified — POC local validada e consolidada em `feat/pee-101`
 **Input**: Substituir o plano original da PEE-100 por uma POC local de uma recepcionista virtual persistente, auditável e capaz de conduzir o atendimento inicial da Urbana.
 
 ## Metadados

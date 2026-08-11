@@ -11,13 +11,13 @@ Este runbook valida a exposicao publica do webhook da homolog em `api-hml.urbana
 
 ## Script de validacao
 
-O repositório possui um script pronto em [infra/k8s/app/overlays/hml/validate-public-webhook.sh](/root/.openclaw/workspace/urbana-connect/infra/k8s/app/overlays/hml/validate-public-webhook.sh).
+O repositório possui um script pronto em [infra/kubernetes/apps/urbana-connect-api/overlays/hml/validate-public-webhook.sh](/root/.openclaw/workspace/urbana-connect/infra/kubernetes/apps/urbana-connect-api/overlays/hml/validate-public-webhook.sh).
 
 Uso:
 
 ```bash
 export WHATSAPP_VERIFY_TOKEN='seu-token-real'
-bash infra/k8s/app/overlays/hml/validate-public-webhook.sh
+bash infra/kubernetes/apps/urbana-connect-api/overlays/hml/validate-public-webhook.sh
 ```
 
 Se necessário, o host pode ser sobrescrito:
@@ -25,7 +25,7 @@ Se necessário, o host pode ser sobrescrito:
 ```bash
 HOST=api-hml.urbanadobrasil.com \
 WHATSAPP_VERIFY_TOKEN='seu-token-real' \
-bash infra/k8s/app/overlays/hml/validate-public-webhook.sh
+bash infra/kubernetes/apps/urbana-connect-api/overlays/hml/validate-public-webhook.sh
 ```
 
 ## O que o script valida

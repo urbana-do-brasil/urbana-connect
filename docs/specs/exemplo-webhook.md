@@ -49,7 +49,7 @@ Além disso, a homolog precisava oferecer rastreabilidade suficiente para confir
   - `POST` válido
   - `POST` inválido
   - logs explícitos do controller
-- validação pública em homolog com o script `infra/k8s/app/overlays/hml/validate-public-webhook.sh`
+- validação pública em homolog com o script `infra/kubernetes/apps/urbana-connect-api/overlays/hml/validate-public-webhook.sh`
 - confirmação manual de evento real recebido em homolog por horário e log
 
 ## 6. Fora de escopo

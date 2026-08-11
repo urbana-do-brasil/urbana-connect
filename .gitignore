@@ -82,6 +82,9 @@ build/
 .hermes-poc/
 .kubeconfig.yaml
 
+# Codex-local quarantine, caches and machine-specific configuration
+.codex/
+
 # Terraform
 .terraform/
 *.tfstate
@@ -95,6 +98,8 @@ kubeconfig
 # Secrets reais de homolog (nunca versionar)
 infra/k8s/secrets/prod/*.yaml
 !infra/k8s/secrets/prod/.gitkeep
+infra/kubernetes/secrets/prod/*.yaml
+!infra/kubernetes/secrets/prod/.gitkeep
 
 # OS specific
 .DS_Store
@@ -139,6 +144,16 @@ __pycache__/
 *.py[cod]
 
 # Frontend-only generated files
+/apps/poc-chat/node_modules/
+/apps/poc-chat/dist/
+/apps/poc-chat/coverage/
+/apps/poc-chat/playwright-report/
+/apps/poc-chat/test-results/
+/apps/poc-chat/.env*
+!/apps/poc-chat/.env.example
+!/apps/poc-chat/package.json
+!/apps/poc-chat/package-lock.json
+!/apps/poc-chat/tsconfig.json
 /poc-chat/node_modules/
 /poc-chat/dist/
 /poc-chat/coverage/
@@ -149,6 +164,10 @@ __pycache__/
 !/poc-chat/package.json
 !/poc-chat/package-lock.json
 !/poc-chat/tsconfig.json
+
+# Cross-system generated quality output
+/quality/conversation-corpus/results/
+/quality/system-e2e/test-results/
 !/specs/002-poc-manual-chat/contracts/browser-storage.schema.json
 
 # Exceções para arquivos que devem ser versionados mesmo sendo de tipos ignorados
@@ -158,6 +177,8 @@ __pycache__/
 !terraform/environments/prod/terraform.tfvars
 # O contrato JSON do corpus não contém credenciais; outros JSON continuam ignorados.
 !corpus/schema/scenario.schema.json
+!quality/conversation-corpus/schema/scenario.schema.json
 
 # Permitir o versionamento do Gradle Wrapper JAR
 !app/gradle/wrapper/gradle-wrapper.jar
+!apps/urbana-connect-api/gradle/wrapper/gradle-wrapper.jar

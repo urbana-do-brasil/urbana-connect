@@ -1,8 +1,9 @@
 # Feature Specification: Chat local para testes manuais da Urba
 
 **Feature Branch**: `002-poc-manual-chat`
+**Consolidated branch**: `feat/pee-101`
 **Created**: 2026-08-06
-**Status**: Ready for Planning
+**Status**: Verified — chat local validado e consolidado em `feat/pee-101`
 **Input**: User description: "Criar uma interface web local de chat para testar manualmente a conversa Hermes-first como ela seria percebida por um cliente no WhatsApp."
 
 ## Metadados

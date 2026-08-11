@@ -1,6 +1,7 @@
 # Implementation Plan: Núcleo conversacional Hermes-first
 
 **Branch**: `001-hermes-conversational-core` | **Date**: 2026-08-04 | **Spec**: [spec.md](./spec.md)
+**Consolidated validation branch**: `feat/pee-101`
 **Input**: Feature specification from `/specs/001-hermes-conversational-core/spec.md`
 
 ## Summary
@@ -134,7 +135,7 @@ specs/001-hermes-conversational-core/
 ### Source Code (repository root)
 
 ```text
-app/
+apps/urbana-connect-api/
 ├── src/main/java/br/com/urbana/connect/
 │   ├── domain/reception/
 │   │   ├── model/
@@ -159,7 +160,7 @@ hermes/
     ├── install-local.sh
     └── run-local.sh
 
-corpus/
+quality/conversation-corpus/
 ├── scenarios/
 ├── fixtures/
 └── README.md

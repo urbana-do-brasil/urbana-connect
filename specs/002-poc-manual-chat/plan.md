@@ -1,6 +1,7 @@
 # Implementation Plan: Chat local para testes manuais da Urba
 
 **Branch**: `002-poc-manual-chat` | **Date**: 2026-08-06 | **Spec**: [spec.md](./spec.md)
+**Consolidated validation branch**: `feat/pee-101`
 **Input**: Feature specification from `/specs/002-poc-manual-chat/spec.md`
 
 ## Summary
@@ -155,7 +156,7 @@ falha recuperável observável.
 ### 8. Isolamento operacional
 
 O serviço `poc-chat` será adicionado somente a
-`hermes/docker-compose.poc.yml`, conectado apenas à rede `poc_ingress` e exposto
+`infra/local-poc/docker-compose.poc.yml`, conectado apenas à rede `poc_ingress` e exposto
 como `127.0.0.1:${POC_CHAT_HOST_PORT:-3000}:8080`. O container terá filesystem
 somente leitura, usuário sem privilégios, capabilities removidas e
 `no-new-privileges`.
@@ -181,7 +182,7 @@ specs/002-poc-manual-chat/
 ### Source Code (repository root)
 
 ```text
-poc-chat/
+apps/poc-chat/
 ├── src/
 │   ├── api/
 │   │   ├── conversationClient.ts
@@ -216,8 +217,8 @@ hermes/
 └── docker-compose.poc.yml
 ```
 
-**Structure Decision**: manter o chat como aplicação separada em `poc-chat/`.
-Nenhum arquivo frontend entra em `app/src/main/resources`, evitando acoplamento
+**Structure Decision**: manter o chat como aplicação separada em `apps/poc-chat/`.
+Nenhum arquivo frontend entra em `apps/urbana-connect-api/src/main/resources`, evitando acoplamento
 ao jar ou inclusão acidental em outros profiles.
 
 ## Implementation Phases

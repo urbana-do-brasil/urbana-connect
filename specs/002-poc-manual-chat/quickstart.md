@@ -22,14 +22,14 @@ Na raiz do repositório:
 
 ```bash
 docker info
-docker compose --env-file .env.poc -f hermes/docker-compose.poc.yml config --quiet
-docker compose --env-file .env.poc -f hermes/docker-compose.poc.yml up -d --build
+docker compose --env-file .env.poc -f infra/local-poc/docker-compose.poc.yml config --quiet
+docker compose --env-file .env.poc -f infra/local-poc/docker-compose.poc.yml up -d --build
 ```
 
 Verificar os serviços sem imprimir a configuração resolvida nem qualquer segredo:
 
 ```bash
-docker compose --env-file .env.poc -f hermes/docker-compose.poc.yml ps
+docker compose --env-file .env.poc -f infra/local-poc/docker-compose.poc.yml ps
 curl -fsS http://127.0.0.1:3000/health
 curl -fsS http://127.0.0.1:8081/api/v1/health
 curl -fsS http://127.0.0.1:8652/health
@@ -84,7 +84,7 @@ Não remover volumes nem apagar MongoDB durante esse teste.
 
 ## 5. Frontend development checks
 
-Dentro de `poc-chat/`, com Node 24 LTS:
+Dentro de `apps/poc-chat/`, com Node 24 LTS:
 
 ```bash
 npm ci
@@ -108,9 +108,9 @@ fixar a mesma versão do pacote e da imagem de navegador.
 ## 6. Container and proxy checks
 
 ```bash
-docker compose --env-file .env.poc -f hermes/docker-compose.poc.yml build poc-chat
-docker compose --env-file .env.poc -f hermes/docker-compose.poc.yml up -d poc-chat
-docker compose --env-file .env.poc -f hermes/docker-compose.poc.yml exec -T poc-chat nginx -t
+docker compose --env-file .env.poc -f infra/local-poc/docker-compose.poc.yml build poc-chat
+docker compose --env-file .env.poc -f infra/local-poc/docker-compose.poc.yml up -d poc-chat
+docker compose --env-file .env.poc -f infra/local-poc/docker-compose.poc.yml exec -T poc-chat nginx -t
 curl -fsS http://127.0.0.1:3000/health
 ```
 
@@ -129,13 +129,13 @@ Validar também:
 Na raiz do repositório, repetir os gates existentes da POC:
 
 ```bash
-cd app
+cd apps/urbana-connect-api
 ./gradlew check --offline --no-daemon --console=plain
-cd ..
-python3 -m unittest discover -s hermes/plugins/urbana-domain -p 'test*.py'
-./hermes/scripts/smoke-contract.sh
-./hermes/scripts/smoke-isolation.sh
-./hermes/scripts/verify-tool-surface.sh
+cd ../..
+python3 -m unittest discover -s integrations/hermes-agent/plugins/urbana-domain -p 'test*.py'
+./integrations/hermes-agent/scripts/smoke-contract.sh
+./integrations/hermes-agent/scripts/smoke-isolation.sh
+./integrations/hermes-agent/scripts/verify-tool-surface.sh
 ```
 
 Se o host tiver a porta do Ryuk ocupada, usar a alternativa já documentada pela

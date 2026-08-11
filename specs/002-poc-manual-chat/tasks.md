@@ -46,11 +46,11 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 
 **Purpose**: criar a aplicação frontend isolada e seus gates locais sem acoplar o runtime Java.
 
-- [x] T001 [P] Criar a estrutura inicial da aplicação em `poc-chat/` conforme `specs/002-poc-manual-chat/plan.md`, sem mover arquivos do backend
-- [x] T002 Inicializar dependências e scripts de build/teste em `poc-chat/package.json` e fixar o lockfile em `poc-chat/package-lock.json`
-- [x] T003 [P] Configurar TypeScript estrito, Vite, Vitest, Testing Library e Playwright em `poc-chat/tsconfig.json`, `poc-chat/vite.config.ts`, `poc-chat/playwright.config.ts` e `poc-chat/src/test/setup.ts`
-- [x] T004 [P] Configurar lint, formatação e limites de cobertura nos arquivos de configuração de qualidade de `poc-chat/`
-- [x] T005 [P] Atualizar `.gitignore` e criar `poc-chat/.dockerignore` para excluir dependências, builds, cobertura, logs e qualquer `.env*` sem remover regras existentes
+- [x] T001 [P] Criar a estrutura inicial da aplicação em `apps/poc-chat/` conforme `specs/002-poc-manual-chat/plan.md`, sem mover arquivos do backend
+- [x] T002 Inicializar dependências e scripts de build/teste em `apps/poc-chat/package.json` e fixar o lockfile em `apps/poc-chat/package-lock.json`
+- [x] T003 [P] Configurar TypeScript estrito, Vite, Vitest, Testing Library e Playwright em `apps/poc-chat/tsconfig.json`, `apps/poc-chat/vite.config.ts`, `apps/poc-chat/playwright.config.ts` e `apps/poc-chat/src/test/setup.ts`
+- [x] T004 [P] Configurar lint, formatação e limites de cobertura nos arquivos de configuração de qualidade de `apps/poc-chat/`
+- [x] T005 [P] Atualizar `.gitignore` e criar `apps/poc-chat/.dockerignore` para excluir dependências, builds, cobertura, logs e qualquer `.env*` sem remover regras existentes
 
 **Checkpoint**: o frontend instala dependências de forma reproduzível e os comandos base de typecheck, lint, teste e build estão definidos.
 
@@ -63,15 +63,15 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 **⚠️ CRITICAL**: nenhuma história de usuário começa antes desta fase estar verde.
 
 - [x] T006 [P] Criar o schema versionado do armazenamento visual em `specs/002-poc-manual-chat/contracts/browser-storage.schema.json`, proibindo transcripts, payloads, tokens e identificadores de turno
-- [x] T007 [P] Escrever testes falhando para validação, migração segura e descarte individual de contatos em `poc-chat/src/state/contactStore.test.ts`
-- [x] T008 Implementar `LocalContact`, `PersistedUiState`, geração de alias `manual-<UUID>` e persistência somente de metadados em `poc-chat/src/state/contactStore.ts`
-- [x] T009 [P] Escrever testes de contrato HTTP para payload textual, alias, `202`, `409`, erros de transporte e ausência do header `Authorization` em `poc-chat/src/api/conversationClient.test.ts`
-- [x] T010 Implementar os tipos e o cliente same-origin em `poc-chat/src/api/contracts.ts` e `poc-chat/src/api/conversationClient.ts`, sem aceitar token vindo da UI
-- [x] T011 [P] Escrever testes falhando para validação de projeção, deduplicação por IDs, ordenação, reconciliação otimista e detecção de turno concluído em `poc-chat/src/state/conversationReducer.test.ts`
-- [x] T012 Implementar reducer, modelos de estado e reconciliação canônica em `poc-chat/src/state/conversationReducer.ts`
-- [x] T013 [P] Escrever testes falhando para polling somente de contatos pendentes, backoff, timeout, handoff e isolamento de ciclos em `poc-chat/src/state/conversationTracker.test.ts`
-- [x] T014 Implementar o tracker assíncrono e o controle de retry com `eventId` estável em `poc-chat/src/state/conversationTracker.ts`
-- [x] T015 [P] Criar fixtures determinísticas de projeção, recibos e falhas em `poc-chat/src/test/fixtures.ts` e helpers de `fetch` em `poc-chat/src/test/httpTestUtils.ts`
+- [x] T007 [P] Escrever testes falhando para validação, migração segura e descarte individual de contatos em `apps/poc-chat/src/state/contactStore.test.ts`
+- [x] T008 Implementar `LocalContact`, `PersistedUiState`, geração de alias `manual-<UUID>` e persistência somente de metadados em `apps/poc-chat/src/state/contactStore.ts`
+- [x] T009 [P] Escrever testes de contrato HTTP para payload textual, alias, `202`, `409`, erros de transporte e ausência do header `Authorization` em `apps/poc-chat/src/api/conversationClient.test.ts`
+- [x] T010 Implementar os tipos e o cliente same-origin em `apps/poc-chat/src/api/contracts.ts` e `apps/poc-chat/src/api/conversationClient.ts`, sem aceitar token vindo da UI
+- [x] T011 [P] Escrever testes falhando para validação de projeção, deduplicação por IDs, ordenação, reconciliação otimista e detecção de turno concluído em `apps/poc-chat/src/state/conversationReducer.test.ts`
+- [x] T012 Implementar reducer, modelos de estado e reconciliação canônica em `apps/poc-chat/src/state/conversationReducer.ts`
+- [x] T013 [P] Escrever testes falhando para polling somente de contatos pendentes, backoff, timeout, handoff e isolamento de ciclos em `apps/poc-chat/src/state/conversationTracker.test.ts`
+- [x] T014 Implementar o tracker assíncrono e o controle de retry com `eventId` estável em `apps/poc-chat/src/state/conversationTracker.ts`
+- [x] T015 [P] Criar fixtures determinísticas de projeção, recibos e falhas em `apps/poc-chat/src/test/fixtures.ts` e helpers de `fetch` em `apps/poc-chat/src/test/httpTestUtils.ts`
 
 **Checkpoint**: contratos de browser, estado local, cliente HTTP, reconciliação e tracker têm testes verdes sem depender do ambiente Hermes real.
 
@@ -85,17 +85,17 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 
 ### Tests for User Story 1
 
-- [x] T016 [P] [US1] Escrever teste de interação para criação de contato, envio otimista e estado de espera em `poc-chat/src/components/ChatView.test.tsx`
-- [x] T017 [P] [US1] Escrever teste de teclado para Enter enviar e Shift+Enter preservar quebra de linha em `poc-chat/src/components/MessageComposer.test.tsx`
-- [x] T018 [P] [US1] Escrever teste de renderização de balões, quebras de linha e links `http/https` escapados em `poc-chat/src/components/MessageBubble.test.tsx`
+- [x] T016 [P] [US1] Escrever teste de interação para criação de contato, envio otimista e estado de espera em `apps/poc-chat/src/components/ChatView.test.tsx`
+- [x] T017 [P] [US1] Escrever teste de teclado para Enter enviar e Shift+Enter preservar quebra de linha em `apps/poc-chat/src/components/MessageComposer.test.tsx`
+- [x] T018 [P] [US1] Escrever teste de renderização de balões, quebras de linha e links `http/https` escapados em `apps/poc-chat/src/components/MessageBubble.test.tsx`
 
 ### Implementation for User Story 1
 
-- [x] T019 [US1] Implementar o shell da aplicação e composição do estado em `poc-chat/src/App.tsx` e `poc-chat/src/main.tsx`
-- [x] T020 [US1] Implementar histórico e balões de cliente/Urba em `poc-chat/src/components/ChatView.tsx` e `poc-chat/src/components/MessageBubble.tsx`
-- [x] T021 [US1] Implementar composer textual com limite, validação compreensível e regras de teclado em `poc-chat/src/components/MessageComposer.tsx`
-- [x] T022 [US1] Implementar envio otimista, acompanhamento sem `flush` e estados de espera em `poc-chat/src/components/ChatView.tsx` e `poc-chat/src/state/conversationTracker.ts`
-- [x] T023 [US1] Aplicar layout, acessibilidade básica e identidade Urbana com rótulo “Simulador local” em `poc-chat/src/styles.css`
+- [x] T019 [US1] Implementar o shell da aplicação e composição do estado em `apps/poc-chat/src/App.tsx` e `apps/poc-chat/src/main.tsx`
+- [x] T020 [US1] Implementar histórico e balões de cliente/Urba em `apps/poc-chat/src/components/ChatView.tsx` e `apps/poc-chat/src/components/MessageBubble.tsx`
+- [x] T021 [US1] Implementar composer textual com limite, validação compreensível e regras de teclado em `apps/poc-chat/src/components/MessageComposer.tsx`
+- [x] T022 [US1] Implementar envio otimista, acompanhamento sem `flush` e estados de espera em `apps/poc-chat/src/components/ChatView.tsx` e `apps/poc-chat/src/state/conversationTracker.ts`
+- [x] T023 [US1] Aplicar layout, acessibilidade básica e identidade Urbana com rótulo “Simulador local” em `apps/poc-chat/src/styles.css`
 
 **Checkpoint**: US1 funciona com mocks determinísticos e não chama webhook real, `flush`, Hermes diretamente ou endpoints técnicos.
 
@@ -109,16 +109,16 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 
 ### Tests for User Story 2
 
-- [x] T024 [P] [US2] Escrever testes de lista, criação, seleção, nomes duplicados, arquivamento e indicadores de não lido em `poc-chat/src/components/ConversationList.test.tsx`
-- [x] T025 [P] [US2] Escrever teste negativo que inspeciona URL, headers, corpo e armazenamento e prova que `displayName` nunca é enviado em `poc-chat/src/api/privacyContract.test.ts`
-- [x] T026 [P] [US2] Escrever teste de isolamento de três contatos e respostas fora de ordem em `poc-chat/src/App.multi-contact.test.tsx`
+- [x] T024 [P] [US2] Escrever testes de lista, criação, seleção, nomes duplicados, arquivamento e indicadores de não lido em `apps/poc-chat/src/components/ConversationList.test.tsx`
+- [x] T025 [P] [US2] Escrever teste negativo que inspeciona URL, headers, corpo e armazenamento e prova que `displayName` nunca é enviado em `apps/poc-chat/src/api/privacyContract.test.ts`
+- [x] T026 [P] [US2] Escrever teste de isolamento de três contatos e respostas fora de ordem em `apps/poc-chat/src/App.multi-contact.test.tsx`
 
 ### Implementation for User Story 2
 
-- [x] T027 [US2] Implementar lista, criação, seleção, arquivamento e indicador de não lido em `poc-chat/src/components/ConversationList.tsx`
-- [x] T028 [US2] Integrar o contato ativo, cursores de leitura e múltiplos estados de conversa em `poc-chat/src/App.tsx` e `poc-chat/src/state/conversationReducer.ts`
-- [x] T029 [US2] Garantir a fronteira de alias opaco no cliente e impedir `displayName` em path, payload, logs e headers em `poc-chat/src/api/conversationClient.ts`
-- [x] T030 [US2] Implementar acompanhamento concorrente por alias sem cruzar respostas em `poc-chat/src/state/conversationTracker.ts`
+- [x] T027 [US2] Implementar lista, criação, seleção, arquivamento e indicador de não lido em `apps/poc-chat/src/components/ConversationList.tsx`
+- [x] T028 [US2] Integrar o contato ativo, cursores de leitura e múltiplos estados de conversa em `apps/poc-chat/src/App.tsx` e `apps/poc-chat/src/state/conversationReducer.ts`
+- [x] T029 [US2] Garantir a fronteira de alias opaco no cliente e impedir `displayName` em path, payload, logs e headers em `apps/poc-chat/src/api/conversationClient.ts`
+- [x] T030 [US2] Implementar acompanhamento concorrente por alias sem cruzar respostas em `apps/poc-chat/src/state/conversationTracker.ts`
 
 **Checkpoint**: US1 continua verde e US2 cobre identidade técnica independente, nomes iguais, não lidos e isolamento observável.
 
@@ -132,14 +132,14 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 
 ### Tests for User Story 3
 
-- [x] T031 [P] [US3] Escrever testes de hidratação, seleção ativa, schema desconhecido e armazenamento sem transcript em `poc-chat/src/state/contactStore.reload.test.ts`
-- [x] T032 [P] [US3] Escrever teste de recuperação da projeção ordenada sem duplicação e de arquivamento sem DELETE remoto em `poc-chat/src/App.reload.test.tsx`
+- [x] T031 [P] [US3] Escrever testes de hidratação, seleção ativa, schema desconhecido e armazenamento sem transcript em `apps/poc-chat/src/state/contactStore.reload.test.ts`
+- [x] T032 [P] [US3] Escrever teste de recuperação da projeção ordenada sem duplicação e de arquivamento sem DELETE remoto em `apps/poc-chat/src/App.reload.test.tsx`
 
 ### Implementation for User Story 3
 
-- [x] T033 [US3] Implementar hidratação segura do estado visual e restauração do contato ativo em `poc-chat/src/state/contactStore.ts` e `poc-chat/src/App.tsx`
-- [x] T034 [US3] Implementar carga sob demanda, ordenação canônica e reconciliação após reload em `poc-chat/src/api/conversationClient.ts` e `poc-chat/src/state/conversationReducer.ts`
-- [x] T035 [US3] Implementar arquivamento exclusivamente local e criação de identidade sem herança em `poc-chat/src/components/ConversationList.tsx`
+- [x] T033 [US3] Implementar hidratação segura do estado visual e restauração do contato ativo em `apps/poc-chat/src/state/contactStore.ts` e `apps/poc-chat/src/App.tsx`
+- [x] T034 [US3] Implementar carga sob demanda, ordenação canônica e reconciliação após reload em `apps/poc-chat/src/api/conversationClient.ts` e `apps/poc-chat/src/state/conversationReducer.ts`
+- [x] T035 [US3] Implementar arquivamento exclusivamente local e criação de identidade sem herança em `apps/poc-chat/src/components/ConversationList.tsx`
 
 **Checkpoint**: reload recupera contatos e projeções; localStorage contém somente metadados permitidos; nenhum transcript é apagado ou copiado para o browser.
 
@@ -153,13 +153,13 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 
 ### Tests for User Story 4
 
-- [x] T036 [P] [US4] Escrever testes de ciclo de vida do polling, cancelamento apenas de contatos ociosos e respostas fora de ordem em `poc-chat/src/state/conversationTracker.concurrent.test.ts`
-- [x] T037 [P] [US4] Escrever teste de não lido para conversa inativa e ausência de falso não lido na conversa aberta em `poc-chat/src/App.concurrent.test.tsx`
+- [x] T036 [P] [US4] Escrever testes de ciclo de vida do polling, cancelamento apenas de contatos ociosos e respostas fora de ordem em `apps/poc-chat/src/state/conversationTracker.concurrent.test.ts`
+- [x] T037 [P] [US4] Escrever teste de não lido para conversa inativa e ausência de falso não lido na conversa aberta em `apps/poc-chat/src/App.concurrent.test.tsx`
 
 ### Implementation for User Story 4
 
-- [x] T038 [US4] Implementar registry de trackers por contato e limpeza segura no unmount em `poc-chat/src/state/conversationTracker.ts`
-- [x] T039 [US4] Integrar estados de processamento independentes à lista e ao cabeçalho do chat em `poc-chat/src/App.tsx` e `poc-chat/src/components/ConversationList.tsx`
+- [x] T038 [US4] Implementar registry de trackers por contato e limpeza segura no unmount em `apps/poc-chat/src/state/conversationTracker.ts`
+- [x] T039 [US4] Integrar estados de processamento independentes à lista e ao cabeçalho do chat em `apps/poc-chat/src/App.tsx` e `apps/poc-chat/src/components/ConversationList.tsx`
 
 **Checkpoint**: nenhum contato pendente bloqueia a interface e nenhuma resposta fora de ordem altera outro histórico.
 
@@ -173,15 +173,15 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 
 ### Tests for User Story 5
 
-- [x] T040 [P] [US5] Escrever testes de `202`, `409`, timeout, `502`, resposta inválida, retry único e `eventId` estável em `poc-chat/src/state/conversationTracker.failure.test.ts`
-- [x] T041 [P] [US5] Escrever teste de estados técnicos, botão de retry e ausência de mensagem inventada em `poc-chat/src/components/FailureState.test.tsx`
-- [x] T042 [P] [US5] Escrever teste de encerramento do indicador em modo `HUMAN` e preservação de resposta canônica de contingência em `poc-chat/src/state/conversationReducer.handoff.test.ts`
+- [x] T040 [P] [US5] Escrever testes de `202`, `409`, timeout, `502`, resposta inválida, retry único e `eventId` estável em `apps/poc-chat/src/state/conversationTracker.failure.test.ts`
+- [x] T041 [P] [US5] Escrever teste de estados técnicos, botão de retry e ausência de mensagem inventada em `apps/poc-chat/src/components/FailureState.test.tsx`
+- [x] T042 [P] [US5] Escrever teste de encerramento do indicador em modo `HUMAN` e preservação de resposta canônica de contingência em `apps/poc-chat/src/state/conversationReducer.handoff.test.ts`
 
 ### Implementation for User Story 5
 
-- [x] T043 [US5] Implementar estados de erro técnico sanitizado, timeout e tentativa manual em `poc-chat/src/components/FailureState.tsx` e `poc-chat/src/components/ChatView.tsx`
-- [x] T044 [US5] Finalizar retry idempotente, backoff e encerramento por `HUMAN` em `poc-chat/src/state/conversationTracker.ts` e `poc-chat/src/api/conversationClient.ts`
-- [x] T045 [US5] Garantir que erros de transporte nunca sejam convertidos em mensagens `URBA` em `poc-chat/src/state/conversationReducer.ts` e `poc-chat/src/components/MessageBubble.tsx`
+- [x] T043 [US5] Implementar estados de erro técnico sanitizado, timeout e tentativa manual em `apps/poc-chat/src/components/FailureState.tsx` e `apps/poc-chat/src/components/ChatView.tsx`
+- [x] T044 [US5] Finalizar retry idempotente, backoff e encerramento por `HUMAN` em `apps/poc-chat/src/state/conversationTracker.ts` e `apps/poc-chat/src/api/conversationClient.ts`
+- [x] T045 [US5] Garantir que erros de transporte nunca sejam convertidos em mensagens `URBA` em `apps/poc-chat/src/state/conversationReducer.ts` e `apps/poc-chat/src/components/MessageBubble.tsx`
 
 **Checkpoint**: falhas não inventam conteúdo conversacional, entradas originais permanecem visíveis e retries não geram efeitos duplicados.
 
@@ -191,12 +191,12 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 
 **Purpose**: servir a SPA localmente com proxy mínimo, token somente no container e hardening operacional.
 
-- [x] T046 [P] Escrever testes/fixtures de allowlist, substituição de `Authorization`, bloqueio de `flush`, métricas, ferramentas e pagamento em `poc-chat/nginx/nginx.contract.test.ts`
-- [x] T047 [P] Criar template de configuração com proxy same-origin e tmpfs de segredo em `poc-chat/nginx/default.conf.template`
-- [x] T048 Implementar configuração estática, headers, healthcheck e rotas bloqueadas em `poc-chat/nginx/nginx.conf`
-- [x] T049 Implementar build multi-stage Node 24 + Nginx sem privilégios em `poc-chat/Dockerfile` e `poc-chat/docker-entrypoint.d/10-poc-token.sh`
-- [x] T050 Integrar serviço `poc-chat` somente ao profile/Compose local em `hermes/docker-compose.poc.yml`, com rede mínima, bind `127.0.0.1:${POC_CHAT_HOST_PORT:-3000}:8080`, read-only filesystem, capabilities removidas e `no-new-privileges`
-- [x] T051 [P] Criar healthcheck e validações de container em `poc-chat/container.test.sh`, incluindo `nginx -t`, ausência de CORS e bloqueio das rotas fora da allowlist
+- [x] T046 [P] Escrever testes/fixtures de allowlist, substituição de `Authorization`, bloqueio de `flush`, métricas, ferramentas e pagamento em `apps/poc-chat/nginx/nginx.contract.test.ts`
+- [x] T047 [P] Criar template de configuração com proxy same-origin e tmpfs de segredo em `apps/poc-chat/nginx/default.conf.template`
+- [x] T048 Implementar configuração estática, headers, healthcheck e rotas bloqueadas em `apps/poc-chat/nginx/nginx.conf`
+- [x] T049 Implementar build multi-stage Node 24 + Nginx sem privilégios em `apps/poc-chat/Dockerfile` e `apps/poc-chat/docker-entrypoint.d/10-poc-token.sh`
+- [x] T050 Integrar serviço `poc-chat` somente ao profile/Compose local em `infra/local-poc/docker-compose.poc.yml`, com rede mínima, bind `127.0.0.1:${POC_CHAT_HOST_PORT:-3000}:8080`, read-only filesystem, capabilities removidas e `no-new-privileges`
+- [x] T051 [P] Criar healthcheck e validações de container em `apps/poc-chat/container.test.sh`, incluindo `nginx -t`, ausência de CORS e bloqueio das rotas fora da allowlist
 
 **Checkpoint**: `docker compose ... config --quiet`, build, healthcheck, `nginx -t` e rotas permitidas/bloqueadas passam sem expor o token.
 
@@ -206,12 +206,12 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 
 **Purpose**: validar a entrega completa contra a spec, quickstart e regressões do core Hermes-first.
 
-- [x] T052 [P] Escrever os cinco cenários determinísticos de navegador US1–US5 em `poc-chat/e2e/manual-chat.spec.ts`
-- [x] T053 [P] Adicionar teste de segurança que inspeciona bundle, localStorage e requisições do browser em `poc-chat/e2e/privacy.spec.ts`
+- [x] T052 [P] Escrever os cinco cenários determinísticos de navegador US1–US5 em `apps/poc-chat/e2e/manual-chat.spec.ts`
+- [x] T053 [P] Adicionar teste de segurança que inspeciona bundle, localStorage e requisições do browser em `apps/poc-chat/e2e/privacy.spec.ts`
 - [x] T054 Atualizar instruções de inicialização, smoke manual, falhas e troubleshooting em `specs/002-poc-manual-chat/quickstart.md`
-- [x] T055 [P] Executar e corrigir `npm ci`, `npm run lint`, `npm run typecheck`, `npm test -- --run`, `npm run coverage`, `npm run build` e `npm run test:e2e` dentro de `poc-chat/`
+- [x] T055 [P] Executar e corrigir `npm ci`, `npm run lint`, `npm run typecheck`, `npm test -- --run`, `npm run coverage`, `npm run build` e `npm run test:e2e` dentro de `apps/poc-chat/`
 - [x] T056 Executar validação do Compose e do serviço local conforme `specs/002-poc-manual-chat/quickstart.md`, sem imprimir `.env.poc` ou segredos
-- [x] T057 Executar os gates de regressão `./gradlew check --offline --no-daemon --console=plain`, `python3 -m unittest discover -s hermes/plugins/urbana-domain -p 'test*.py'`, `./hermes/scripts/smoke-contract.sh`, `./hermes/scripts/smoke-isolation.sh` e `./hermes/scripts/verify-tool-surface.sh`
+- [x] T057 Executar os gates de regressão `./gradlew check --offline --no-daemon --console=plain`, `python3 -m unittest discover -s integrations/hermes-agent/plugins/urbana-domain -p 'test*.py'`, `./integrations/hermes-agent/scripts/smoke-contract.sh`, `./integrations/hermes-agent/scripts/smoke-isolation.sh` e `./integrations/hermes-agent/scripts/verify-tool-surface.sh`
 - [x] T058 Executar smoke live Browser → poc-chat → Urbana Connect → Hermes → MongoDB → browser com pelo menos três contatos, fragmentação, troca, reload e isolamento
 - [x] T059 Inspecionar diff final, bundle, armazenamento e tráfego para confirmar FR-001–FR-022, ausência de alteração no webhook/produção e ausência de credenciais
 - [x] T060 Atualizar a subtask PEE-101 com branch, resumo, arquivos, testes, critérios cobertos e riscos; preparar PR para `hml` sem fazer deploy
@@ -241,7 +241,7 @@ revisão humana e a validação em `hml`; nenhum deploy foi executado.
 ### Agent ownership
 
 - **Explorer**: somente leitura dos contratos existentes, Compose, scripts e riscos; não escreve código.
-- **Developer**: único escritor da implementação em `poc-chat/`, `hermes/docker-compose.poc.yml`, scripts e documentação da spec, executando T001–T060 em ordem e preservando alterações preexistentes.
+- **Developer**: único escritor da implementação em `apps/poc-chat/`, `infra/local-poc/docker-compose.poc.yml`, scripts e documentação da spec, executando T001–T060 em ordem e preservando alterações preexistentes.
 - **QA Tester**: após o Developer parar, executa T055–T059 de forma independente, registra falhas e não aceita a própria implementação.
 - **Tech Lead Orchestrator**: mantém Jira, branch, tasks.md, decisões de escopo, integração, correções e aceitação final.
 

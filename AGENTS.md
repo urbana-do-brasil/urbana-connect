@@ -285,7 +285,10 @@ separado da Fase 3.
 
 - Java 21 LTS na Urbana Connect; Python fornecido pelo runtime oficial do Hermes apenas para o plugin de extensão + Spring Boot 3.4.13, Gradle 8.x, Hermes Agent Sessions API, OpenRouter (001-hermes-conversational-core)
 - MongoDB para transcript, fatos, mapeamento de sessões e execuções do corpus; SQLite interno do Hermes para sessões (001-hermes-conversational-core)
+- TypeScript 5.x e React 19.2; Node.js 24 LTS somente para build/test; Java 21 LTS permanece inalterado no backend + React 19.2, Vite 8, Nginx unprivileged; Vitest, React Testing Library e Playwright para testes (002-poc-manual-chat)
+- MongoDB existente como fonte canônica; `localStorage` versionado somente para metadados dos contatos e estado visual (002-poc-manual-chat)
 
 ## Recent Changes
 
+- 002-poc-manual-chat: Added TypeScript 5.x, React 19.2, Vite 8, Nginx unprivileged e testes com Vitest, React Testing Library e Playwright para o chat local da POC
 - 001-hermes-conversational-core: Added Java 21 LTS na Urbana Connect; Python fornecido pelo runtime oficial do Hermes apenas para o plugin de extensão + Spring Boot 3.4.13, Gradle 8.x, Hermes Agent Sessions API, OpenRouter
