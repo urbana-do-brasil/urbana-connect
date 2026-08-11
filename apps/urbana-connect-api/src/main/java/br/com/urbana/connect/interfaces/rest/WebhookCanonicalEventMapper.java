@@ -11,10 +11,7 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Locale;
 
-/**
- * Pure edge mapper. Production webhook routing is not changed by the POC;
- * when it is adopted, this mapper gives it the exact simulator contract.
- */
+/** Pure edge mapper shared by the local simulator contract and the WhatsApp adapter. */
 public final class WebhookCanonicalEventMapper {
     private WebhookCanonicalEventMapper() {
     }
@@ -34,6 +31,9 @@ public final class WebhookCanonicalEventMapper {
             default -> ReceptionMessageType.TEXT;
         };
         String text = message.textBody();
+        if ((text == null || text.isBlank()) && type == ReceptionMessageType.INTERACTIVE) {
+            text = message.interactiveReplyTitle();
+        }
         String media = type == ReceptionMessageType.IMAGE || type == ReceptionMessageType.DOCUMENT
                 || type == ReceptionMessageType.AUDIO ? message.providerMessageId() : null;
         String transcript = type == ReceptionMessageType.AUDIO ? text : null;

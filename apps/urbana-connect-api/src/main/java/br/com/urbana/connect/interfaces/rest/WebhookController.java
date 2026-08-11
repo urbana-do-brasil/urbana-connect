@@ -2,6 +2,8 @@ package br.com.urbana.connect.interfaces.rest;
 
 import br.com.urbana.connect.application.conversation.ConversationFlowService;
 import br.com.urbana.connect.application.conversation.InboundWhatsAppMessage;
+import br.com.urbana.connect.application.reception.HermesWebhookMessageHandler;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,13 +29,17 @@ public class WebhookController {
     private static final Logger log = LoggerFactory.getLogger(WebhookController.class);
 
     private final String verifyToken;
-    private final ConversationFlowService conversationFlowService;
+    private final MessageHandler messageHandler;
 
     public WebhookController(
             @Value("${whatsapp.webhook.verify-token:}") String verifyToken,
-            ConversationFlowService conversationFlowService) {
+            ConversationFlowService conversationFlowService,
+            ObjectProvider<HermesWebhookMessageHandler> hermesWebhookMessageHandler) {
         this.verifyToken = verifyToken;
-        this.conversationFlowService = conversationFlowService;
+        HermesWebhookMessageHandler hermesHandler = hermesWebhookMessageHandler.getIfAvailable();
+        this.messageHandler = hermesHandler == null
+                ? conversationFlowService::handleIncomingMessage
+                : hermesHandler::handle;
     }
 
     @GetMapping("/api/webhook")
@@ -104,7 +110,7 @@ public class WebhookController {
             return;
         }
 
-        conversationFlowService.handleIncomingMessage(
+        messageHandler.handle(
             new InboundWhatsAppMessage(
                 phoneNumber,
                 message.path("text").path("body").asText(""),
@@ -115,6 +121,11 @@ public class WebhookController {
             ),
             receivedAt
         );
+    }
+
+    @FunctionalInterface
+    private interface MessageHandler {
+        void handle(InboundWhatsAppMessage message, Instant receivedAt);
     }
 
     private String resolveInteractiveReplyId(JsonNode message) {

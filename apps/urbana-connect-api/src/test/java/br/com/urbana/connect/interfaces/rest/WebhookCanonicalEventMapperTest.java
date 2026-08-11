@@ -25,5 +25,6 @@ class WebhookCanonicalEventMapperTest {
         assertThat(interactive.contactId()).isEqualTo(text.contactId());
         assertThat(interactive.type()).isEqualTo(ReceptionMessageType.INTERACTIVE);
         assertThat(interactive.interactiveReplyId()).isEqualTo("service.decor");
+        assertThat(interactive.conversationalText()).isEqualTo("Decor");
     }
 }

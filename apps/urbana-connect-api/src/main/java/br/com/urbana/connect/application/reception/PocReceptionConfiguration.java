@@ -3,6 +3,7 @@ package br.com.urbana.connect.application.reception;
 import br.com.urbana.connect.application.reception.tools.DomainToolInvocationUseCase;
 import br.com.urbana.connect.application.reception.tools.DomainToolService;
 import br.com.urbana.connect.application.reception.tools.StatefulDomainToolService;
+import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.reception.port.out.ActiveTurnLeaseGateway;
 import br.com.urbana.connect.domain.reception.port.out.AgentSessionLinkGateway;
 import br.com.urbana.connect.domain.reception.port.out.DomainToolInvocationGateway;
@@ -41,7 +42,7 @@ import org.springframework.web.client.RestClient;
 import java.time.Clock;
 import java.time.Duration;
 
-/** Explicit POC wiring; production webhook wiring is intentionally untouched. */
+/** Hermes reception wiring shared by the local simulator and the WhatsApp POC route. */
 @Configuration
 @EnableScheduling
 @ConditionalOnProperty(name = "hermes.poc.enabled", havingValue = "true")
@@ -189,6 +190,12 @@ public class PocReceptionConfiguration {
         return new ReceptionOrchestrator(hermes, conversations, facts, transcript, turns,
                 policy, coordinator, leases, invocations, Clock.systemUTC(), metrics, returningCustomers,
                 nonProspectPolicy, DurationStyle.detectAndParse(delayThreshold));
+    }
+
+    @Bean
+    public HermesWebhookMessageHandler hermesWebhookMessageHandler(
+            ReceptionOrchestrator orchestrator, WhatsAppMessageGateway whatsapp) {
+        return new HermesWebhookMessageHandler(orchestrator, whatsapp);
     }
 
     @Bean(initMethod = "recover", destroyMethod = "close")

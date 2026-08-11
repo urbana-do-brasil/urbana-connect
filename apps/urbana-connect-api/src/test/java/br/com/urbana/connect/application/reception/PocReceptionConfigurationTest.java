@@ -3,6 +3,7 @@ package br.com.urbana.connect.application.reception;
 import br.com.urbana.connect.domain.reception.port.out.ActiveTurnLeaseGateway;
 import br.com.urbana.connect.domain.reception.port.out.AgentSessionLinkGateway;
 import br.com.urbana.connect.domain.reception.port.out.PocPendingEventGateway;
+import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.application.reception.tools.DomainToolInvocationUseCase;
 import br.com.urbana.connect.application.reception.tools.DomainToolService;
 import br.com.urbana.connect.application.reception.tools.StatefulDomainToolService;
@@ -55,6 +56,7 @@ class PocReceptionConfigurationTest {
                 .withBean(SpringDataReceptionTurnRepository.class, () -> turnRepository)
                 .withBean(SpringDataPocPendingEventRepository.class, () -> pendingEventRepository)
                 .withBean(MongoTemplate.class, () -> mongoTemplate)
+                .withBean(WhatsAppMessageGateway.class, () -> mock(WhatsAppMessageGateway.class))
                 .withBean(RestClient.Builder.class, RestClient::builder)
                 .withPropertyValues(
                         "hermes.poc.enabled=true",
@@ -66,6 +68,7 @@ class PocReceptionConfigurationTest {
                     assertThat(context).hasSingleBean(ConversationSimulatorController.class);
                     assertThat(context).hasSingleBean(HermesSessionService.class);
                     assertThat(context).hasSingleBean(ReceptionOrchestrator.class);
+                    assertThat(context).hasSingleBean(HermesWebhookMessageHandler.class);
                     assertThat(context).hasSingleBean(NonProspectPolicy.class);
                     assertThat(context).hasSingleBean(MessageBatcher.class);
                     assertThat(context).hasSingleBean(MediaNormalizationService.class);

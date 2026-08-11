@@ -27,6 +27,7 @@ hermes:
     lease-ttl: ${HERMES_ACTIVE_TURN_LEASE_SECONDS:240}s
   poc:
     enabled: true
+    # Also activates the Hermes-first adapter for POST /api/webhook.
     api-token: ${HERMES_POC_API_TOKEN:}
     batch-flush-interval: ${HERMES_POC_BATCH_FLUSH_INTERVAL:1s}
     delay-threshold: ${HERMES_POC_DELAY_THRESHOLD:5s}
