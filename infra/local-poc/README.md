@@ -5,6 +5,12 @@ Hermes, Urbana Connect, `poc-chat` e os dois proxies. O runtime Hermes continua
 externo; seus artefatos mantidos pela Urbana ficam em
 `integrations/hermes-agent/`.
 
+O Mongo local executa como replica set `rs0` de um membro. O serviço
+`mongodb-rs-init` inicializa o membro `mongodb:27017` de forma idempotente, e o
+healthcheck só fica verde quando `hello` confirma um primary gravável. A URI
+consumida pela aplicação inclui `replicaSet=rs0`, retries de leitura/escrita e
+`w=majority`.
+
 Na raiz do repositório, com `.env.poc` local configurado:
 
 ```bash
@@ -31,6 +37,10 @@ Após a subida, valide a dependência obrigatória com
 `curl -fsS http://127.0.0.1:8081/api/v1/readiness` e o chat com
 `curl -fsS http://127.0.0.1:3000/health`. O chat depende de
 `urbana-connect: service_healthy` no Compose.
+
+Esse replica set de um membro habilita a transação multi-documento usada na
+prova técnica, mas não representa alta disponibilidade nem failover de
+produção.
 
 `.env.poc` não é movido, copiado ou exibido. Para validações Hermes, use os
 scripts em `integrations/hermes-agent/scripts/` e registre apenas resultados

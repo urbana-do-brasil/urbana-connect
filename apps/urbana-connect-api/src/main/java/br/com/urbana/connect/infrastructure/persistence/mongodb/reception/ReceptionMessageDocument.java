@@ -29,6 +29,7 @@ public class ReceptionMessageDocument {
     private ReceptionMessageType type;
     private String text;
     private String mediaRef;
+    @Indexed(unique = true, sparse = true)
     private String providerMessageId;
     private Instant createdAt;
 }

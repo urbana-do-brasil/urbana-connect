@@ -15,9 +15,15 @@ public class MongoConnectivityVerifier {
 
     public boolean isAvailable() {
         try {
-            Document result = mongoTemplate.executeCommand(new Document("ping", 1));
+            Document result = mongoTemplate.executeCommand(new Document("hello", 1));
             Number status = result.get("ok", Number.class);
-            return status != null && status.doubleValue() == 1.0d;
+            String replicaSetName = result.getString("setName");
+            Boolean writablePrimary = result.getBoolean("isWritablePrimary");
+            return status != null
+                    && status.doubleValue() == 1.0d
+                    && replicaSetName != null
+                    && !replicaSetName.isBlank()
+                    && Boolean.TRUE.equals(writablePrimary);
         } catch (RuntimeException ex) {
             return false;
         }

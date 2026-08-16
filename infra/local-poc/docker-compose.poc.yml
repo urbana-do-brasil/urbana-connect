@@ -4,17 +4,59 @@ services:
   mongodb:
     image: mongo:8.0
     restart: unless-stopped
+    hostname: mongodb
+    command:
+      - mongod
+      - --replSet=rs0
+      - --bind_ip_all
     networks:
       - data
     volumes:
       - mongodb_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --host 127.0.0.1:27017/admin --eval
+          'const hello = db.adminCommand({hello: 1}); quit(
+          hello.ok === 1 && hello.setName === "rs0" &&
+          hello.isWritablePrimary === true ? 0 : 1);'
       interval: 5s
       timeout: 5s
-      retries: 12
+      retries: 30
     security_opt:
       - no-new-privileges:true
+
+  mongodb-rs-init:
+    image: mongo:8.0
+    restart: "no"
+    depends_on:
+      mongodb:
+        condition: service_started
+    networks:
+      - data
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        until mongosh --quiet --host mongodb:27017/admin --eval '
+          try { quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 1); }
+          catch (error) { quit(1); }
+        '; do sleep 1; done
+
+        until mongosh --quiet --host mongodb:27017/admin --eval '
+          const hello = db.adminCommand({hello: 1});
+          if (hello.setName === "rs0" && hello.isWritablePrimary === true) {
+            quit(0);
+          }
+          try {
+            rs.initiate({
+              _id: "rs0",
+              members: [{_id: 0, host: "mongodb:27017"}]
+            });
+          } catch (error) {}
+          quit(1);
+        '; do sleep 1; done
 
   hermes-profile-init:
     image: urbana-hermes-agent:0.20.0
@@ -45,6 +87,8 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      mongodb-rs-init:
+        condition: service_completed_successfully
     networks:
       - data
       - hermes_app
@@ -54,7 +98,7 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: poc
       SERVER_PORT: 8081
-      MONGODB_URI: mongodb://mongodb:27017/urbana-connect-poc
+      MONGODB_URI: "mongodb://mongodb:27017/urbana-connect-poc?replicaSet=rs0&retryWrites=true&retryReads=true&w=majority"
       HERMES_BASE_URL: http://hermes:8642
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:?set HERMES_API_SERVER_KEY in .env.poc}
       HERMES_INTERNAL_TOOL_TOKEN: ${HERMES_INTERNAL_TOOL_TOKEN:?set HERMES_INTERNAL_TOOL_TOKEN in .env.poc}
