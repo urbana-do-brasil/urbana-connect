@@ -1,9 +1,12 @@
-version: '3.8'
-
 services:
   mongodb:
-    image: mongo:latest
+    image: mongo:8.0
     container_name: urbana-connect-mongodb
+    hostname: mongodb
+    command:
+      - mongod
+      - --replSet=rs0
+      - --bind_ip_all
     ports:
       - "27017:27017"
     volumes:
@@ -12,12 +15,47 @@ services:
       - MONGO_INITDB_DATABASE=urbana-connect
     restart: unless-stopped
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/urbana-connect --quiet
-      interval: 10s
-      timeout: 10s
-      retries: 5
-      start_period: 40s
-      
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --host 127.0.0.1:27017/admin --eval
+          'const hello = db.adminCommand({hello: 1}); quit(
+          hello.ok === 1 && hello.setName === "rs0" &&
+          hello.isWritablePrimary === true ? 0 : 1);'
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  mongodb-rs-init:
+    image: mongo:8.0
+    restart: "no"
+    depends_on:
+      mongodb:
+        condition: service_started
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        until mongosh --quiet --host mongodb:27017/admin --eval '
+          try { quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 1); }
+          catch (error) { quit(1); }
+        '; do sleep 1; done
+
+        until mongosh --quiet --host mongodb:27017/admin --eval '
+          const hello = db.adminCommand({hello: 1});
+          if (hello.setName === "rs0" && hello.isWritablePrimary === true) {
+            quit(0);
+          }
+          try {
+            rs.initiate({
+              _id: "rs0",
+              members: [{_id: 0, host: "mongodb:27017"}]
+            });
+          } catch (error) {}
+          quit(1);
+        '; do sleep 1; done
+
   mongo-express:
     image: mongo-express:latest
     container_name: urbana-connect-mongo-express
@@ -30,9 +68,12 @@ services:
       - ME_CONFIG_BASICAUTH_PASSWORD=senha123
       - ME_CONFIG_MONGODB_ENABLE_ADMIN=true
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
+      mongodb-rs-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
 volumes:
   mongodb_data:
-    name: urbana-connect-mongodb-data 
+    name: urbana-connect-mongodb-data
