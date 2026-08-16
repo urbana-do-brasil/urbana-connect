@@ -18,6 +18,8 @@ inserção em `reception_messages` na mesma transação.
 - A POC local usa `mongo:8.0`, hostname estável `mongodb` e um serviço
   `mongodb-rs-init` idempotente que inicia o membro `mongodb:27017` quando
   necessário.
+- O Compose e o `dev-env.sh` mantidos em `apps/urbana-connect-api` usam a
+  mesma inicialização e não oferecem mais um caminho standalone divergente.
 - Homologação usa um `StatefulSet` de um membro. O pod é endereçado pelo DNS
   estável `urbana-connect-mongodb-0.urbana-connect-mongodb.<namespace>.svc.cluster.local`;
   um sidecar inicia o membro com esse endereço.
