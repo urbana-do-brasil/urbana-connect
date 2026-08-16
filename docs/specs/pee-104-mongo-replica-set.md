@@ -61,6 +61,13 @@ Os índices futuros da retomada permanecem contrato para o próximo ticket:
 Eles não são criados nesta entrega porque os agregados correspondentes ainda
 não existem.
 
+Em runtime, a aplicação resolve as anotações de índice dos documentos
+`@Document` e chama `ensureIndex` durante o startup. Assim, a unicidade
+`providerMessageId` e `eventId` não depende de
+`spring.data.mongodb.auto-index-creation`, que pode permanecer desabilitado
+nos ambientes controlados. O teste de integração de provisionamento desabilita
+explicitamente essa propriedade e inspeciona os índices reais da coleção.
+
 ## Um membro não é alta disponibilidade
 
 Um replica set de um membro fornece a topologia Mongo necessária para
