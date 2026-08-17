@@ -17,7 +17,8 @@ services:
       test:
         - CMD-SHELL
         - >-
-          mongosh --quiet --host 127.0.0.1:27017/admin --eval
+          mongosh --quiet
+          'mongodb://127.0.0.1:27017/admin?directConnection=true&serverSelectionTimeoutMS=3000' --eval
           'const hello = db.adminCommand({hello: 1}); quit(
           hello.ok === 1 && hello.setName === "rs0" &&
           hello.isWritablePrimary === true ? 0 : 1);'
@@ -39,12 +40,14 @@ services:
       - /bin/sh
       - -ec
       - |
-        until mongosh --quiet --host mongodb:27017/admin --eval '
+        until mongosh --quiet \
+          'mongodb://mongodb:27017/admin?directConnection=true&serverSelectionTimeoutMS=3000' --eval '
           try { quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 1); }
           catch (error) { quit(1); }
         '; do sleep 1; done
 
-        until mongosh --quiet --host mongodb:27017/admin --eval '
+        until mongosh --quiet \
+          'mongodb://mongodb:27017/admin?directConnection=true&serverSelectionTimeoutMS=3000' --eval '
           const hello = db.adminCommand({hello: 1});
           if (hello.setName === "rs0" && hello.isWritablePrimary === true) {
             quit(0);
@@ -59,7 +62,7 @@ services:
         '; do sleep 1; done
 
   hermes-profile-init:
-    image: urbana-hermes-agent:0.20.0
+    image: ${HERMES_IMAGE:-urbana-hermes-agent:pee-103-2f5472a15}
     restart: "no"
     user: "0:0"
     volumes:
@@ -159,7 +162,12 @@ services:
       start_period: 5s
 
   hermes:
-    image: urbana-hermes-agent:0.20.0
+    image: ${HERMES_IMAGE:-urbana-hermes-agent:pee-103-2f5472a15}
+    build:
+      context: ../../..
+      dockerfile: urbana-connect/infra/local-poc/hermes-pee-103.Dockerfile
+      args:
+        HERMES_GIT_SHA: 2f5472a15a026b6bd5847ad65058f1565d2b40ba
     restart: unless-stopped
     depends_on:
       urbana-connect:

@@ -22,6 +22,31 @@ docker compose --env-file .env.poc \
   -f infra/local-poc/docker-compose.poc.yml ps
 ```
 
+O mesmo fluxo pode ser iniciado por
+`./integrations/hermes-agent/scripts/run-local.sh -d`. O script resolve a
+imagem do serviço pelo Compose, constrói e valida a imagem PEE-103 padrão, ou
+usa uma imagem explicitamente configurada sem reconstruí-la.
+
+O Compose usa por padrão a imagem local
+`urbana-hermes-agent:pee-103-2f5472a15`. Ela é construída a partir do Hermes
+pinado no commit `2f5472a15a026b6bd5847ad65058f1565d2b40ba`, sobre a imagem
+`urbana-hermes-agent:0.20.0`, sem montar o código-fonte no container. O valor
+pode ser substituído por `HERMES_IMAGE` para validar uma tag explicitamente
+publicada em homologação; nesse caso, suba o stack sem `--build`.
+
+```bash
+HERMES_IMAGE=urbana-hermes-agent:<tag-de-homologacao> \
+  docker compose --env-file .env.poc \
+  -f infra/local-poc/docker-compose.poc.yml up -d --no-build
+```
+
+Para verificar a identidade da imagem antes de subir o stack:
+
+```bash
+docker image inspect urbana-hermes-agent:pee-103-2f5472a15 \
+  --format 'revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
+```
+
 Os contexts apontam para `apps/urbana-connect-api/` e `apps/poc-chat/`; os
 mounts do profile/plugin apontam para `integrations/hermes-agent/`. Nomes de
 serviços, portas, redes, volumes, healthchecks e isolamento permanecem os da

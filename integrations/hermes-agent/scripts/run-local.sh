@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HERMES_VERSION="v2026.8.3"
-HERMES_COMMIT="3c27eb6234bf91b8ceee9e9071591b31e9b148cb"
-HERMES_PACKAGE_VERSION="0.20.0"
+HERMES_VERSION="v2026.8.3-pee-103"
+HERMES_COMMIT="2f5472a15a026b6bd5847ad65058f1565d2b40ba"
+DEFAULT_IMAGE="urbana-hermes-agent:pee-103-2f5472a15"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 COMPOSE_FILE="$REPO_ROOT/infra/local-poc/docker-compose.poc.yml"
 ENV_FILE="$REPO_ROOT/.env.poc"
-IMAGE="urbana-hermes-agent:${HERMES_PACKAGE_VERSION}"
+IMAGE=""
 
 file_mode() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -38,7 +38,21 @@ image_label() {
     "$IMAGE" 2>/dev/null || true
 }
 
+compose_image() {
+  "${compose[@]}" config --format json | python3 -c '
+import json
+import sys
+
+services = json.load(sys.stdin).get("services", {})
+image = services.get("hermes", {}).get("image")
+if not image:
+    raise SystemExit("Hermes service image is missing from the resolved Compose config.")
+print(image)
+'
+}
+
 command -v docker >/dev/null 2>&1 || { echo "Docker is required." >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "Python 3 is required." >&2; exit 2; }
 [[ -f "$ENV_FILE" ]] || { echo "Create .env.poc from .env.poc.example first." >&2; exit 2; }
 env_mode="$(file_mode "$ENV_FILE")"
 [[ "$env_mode" == "600" ]] || {
@@ -56,10 +70,29 @@ if ! "${compose[@]}" config --quiet; then
   exit 3
 fi
 
+IMAGE="$(compose_image)"
+if [[ "$IMAGE" == "$DEFAULT_IMAGE" ]]; then
+  echo "Building validated Hermes image: $IMAGE"
+  "${compose[@]}" build hermes
+else
+  for argument in "$@"; do
+    if [[ "$argument" == "--build" ]]; then
+      echo "Do not use --build with an explicitly overridden HERMES_IMAGE ($IMAGE)." >&2
+      echo "Validate that image separately, then run without --build." >&2
+      exit 3
+    fi
+  done
+  docker image inspect "$IMAGE" >/dev/null 2>&1 || {
+    echo "Configured HERMES_IMAGE is not available locally: $IMAGE" >&2
+    exit 3
+  }
+fi
+
 revision="$(image_label 'org.opencontainers.image.revision')"
 version_label="$(image_label 'org.opencontainers.image.version')"
-if [[ "$revision" != "$HERMES_COMMIT" || "$version_label" != "$HERMES_VERSION" ]]; then
-  echo "Pinned Hermes image is not installed; run integrations/hermes-agent/scripts/install-local.sh first." >&2
+if [[ "$IMAGE" == "$DEFAULT_IMAGE" &&
+      ( "$revision" != "$HERMES_COMMIT" || "$version_label" != "$HERMES_VERSION" ) ]]; then
+  echo "Validated Hermes image labels do not match $HERMES_VERSION ($HERMES_COMMIT)." >&2
   exit 3
 fi
 
