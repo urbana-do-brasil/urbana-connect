@@ -58,6 +58,25 @@ class ReceptionResponsePolicyTest {
         assertThat(rejected.output().message()).doesNotContainIgnoringCase("arquiteta");
     }
 
+    @Test
+    void doesNotExposeTentativeOrStaleFactsAsCurrentReusableProfileValues() {
+        CustomerFact tentativePronoun = CustomerFact.tentative(
+                "contact-1", "PRONOUN_PREFERENCE", "ELA_DELA", "message-tentative", NOW);
+        CustomerFact oldOccupation = CustomerFact.confirmed(
+                "contact-1", "OCCUPATION", "ARQUITETA", "message-old", NOW.minusSeconds(30));
+        CustomerFact tentativeLatestOccupation = CustomerFact.tentative(
+                "contact-1", "OCCUPATION", "DESIGNER", "message-latest", NOW.minusSeconds(10));
+        CustomerFact staleOccupation = new CustomerFact(
+                "occupation-stale", "contact-1", "OCCUPATION", "ARQUITETA",
+                br.com.urbana.connect.domain.reception.model.FactConfidence.CONFIRMED,
+                "message-stale", NOW.minusSeconds(30), NOW.minusSeconds(1), null);
+
+        assertThat(policy.currentFact(List.of(tentativePronoun), "PRONOUN_PREFERENCE", NOW)).isEmpty();
+        assertThat(policy.currentFact(List.of(staleOccupation), "OCCUPATION", NOW)).isEmpty();
+        assertThat(policy.currentFact(
+                List.of(oldOccupation, tentativeLatestOccupation), "OCCUPATION", NOW)).isEmpty();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "Temos o serviço de Paisagismo por R$ 99,00.",

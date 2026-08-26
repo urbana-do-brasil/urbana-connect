@@ -10,6 +10,41 @@ COMPOSE_FILE="$REPO_ROOT/infra/local-poc/docker-compose.poc.yml"
 ENV_FILE="$REPO_ROOT/.env.poc"
 IMAGE=""
 
+app_source_revision() {
+  local revision
+  revision="$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD 2>/dev/null || printf 'workspace-source')"
+  if ! git -C "$REPO_ROOT" diff --quiet -- apps/urbana-connect-api; then
+    revision="${revision}-dirty"
+  fi
+  printf '%s' "$revision"
+}
+
+wait_for_healthy_service() {
+  local service="$1"
+  local attempts=60
+  local container_id health_status
+
+  while (( attempts > 0 )); do
+    container_id="$("${compose[@]}" ps -q "$service")"
+    if [[ -n "$container_id" ]]; then
+      health_status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id")"
+      if [[ "$health_status" == "healthy" ]]; then
+        echo "$service is healthy."
+        return 0
+      fi
+      if [[ "$health_status" == "unhealthy" || "$health_status" == "exited" || "$health_status" == "dead" ]]; then
+        echo "$service did not become healthy (status: $health_status)." >&2
+        return 1
+      fi
+    fi
+    sleep 2
+    ((attempts--))
+  done
+
+  echo "Timed out waiting for $service to become healthy." >&2
+  return 1
+}
+
 file_mode() {
   if [[ "$(uname -s)" == "Darwin" ]]; then
     stat -f '%Lp' "$1"
@@ -71,17 +106,12 @@ if ! "${compose[@]}" config --quiet; then
 fi
 
 IMAGE="$(compose_image)"
+app_revision="$(app_source_revision)"
+app_build_created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 if [[ "$IMAGE" == "$DEFAULT_IMAGE" ]]; then
   echo "Building validated Hermes image: $IMAGE"
   "${compose[@]}" build hermes
 else
-  for argument in "$@"; do
-    if [[ "$argument" == "--build" ]]; then
-      echo "Do not use --build with an explicitly overridden HERMES_IMAGE ($IMAGE)." >&2
-      echo "Validate that image separately, then run without --build." >&2
-      exit 3
-    fi
-  done
   docker image inspect "$IMAGE" >/dev/null 2>&1 || {
     echo "Configured HERMES_IMAGE is not available locally: $IMAGE" >&2
     exit 3
@@ -96,4 +126,42 @@ if [[ "$IMAGE" == "$DEFAULT_IMAGE" &&
   exit 3
 fi
 
-exec "${compose[@]}" up "$@"
+echo "Building current Urbana Connect and POC chat images (source revision: $app_revision)."
+"${compose[@]}" build \
+  --build-arg "APP_SOURCE_REVISION=$app_revision" \
+  --build-arg "APP_BUILD_CREATED=$app_build_created" \
+  urbana-connect poc-chat
+
+up_args=(--force-recreate)
+detached=false
+for argument in "$@"; do
+  case "$argument" in
+    --build)
+      echo "Ignoring --build: selected images were built explicitly above."
+      ;;
+    -d|--detach)
+      detached=true
+      up_args+=("$argument")
+      ;;
+    --no-build)
+      ;;
+    *)
+      up_args+=("$argument")
+      ;;
+  esac
+done
+
+if [[ "$detached" != true ]]; then
+  exec "${compose[@]}" up --no-build "${up_args[@]}"
+fi
+
+"${compose[@]}" up --no-build "${up_args[@]}"
+wait_for_healthy_service urbana-connect
+wait_for_healthy_service poc-chat
+
+backend_image_id="$("${compose[@]}" images -q urbana-connect)"
+if [[ -n "$backend_image_id" ]]; then
+  docker image inspect --format \
+    'urbana-connect image={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}} build={{index .Config.Labels "br.com.urbana.connect.build"}}' \
+    "$backend_image_id"
+fi

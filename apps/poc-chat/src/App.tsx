@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { ConversationClient } from './api/conversationClient';
+import { createIdempotencyKey } from './api/contracts';
+import type { PocControlAction, PocControlAvailability } from './api/contracts';
 import { ChatView } from './components/ChatView';
 import { ConversationList } from './components/ConversationList';
 import {
@@ -14,6 +16,7 @@ import {
   conversationReducer,
   createConversationState,
   createConversationUiState,
+  type ConversationUiState,
   type ConversationState,
 } from './state/conversationReducer';
 import { ConversationTracker } from './state/conversationTracker';
@@ -97,8 +100,51 @@ export default function App() {
     }
   }
 
+  async function handlePocControl(action: PocControlAction, humanMessage?: string): Promise<void> {
+    const alias = uiState.activeContactAlias;
+    const conversation = alias === null ? undefined : conversationRef.current[alias];
+    if (alias === null || conversation === undefined) {
+      throw new Error('Ação local indisponível.');
+    }
+    if (action === 'APPROVE_PAYMENT_PROOF') {
+      if (typeof client.approvePaymentProof !== 'function') {
+        throw new Error('Ação local indisponível.');
+      }
+      await client.approvePaymentProof(alias);
+    } else if (action === 'RECORD_HUMAN_MESSAGE') {
+      if (conversation.ownership !== 'HUMAN'
+          || typeof client.recordHumanMessage !== 'function'
+          || humanMessage === undefined
+          || humanMessage.trim().length === 0) {
+        throw new Error('Ação local indisponível.');
+      }
+      await client.recordHumanMessage(alias, createIdempotencyKey(), {
+        text: humanMessage.trim(),
+        occurredAt: new Date().toISOString(),
+      });
+    } else {
+      if (conversation.ownership !== 'HUMAN'
+          || conversation.conversationVersion === null
+          || typeof client.returnToUrba !== 'function') {
+        throw new Error('Ação local indisponível.');
+      }
+      await client.returnToUrba(
+        alias,
+        createIdempotencyKey(),
+        conversation.conversationVersion,
+      );
+    }
+    await tracker.sync(alias);
+  }
+
   const contacts = uiState.contacts.filter((contact) => !contact.archived);
   const activeContact = contacts.find((contact) => contact.contactAlias === uiState.activeContactAlias) ?? null;
+  const activeConversation = activeContact === null
+    ? null
+    : conversationState[activeContact.contactAlias] ?? createConversationUiState();
+  const activePocControls = activeConversation === null
+    ? null
+    : availablePocControls(activeConversation, client);
   const unreadAliases = new Set(
     Object.entries(conversationState)
       .filter(([, state]) => state.unread)
@@ -134,9 +180,10 @@ export default function App() {
         {activeContact ? (
           <ChatView
             contact={activeContact}
-            conversation={conversationState[activeContact.contactAlias] ?? createConversationUiState()}
+            conversation={{ ...activeConversation!, pocControls: activePocControls }}
             onSend={handleSend}
             onRetry={handleRetry}
+            onPocControl={handlePocControl}
           />
         ) : (
           <section className="welcome-panel" aria-label="Boas-vindas">
@@ -148,6 +195,27 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+function availablePocControls(
+  conversation: ConversationUiState,
+  client: ConversationClient,
+): PocControlAvailability | null {
+  if (conversation.pocControls === null) {
+    return null;
+  }
+  const humanOwned = conversation.ownership === 'HUMAN' || conversation.mode === 'HUMAN';
+  return {
+    approvePaymentProof: conversation.pocControls.approvePaymentProof
+      && typeof client.approvePaymentProof === 'function',
+    recordHumanMessage: humanOwned
+      && conversation.pocControls.recordHumanMessage
+      && typeof client.recordHumanMessage === 'function',
+    returnToUrba: humanOwned
+      && conversation.pocControls.returnToUrba
+      && conversation.conversationVersion !== null
+      && typeof client.returnToUrba === 'function',
+  };
 }
 
 function normalizeInitialUiState(state: PersistedUiState): PersistedUiState {

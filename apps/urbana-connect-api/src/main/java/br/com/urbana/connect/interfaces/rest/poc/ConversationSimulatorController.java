@@ -7,6 +7,7 @@ import br.com.urbana.connect.application.reception.PocReceptionIngress;
 import br.com.urbana.connect.application.reception.ReceptionMetrics;
 import br.com.urbana.connect.application.reception.ReceptionOrchestrator;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessageType;
+import br.com.urbana.connect.domain.reception.port.out.HermesResumeGateway;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,22 +45,30 @@ public class ConversationSimulatorController {
     private final ReceptionOrchestrator orchestrator;
     private final PocReceptionIngress ingress;
     private final String expectedToken;
+    private final HermesResumeGateway resumeGateway;
 
     public ConversationSimulatorController(ReceptionOrchestrator orchestrator) {
         this(orchestrator, new PocReceptionIngress(orchestrator, new MessageBatcher(),
-                new MediaNormalizationService()), "");
+                new MediaNormalizationService()), "", null);
     }
 
     public ConversationSimulatorController(ReceptionOrchestrator orchestrator, PocReceptionIngress ingress) {
-        this(orchestrator, ingress, "");
+        this(orchestrator, ingress, "", null);
     }
 
     @Autowired
     public ConversationSimulatorController(ReceptionOrchestrator orchestrator, PocReceptionIngress ingress,
-                                           @Value("${hermes.poc.api-token:}") String expectedToken) {
+                                           @Value("${hermes.poc.api-token:}") String expectedToken,
+                                           HermesResumeGateway resumeGateway) {
         this.orchestrator = orchestrator;
         this.ingress = ingress;
         this.expectedToken = expectedToken == null ? "" : expectedToken.trim();
+        this.resumeGateway = resumeGateway;
+    }
+
+    public ConversationSimulatorController(ReceptionOrchestrator orchestrator, PocReceptionIngress ingress,
+                                           String expectedToken) {
+        this(orchestrator, ingress, expectedToken, null);
     }
 
     @PostMapping("/{contactAlias}/messages")
@@ -136,6 +145,51 @@ public class ConversationSimulatorController {
         }
     }
 
+    @PostMapping("/{contactAlias}/human/messages")
+    public ResponseEntity<ReceptionOrchestrator.HumanMessageReceipt> recordHumanMessage(
+            @PathVariable String contactAlias,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody HumanOperatorMessage request) {
+        if (!authorized(authorization)) return unauthorized();
+        if (!validAlias(contactAlias) || idempotencyKey == null || idempotencyKey.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        try {
+            return ResponseEntity.ok(orchestrator.recordHumanMessage("poc:" + contactAlias,
+                    idempotencyKey.trim(), request.text(), request.occurredAt()));
+        } catch (IllegalArgumentException exception) {
+            return ResponseEntity.badRequest().build();
+        } catch (IllegalStateException exception) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
+    }
+
+    @PostMapping("/{contactAlias}/ownership/urba")
+    public ResponseEntity<ReceptionOrchestrator.ResumeReceipt> returnToUrba(
+            @PathVariable String contactAlias,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @Valid @RequestBody(required = false) ResumeOwnershipRequest request) {
+        if (!authorized(authorization)) return unauthorized();
+        if (!validAlias(contactAlias) || idempotencyKey == null || idempotencyKey.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        long expectedVersion = request == null || request.expectedVersion() == null
+                ? -1 : request.expectedVersion();
+        ReceptionOrchestrator.ResumeReceipt receipt = orchestrator.returnToUrba(
+                "poc:" + contactAlias, idempotencyKey.trim(), expectedVersion, resumeGateway);
+        if (receipt.status() == br.com.urbana.connect.domain.reception.model.ResumeStatus.COMPLETED
+                || receipt.duplicate()) {
+            return ResponseEntity.ok(receipt);
+        }
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(receipt);
+    }
+
+    private static boolean validAlias(String contactAlias) {
+        return contactAlias != null && CONTACT_ALIAS.matcher(contactAlias).matches();
+    }
+
     private boolean authorized(String authorization) {
         if (expectedToken.isBlank()) {
             return true;
@@ -188,4 +242,10 @@ public class ConversationSimulatorController {
             return value == null ? 0 : value.length();
         }
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record HumanOperatorMessage(String text, Instant occurredAt) { }
+
+    @JsonIgnoreProperties(ignoreUnknown = false)
+    public record ResumeOwnershipRequest(Long expectedVersion) { }
 }

@@ -68,6 +68,8 @@ services:
     volumes:
       - hermes_data:/opt/data
       - ../../integrations/hermes-agent/profile/config.yaml.example:/profile/config.yaml:ro
+      - ../../integrations/hermes-agent/profile/SOUL.md:/profile/SOUL.md:ro
+      - ../../integrations/hermes-agent/plugins/urbana-domain:/profile/urbana-domain:ro
     read_only: true
     tmpfs:
       - /run:rw,exec,nosuid,nodev,size=16m
@@ -80,7 +82,14 @@ services:
     security_opt:
       - no-new-privileges:true
     entrypoint: ["/bin/sh", "-c"]
-    command: ["cp /profile/config.yaml /opt/data/config.yaml"]
+    command:
+      - |
+        set -eu
+        cp /profile/config.yaml /opt/data/config.yaml
+        cp /profile/SOUL.md /opt/data/SOUL.md
+        mkdir -p /opt/data/plugins
+        rm -rf /opt/data/plugins/urbana-domain
+        cp -R /profile/urbana-domain /opt/data/plugins/urbana-domain
 
   urbana-connect:
     build:
@@ -125,7 +134,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 20s
+      # Spring Boot + Mongo bootstrap can exceed two minutes on a cold Docker
+      # Desktop VM. Keep failures during that window from being classified as
+      # an unhealthy application; readiness still requires the exact READY body.
+      start_period: 180s
 
   poc-chat:
     build:
@@ -196,8 +208,6 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - hermes_data:/opt/data
-      - ../../integrations/hermes-agent/profile/SOUL.md:/opt/data/SOUL.md:ro
-      - ../../integrations/hermes-agent/plugins/urbana-domain:/opt/data/plugins/urbana-domain:ro
     read_only: true
     tmpfs:
       - /run:rw,exec,nosuid,nodev,size=32m

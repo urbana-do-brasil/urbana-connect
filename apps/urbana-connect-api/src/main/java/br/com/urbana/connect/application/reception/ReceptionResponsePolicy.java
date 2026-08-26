@@ -107,8 +107,9 @@ public final class ReceptionResponsePolicy {
         return facts.stream()
                 .filter(Objects::nonNull)
                 .filter(fact -> type.equalsIgnoreCase(fact.type()))
-                .filter(fact -> fact.supersededBy() == null && fact.isCurrentAt(at))
-                .max(Comparator.comparing(CustomerFact::validFrom));
+                .filter(fact -> fact.supersededBy() == null && !fact.validFrom().isAfter(at))
+                .max(Comparator.comparing(CustomerFact::validFrom).thenComparing(CustomerFact::id))
+                .filter(fact -> fact.isReusableAt(at));
     }
 
     /**
@@ -305,6 +306,15 @@ public final class ReceptionResponsePolicy {
                     fromIndex = end;
                 }
             }
+        }
+        if (mentions.isEmpty() && containsTerm(normalizedMessage, "decor")) {
+            commercialPolicy.services().stream()
+                    .filter(service -> "DECOR_INTERIORES".equals(service.serviceType()))
+                    .findFirst()
+                    .ifPresent(service -> {
+                        int start = normalizedMessage.indexOf("decor");
+                        mentions.add(new ServiceMention(service, start, start + "decor".length()));
+                    });
         }
         return mentions.stream()
                 .filter(mention -> mentions.stream().noneMatch(other ->

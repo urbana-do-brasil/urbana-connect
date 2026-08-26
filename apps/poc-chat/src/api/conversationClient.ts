@@ -4,8 +4,13 @@ import {
   isContactAlias,
   isEventId,
   parseConversationProjection,
+  parseHumanMessageReceipt,
+  parseResumeReceipt,
   parseTurnReceipt,
   type ConversationProjection,
+  type HumanMessagePayload,
+  type HumanMessageReceipt,
+  type ResumeReceipt,
   type SyntheticTextPayload,
   type TurnReceipt,
 } from './contracts';
@@ -18,6 +23,17 @@ export type FetchImplementation = (
 export interface ConversationApi {
   sendTextMessage(contactAlias: string, payload: SyntheticTextPayload): Promise<TurnReceipt>;
   getConversationProjection(contactAlias: string): Promise<ConversationProjection>;
+  approvePaymentProof?(contactAlias: string): Promise<TurnReceipt>;
+  recordHumanMessage?(
+    contactAlias: string,
+    idempotencyKey: string,
+    payload: HumanMessagePayload,
+  ): Promise<HumanMessageReceipt>;
+  returnToUrba?(
+    contactAlias: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<ResumeReceipt>;
 }
 
 export type ConversationHttpErrorKind = 'transport' | 'http' | 'invalid-response';
@@ -102,6 +118,100 @@ export class ConversationClient implements ConversationApi {
     }
   }
 
+  /**
+   * POC-only operator checkpoint. This is deliberately separate from the
+   * customer message ingress and is exposed only when the projection grants
+   * the matching local control.
+   */
+  async approvePaymentProof(contactAlias: string): Promise<TurnReceipt> {
+    validateAlias(contactAlias);
+    const response = await this.request(
+      `/api/poc/conversations/${encodeURIComponent(contactAlias)}/payment-proof/approve`,
+      { method: 'POST', credentials: 'same-origin' },
+    );
+    try {
+      return parseTurnReceipt(await this.readJson(response));
+    } catch (error) {
+      if (error instanceof ConversationHttpError) {
+        throw error;
+      }
+      throw new ConversationHttpError('O serviço local retornou um recibo de controle inválido.', {
+        status: response.status,
+        kind: 'invalid-response',
+      });
+    }
+  }
+
+  async recordHumanMessage(
+    contactAlias: string,
+    idempotencyKey: string,
+    payload: HumanMessagePayload,
+  ): Promise<HumanMessageReceipt> {
+    validateAlias(contactAlias);
+    validateIdempotencyKey(idempotencyKey);
+    validateHumanMessagePayload(payload);
+    const response = await this.request(
+      `/api/poc/conversations/${encodeURIComponent(contactAlias)}/human/messages`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload),
+      },
+    );
+    try {
+      return parseHumanMessageReceipt(await this.readJson(response));
+    } catch (error) {
+      if (error instanceof ConversationHttpError) {
+        throw error;
+      }
+      throw new ConversationHttpError('O serviço local retornou um recibo de mensagem humana inválido.', {
+        status: response.status,
+        kind: 'invalid-response',
+      });
+    }
+  }
+
+  async returnToUrba(
+    contactAlias: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<ResumeReceipt> {
+    validateAlias(contactAlias);
+    validateIdempotencyKey(idempotencyKey);
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 0) {
+      throw new ConversationHttpError('A versão da conversa é inválida.', {
+        kind: 'invalid-response',
+      });
+    }
+    const response = await this.request(
+      `/api/poc/conversations/${encodeURIComponent(contactAlias)}/ownership/urba`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ expectedVersion }),
+      },
+    );
+    try {
+      return parseResumeReceipt(await this.readJson(response));
+    } catch (error) {
+      if (error instanceof ConversationHttpError) {
+        throw error;
+      }
+      throw new ConversationHttpError('O serviço local retornou um recibo de retomada inválido.', {
+        status: response.status,
+        kind: 'invalid-response',
+      });
+    }
+  }
+
   private async request(path: string, init: RequestInit): Promise<Response> {
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => controller.abort(), this.timeoutMs);
@@ -158,6 +268,27 @@ function validatePayload(payload: SyntheticTextPayload): void {
       || payload.text.length > MAX_TEXT_LENGTH
       || Number.isNaN(Date.parse(payload.occurredAt))) {
     throw new ConversationHttpError('A mensagem textual é inválida.', {
+      kind: 'invalid-response',
+    });
+  }
+}
+
+function validateHumanMessagePayload(payload: HumanMessagePayload): void {
+  if (typeof payload.text !== 'string'
+      || payload.text.trim().length === 0
+      || payload.text.length > MAX_TEXT_LENGTH
+      || Number.isNaN(Date.parse(payload.occurredAt))) {
+    throw new ConversationHttpError('A mensagem humana é inválida.', {
+      kind: 'invalid-response',
+    });
+  }
+}
+
+function validateIdempotencyKey(idempotencyKey: string): void {
+  if (typeof idempotencyKey !== 'string'
+      || idempotencyKey.trim().length === 0
+      || idempotencyKey.length > 128) {
+    throw new ConversationHttpError('A chave de idempotência é inválida.', {
       kind: 'invalid-response',
     });
   }

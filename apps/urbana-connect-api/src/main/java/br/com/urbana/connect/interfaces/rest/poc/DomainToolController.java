@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -52,39 +53,56 @@ public class DomainToolController {
             @RequestHeader(value = "Authorization", required = false) String authorization,
             @Valid @RequestBody(required = false) ToolRequest request) {
         if (!isAuthorized(authorization)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ToolResponse.error("invalid internal tool token"));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ToolResponse.error(
+                    "ACCESS_DENIED", "STOP", "Não foi possível continuar esta solicitação."));
         }
         if (request == null || request.sessionId() == null || request.sessionId().isBlank()
                 || request.principal() == null || request.principal().isBlank()) {
-            return ResponseEntity.badRequest().body(ToolResponse.error("sessionId and principal are required"));
+            return ResponseEntity.badRequest().body(ToolResponse.error(
+                    "INVALID_REQUEST", "CORRECT_INPUT", "Preciso de dados válidos para continuar."));
         }
         if (!RUNTIME_ID.matcher(request.sessionId()).matches()
                 || request.principal().length() > 128) {
-            return ResponseEntity.badRequest().body(ToolResponse.error("runtime identity is invalid"));
+            return ResponseEntity.badRequest().body(ToolResponse.error(
+                    "INVALID_REQUEST", "CORRECT_INPUT", "Preciso de dados válidos para continuar."));
         }
         if (!expectedPrincipal.equals(request.principal())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ToolResponse.error("technical principal is not allowlisted"));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ToolResponse.error(
+                    "ACCESS_DENIED", "STOP", "Não foi possível continuar esta solicitação."));
         }
         Map<String, Object> arguments = request.arguments() == null ? Map.of() : request.arguments();
         if (arguments.size() > 32 || arguments.toString().length() > 8192) {
-            return ResponseEntity.badRequest().body(ToolResponse.error("tool arguments exceed the POC limit"));
+            return ResponseEntity.badRequest().body(ToolResponse.error(
+                    "INVALID_REQUEST", "CORRECT_INPUT", "Preciso de dados válidos para continuar."));
         }
         if (FORBIDDEN_MODEL_IDENTIFIERS.stream().anyMatch(arguments::containsKey)) {
-            return ResponseEntity.badRequest().body(ToolResponse.error("model identifiers are not accepted"));
+            return ResponseEntity.badRequest().body(ToolResponse.error(
+                    "INVALID_REQUEST", "CORRECT_INPUT", "Preciso de dados válidos para continuar."));
         }
         final DomainToolName name;
         try {
             name = DomainToolName.fromWireName(toolName);
         } catch (IllegalArgumentException exception) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ToolResponse.error("tool is not allowlisted"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ToolResponse.error(
+                    "ACTION_NOT_AVAILABLE", "CHOOSE_AVAILABLE_ACTION", "Essa ação não está disponível."));
         }
         try {
             var result = invocation.invoke(request.sessionId(), request.principal(), name, arguments);
-            return ResponseEntity.ok(ToolResponse.success(result.result(), result.idempotencyKey()));
+            return ResponseEntity.ok(ToolResponse.success(result.result()));
+        } catch (DomainToolInvocationUseCase.DomainRejectionException rejection) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ToolResponse.error(new ToolError(
+                    rejection.code(), rejection.nextAction(), rejection.missingFields(), rejection.customerMessage())));
+        } catch (DomainToolInvocationUseCase.InvocationInProgressException inProgress) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ToolResponse.error(
+                    "ACTION_IN_PROGRESS", "WAIT", "Esta etapa ainda está sendo concluída."));
         } catch (IllegalArgumentException exception) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(ToolResponse.error(safeError(exception.getMessage())));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(ToolResponse.error(
+                    "BUSINESS_RULE_REJECTED", "ASK_FOR_CLARIFICATION",
+                    "Preciso confirmar uma informação antes de continuar."));
         } catch (RuntimeException exception) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ToolResponse.error("domain operation failed"));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ToolResponse.error(
+                    "TEMPORARILY_UNAVAILABLE", "WAIT_OR_HANDOFF",
+                    "Não consegui concluir esta etapa agora. Posso tentar novamente ou chamar a arquiteta."));
         }
     }
 
@@ -93,29 +111,27 @@ public class DomainToolController {
                 && authorization != null && authorization.equals("Bearer " + expectedToken);
     }
 
-    private String safeError(String message) {
-        String value = message == null || message.isBlank() ? "domain operation rejected" : message;
-        String redacted = value.replaceAll(
-                "(?i)(openrouter_api_key|hermes_api_server_key|hermes_internal_tool_token|password|secret|token)"
-                        + "(\\s*[:=]\\s*)[^\\s,;]+",
-                "[REDACTED]");
-        if (expectedToken != null && !expectedToken.isBlank()) {
-            redacted = redacted.replace(expectedToken, "[REDACTED]");
-        }
-        return redacted.length() > 240 ? redacted.substring(0, 240) + "…" : redacted;
-    }
-
     @JsonIgnoreProperties(ignoreUnknown = false)
     public record ToolRequest(String sessionId, String principal, Map<String, Object> arguments) { }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record ToolResponse(boolean ok, Object result, String error, String idempotencyKey) {
-        static ToolResponse success(Object result, String idempotencyKey) {
-            return new ToolResponse(true, result, null, idempotencyKey);
+    public record ToolError(String code, String nextAction, List<String> missingFields, String customerMessage) {
+        public ToolError {
+            missingFields = missingFields == null ? List.of() : List.copyOf(missingFields);
+        }
+    }
+
+    public record ToolResponse(boolean ok, Object result, ToolError error, String idempotencyKey) {
+        static ToolResponse success(Object result) {
+            return new ToolResponse(true, result, null, null);
         }
 
-        static ToolResponse error(String error) {
-            return new ToolResponse(false, null, error == null ? "domain operation rejected" : error, null);
+        static ToolResponse error(String code, String nextAction, String customerMessage) {
+            return error(new ToolError(code, nextAction, List.of(), customerMessage));
+        }
+
+        static ToolResponse error(ToolError error) {
+            return new ToolResponse(false, null, error, null);
         }
     }
 }

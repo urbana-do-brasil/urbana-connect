@@ -1,5 +1,6 @@
 package br.com.urbana.connect.application.reception;
 
+import br.com.urbana.connect.application.reception.tools.StatefulDomainToolService;
 import br.com.urbana.connect.domain.reception.model.AgentOutput;
 import br.com.urbana.connect.domain.reception.model.ReceptionConversation;
 import br.com.urbana.connect.domain.reception.model.ReceptionEventIds;
@@ -9,6 +10,7 @@ import br.com.urbana.connect.domain.reception.model.ReceptionMessageSender;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessageType;
 import br.com.urbana.connect.domain.reception.model.ReceptionTurn;
 import br.com.urbana.connect.domain.reception.model.ReceptionTurnStatus;
+import br.com.urbana.connect.domain.reception.model.ReceptionMode;
 import br.com.urbana.connect.domain.reception.port.out.HermesSessionsGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionConversationGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTranscriptGateway;
@@ -60,6 +62,22 @@ public final class ReceptionTurnReconciliationService {
                         .flatMap(message -> turns.findByInboundMessageId(message.id())).orElse(null));
         if (turn == null || turn.status() != ReceptionTurnStatus.RECONCILING) return Optional.empty();
 
+        ReceptionConversation current = conversations.findByContactId(turn.contactId()).orElse(null);
+        if (current != null && current.mode() == ReceptionMode.HUMAN) {
+            String ackEventId = StatefulDomainToolService.handoffAckEventId(current);
+            if (transcript.findByEventId(ackEventId).isEmpty()) {
+                transcript.appendIfAbsent(new ReceptionMessage(UUID.randomUUID().toString(), ackEventId,
+                        turn.correlationId(), current.id(), turn.contactId(), ReceptionMessageDirection.OUTBOUND,
+                        ReceptionMessageSender.URBA, ReceptionMessageType.TEXT,
+                        StatefulDomainToolService.HUMAN_HANDOFF_ACK, null, null, clock.instant()));
+            }
+            turns.save(turn.blockByHuman(clock.instant()));
+            if (leases != null) {
+                leases.releaseForReconciliation(turn.hermesSessionId(), turn.id());
+            }
+            return Optional.of(StatefulDomainToolService.HUMAN_HANDOFF_ACK);
+        }
+
         Checkpoint checkpoint = Checkpoint.parse(turn.historyCheckpoint()).orElse(null);
         if (checkpoint == null) return Optional.empty();
         HermesSessionsGateway.HermesHistorySnapshot snapshot = hermes.historySnapshot(turn.hermesSessionId());
@@ -80,6 +98,20 @@ public final class ReceptionTurnReconciliationService {
 
         ReceptionConversation conversation = conversations.findByContactId(turn.contactId()).orElse(null);
         if (conversation == null) return Optional.empty();
+        if (conversation.mode() == ReceptionMode.HUMAN) {
+            String ackEventId = StatefulDomainToolService.handoffAckEventId(conversation);
+            if (transcript.findByEventId(ackEventId).isEmpty()) {
+                transcript.appendIfAbsent(new ReceptionMessage(UUID.randomUUID().toString(), ackEventId,
+                        turn.correlationId(), conversation.id(), turn.contactId(), ReceptionMessageDirection.OUTBOUND,
+                        ReceptionMessageSender.URBA, ReceptionMessageType.TEXT,
+                        StatefulDomainToolService.HUMAN_HANDOFF_ACK, null, null, clock.instant()));
+            }
+            turns.save(turn.blockByHuman(clock.instant()));
+            if (leases != null) {
+                leases.releaseForReconciliation(turn.hermesSessionId(), turn.id());
+            }
+            return Optional.of(StatefulDomainToolService.HUMAN_HANDOFF_ACK);
+        }
         String eventId = ReceptionEventIds.outbound(turn.id(), turn.correlationId());
         ReceptionMessage outbound = new ReceptionMessage(UUID.randomUUID().toString(), eventId,
                 turn.correlationId(), conversation.id(), turn.contactId(), ReceptionMessageDirection.OUTBOUND,

@@ -70,6 +70,38 @@ class ReturningCustomerServiceTest {
     }
 
     @Test
+    void doesNotReuseAnOlderConfirmedValueWhenTheLatestExplicitVersionIsTentative() {
+        CustomerFact oldOccupation = CustomerFact.confirmed(
+                "contact-1", "OCCUPATION", "ARQUITETA", "message-old", NOW.minusSeconds(30));
+        CustomerFact tentativeLatestOccupation = CustomerFact.tentative(
+                "contact-1", "OCCUPATION", "DESIGNER", "message-tentative", NOW.minusSeconds(10));
+        MemoryFacts gateway = new MemoryFacts(List.of(oldOccupation, tentativeLatestOccupation));
+
+        ReturningCustomerService.Projection projection = service(gateway).project("contact-1", NOW);
+
+        assertThat(projection.facts()).isEmpty();
+        assertThat(projection.missingIcpFields())
+                .containsExactly("PRONOUN_PREFERENCE", "FIRST_TIME_HIRING", "OCCUPATION");
+    }
+
+    @Test
+    void latestExplicitNotInformedVersionReplacesOlderValueWithoutDeletingHistory() {
+        CustomerFact oldOccupation = CustomerFact.confirmed(
+                "contact-1", "OCCUPATION", "ARQUITETA", "message-old", NOW.minusSeconds(30));
+        CustomerFact latestNotInformed = CustomerFact.confirmed(
+                "contact-1", "OCCUPATION", "NÃO INFORMADO", "message-refusal", NOW.minusSeconds(10));
+        CustomerFact supersededOld = oldOccupation.supersede(latestNotInformed.id(), latestNotInformed.validFrom());
+        MemoryFacts gateway = new MemoryFacts(List.of(supersededOld, latestNotInformed));
+
+        ReturningCustomerService.Projection projection = service(gateway).project("contact-1", NOW);
+
+        assertThat(projection.facts()).containsExactly(latestNotInformed);
+        assertThat(projection.missingIcpFields())
+                .containsExactly("PRONOUN_PREFERENCE", "FIRST_TIME_HIRING");
+        assertThat(gateway.allFacts).contains(supersededOld);
+    }
+
+    @Test
     void keepsCorrectedFactHistoryAndNeverExposesTheSentinelContact() {
         CustomerFact originalOccupation = CustomerFact.confirmed(
                 "contact-1", "OCCUPATION", "ARQUITETA", "message-original", NOW.minusSeconds(30));

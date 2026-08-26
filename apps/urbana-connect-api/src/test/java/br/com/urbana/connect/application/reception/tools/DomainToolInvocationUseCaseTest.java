@@ -187,8 +187,9 @@ class DomainToolInvocationUseCaseTest {
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThatThrownBy(() -> useCase.invoke("session-1", "hermes-urbana-domain", DomainToolName.PREPARE_TERMS,
-                Map.of("serviceType", "DECOR"))).isInstanceOf(IllegalStateException.class)
-                .hasMessage("fixture rejected");
+                Map.of("serviceType", "DECOR")))
+                .isInstanceOf(DomainToolInvocationUseCase.TechnicalToolFailureException.class)
+                .hasMessage("Não consegui concluir esta etapa agora.");
         String key = invocations.lastKey();
 
         assertThatThrownBy(() -> useCase.invoke("session-1", "hermes-urbana-domain", DomainToolName.PREPARE_TERMS,
@@ -196,12 +197,42 @@ class DomainToolInvocationUseCaseTest {
                 .isInstanceOf(DomainToolInvocationUseCase.DurableToolFailureException.class)
                 .satisfies(error -> {
                     var failure = (DomainToolInvocationUseCase.DurableToolFailureException) error;
-                    assertThat(failure.resultCode()).isEqualTo("IllegalStateException");
-                    assertThat(failure.resultPayload()).isEqualTo(Map.of("error", "fixture rejected"));
+                    assertThat(failure.resultCode()).isEqualTo("TECHNICAL_FAILURE");
+                    assertThat(failure.resultPayload().toString())
+                            .doesNotContain("fixture rejected", "IllegalStateException", "stack");
                 });
         assertThat(executions).hasValue(1);
         assertThat(invocations.findByIdempotencyKey(key).orElseThrow().status())
                 .isEqualTo(DomainToolInvocationStatus.FAILED);
+    }
+
+    @Test
+    void persistsAndReplaysStructuredBusinessRejectionWithoutExecutingAgain() {
+        FakeLeaseGateway leaseGateway = new FakeLeaseGateway();
+        ActiveTurnLeaseService leases = activeLease(leaseGateway);
+        FakeInvocationGateway invocations = new FakeInvocationGateway();
+        AtomicInteger executions = new AtomicInteger();
+        DomainToolService tool = (name, contact, args) -> {
+            executions.incrementAndGet();
+            throw new DomainToolInvocationUseCase.DomainRejectionException(
+                    "TERMS_NOT_ACCEPTED", "ASK_FOR_CLEAR_ACCEPTANCE", List.of(),
+                    "Antes do pagamento, preciso do seu aceite claro dos termos.");
+        };
+        DomainToolInvocationUseCase useCase = new DomainToolInvocationUseCase(leases, invocations, tool,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            assertThatThrownBy(() -> useCase.invoke("session-1", "hermes-urbana-domain",
+                    DomainToolName.PREPARE_PAYMENT, Map.of("serviceType", "DECOR", "method", "PIX")))
+                    .isInstanceOf(DomainToolInvocationUseCase.DomainRejectionException.class)
+                    .satisfies(error -> assertThat(
+                            ((DomainToolInvocationUseCase.DomainRejectionException) error).nextAction())
+                            .isEqualTo("ASK_FOR_CLEAR_ACCEPTANCE"));
+        }
+
+        assertThat(executions).hasValue(1);
+        assertThat(invocations.values.values()).singleElement()
+                .extracting(DomainToolInvocation::status).isEqualTo(DomainToolInvocationStatus.REJECTED);
     }
 
     @Test
@@ -281,8 +312,13 @@ class DomainToolInvocationUseCaseTest {
         assertThatThrownBy(() -> useCase.invoke("session-1", "hermes-urbana-domain",
                 DomainToolName.UPDATE_CUSTOMER_FACT,
                 Map.of("factType", "OCCUPATION", "value", "DESIGNER")))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("HUMAN");
+                .isInstanceOf(DomainToolInvocationUseCase.DomainRejectionException.class)
+                .satisfies(error -> {
+                    DomainToolInvocationUseCase.DomainRejectionException rejection =
+                            (DomainToolInvocationUseCase.DomainRejectionException) error;
+                    assertThat(rejection.code()).isEqualTo("HUMAN_OWNS_CONVERSATION");
+                    assertThat(rejection.customerMessage()).doesNotContain("HUMAN");
+                });
         assertThat(executions).hasValue(0);
         assertThat(invocations.values).isEmpty();
     }
@@ -317,8 +353,13 @@ class DomainToolInvocationUseCaseTest {
 
         assertThatThrownBy(() -> useCase.invoke("session-1", "hermes-urbana-domain",
                 DomainToolName.PREPARE_TERMS, arguments))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("HUMAN");
+                .isInstanceOf(DomainToolInvocationUseCase.DomainRejectionException.class)
+                .satisfies(error -> {
+                    DomainToolInvocationUseCase.DomainRejectionException rejection =
+                            (DomainToolInvocationUseCase.DomainRejectionException) error;
+                    assertThat(rejection.code()).isEqualTo("HUMAN_OWNS_CONVERSATION");
+                    assertThat(rejection.customerMessage()).doesNotContain("HUMAN");
+                });
         assertThat(executions).hasValue(1);
     }
 

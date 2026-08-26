@@ -112,7 +112,8 @@ class ReceptionFailureRecoveryTest {
                         "Oi", NOW));
 
         assertThat(retry.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(retry.output().message()).isEqualTo("recovered");
+        assertThat(retry.output().message())
+                .isEqualTo("Olá! Sou a Urba, assistente virtual da Urbana do Brasil. recovered");
         verify(sessions, times(2)).chat(eq("session-1"), any());
         ArgumentCaptor<ReceptionMessage> allMessages = ArgumentCaptor.forClass(ReceptionMessage.class);
         verify(transcript, times(2)).appendIfAbsent(allMessages.capture());

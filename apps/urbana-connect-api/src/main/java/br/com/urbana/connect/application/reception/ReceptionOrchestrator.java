@@ -1,5 +1,6 @@
 package br.com.urbana.connect.application.reception;
 
+import br.com.urbana.connect.application.reception.tools.StatefulDomainToolService;
 import br.com.urbana.connect.domain.reception.model.AgentNextAction;
 import br.com.urbana.connect.domain.reception.model.AgentOutput;
 import br.com.urbana.connect.domain.reception.model.AgentUsage;
@@ -14,13 +15,18 @@ import br.com.urbana.connect.domain.reception.model.ReceptionMode;
 import br.com.urbana.connect.domain.reception.model.ReceptionTurn;
 import br.com.urbana.connect.domain.reception.model.ReceptionTurnStatus;
 import br.com.urbana.connect.domain.reception.model.ReceptionEventIds;
+import br.com.urbana.connect.domain.reception.model.ResumeStatus;
 import br.com.urbana.connect.domain.reception.port.out.CustomerFactGateway;
 import br.com.urbana.connect.domain.reception.port.out.DomainToolInvocationGateway;
+import br.com.urbana.connect.domain.reception.port.out.HermesResumeGateway;
 import br.com.urbana.connect.domain.reception.port.out.HermesSessionsGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionConversationGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTranscriptGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTurnGateway;
 import br.com.urbana.connect.infrastructure.hermes.HermesAgentOutputParser;
+import com.fasterxml.jackson.databind.MapperFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +34,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.text.Normalizer;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,6 +60,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public final class ReceptionOrchestrator {
     private static final Logger LOGGER = LoggerFactory.getLogger(ReceptionOrchestrator.class);
+    private static final int RESUME_CONTRACT_VERSION = 1;
+    private static final String SAFE_RESUME_FAILURE = "RESUME_UNAVAILABLE";
+    private static final String SAFE_PAYMENT_CHECKPOINT_MESSAGE =
+            "Para continuar com segurança, preciso aguardar a confirmação do pagamento pela arquiteta.";
+    private static final String SAFE_PAYMENT_PREPARATION_MESSAGE =
+            "Para continuar, escolha uma forma de pagamento: PIX ou cartão de crédito.";
+    private static final String SAFE_PAYMENT_PROOF_MESSAGE =
+            "O pagamento está preparado. Realize-o pelo link e envie o comprovante por aqui.";
+    private static final String SAFE_PAYMENT_PROOF_HANDOFF_MESSAGE =
+            "Recebi o comprovante. Vou encaminhar sua conversa para a arquiteta, que fará a validação do pagamento por aqui.";
+    private static final String SAFE_COMMERCIAL_RECOVERY_MESSAGE =
+            "Não consigo confirmar essa etapa com segurança. Posso te orientar sobre o próximo passo?";
+    private static final ObjectMapper RESUME_JSON = new ObjectMapper()
+            .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
+            .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true);
     private static final String FAILED_RETRYABLE = "FAILED_RETRYABLE";
     private static final Duration DEFAULT_DELAY_THRESHOLD = Duration.ofSeconds(5);
     private final HermesSessionService hermes;
@@ -288,12 +313,267 @@ public final class ReceptionOrchestrator {
                     .orElseThrow(() -> new IllegalStateException("conversation does not exist"));
             ReceptionConversation approved = policy.approvePaymentProof(conversation, clock.instant());
             conversations.save(approved);
-            String eventId = "approval:" + contactId + ":" + approved.version();
-            String correlationId = UUID.randomUUID().toString();
+            String eventId = "approval:" + contactId + ":" + approved.id();
+            // The operator action is replayed by contact and conversation,
+            // never by a process-local random correlation id.
+            String correlationId = eventId;
+            if (approved.mode() == ReceptionMode.HUMAN) {
+                appendHumanDecision(approved, eventId, correlationId,
+                        "Pagamento confirmado pela arquiteta.");
+                return new TurnReceipt(eventId, correlationId, TurnStatus.BLOCKED_BY_HUMAN, null, null);
+            }
             AgentOutput output = new AgentOutput(policy.briefingFor(approved), AgentNextAction.NONE);
             appendOutbound(approved, eventId, correlationId, output.message());
             return new TurnReceipt(eventId, correlationId, TurnStatus.COMPLETED, output, null);
         });
+    }
+
+    /** Records an operator-authored HUMAN message; actor identity is backend-owned. */
+    public HumanMessageReceipt recordHumanMessage(String contactId, String idempotencyKey, String text,
+                                                  Instant occurredAt) {
+        require(contactId, "contactId");
+        require(idempotencyKey, "idempotencyKey");
+        require(text, "text");
+        Instant at = occurredAt == null ? clock.instant() : occurredAt;
+        return coordinator.serialize(contactId, () -> {
+            ReceptionConversation conversation = conversations.findByContactId(contactId)
+                    .orElseThrow(() -> new IllegalStateException("conversation does not exist"));
+            if (conversation.mode() != ReceptionMode.HUMAN) {
+                return new HumanMessageReceipt(idempotencyKey, "REJECTED", false,
+                        "A conversa está sob responsabilidade da Urba.");
+            }
+            String eventId = ReceptionEventIds.outbound("human-message:" + idempotencyKey, conversation.id());
+            Optional<ReceptionMessage> existing = transcript.findByEventId(eventId);
+            if (existing.isPresent()) {
+                return new HumanMessageReceipt(eventId, "RECORDED", true, "Mensagem humana registrada.");
+            }
+            ReceptionMessage message = new ReceptionMessage(UUID.randomUUID().toString(), eventId,
+                    "operator:" + idempotencyKey, conversation.id(), contactId,
+                    ReceptionMessageDirection.OUTBOUND, ReceptionMessageSender.HUMAN,
+                    ReceptionMessageType.TEXT, text.trim(), null, null, at);
+            transcript.appendIfAbsent(message);
+            return new HumanMessageReceipt(eventId, "RECORDED", false, "Mensagem humana registrada.");
+        });
+    }
+
+    /** Runs the PEE-103 transition while HUMAN remains authoritative until both calls succeed. */
+    public ResumeReceipt returnToUrba(String contactId, String idempotencyKey, long expectedVersion,
+                                      HermesResumeGateway resumeGateway) {
+        require(contactId, "contactId");
+        require(idempotencyKey, "idempotencyKey");
+        return coordinator.serialize(contactId,
+                () -> returnToUrbaUnderLock(contactId, idempotencyKey, expectedVersion, resumeGateway));
+    }
+
+    private ResumeReceipt returnToUrbaUnderLock(String contactId, String idempotencyKey,
+                                                long expectedVersion, HermesResumeGateway resumeGateway) {
+        ReceptionConversation conversation = conversations.findByContactId(contactId)
+                .orElseThrow(() -> new IllegalStateException("conversation does not exist"));
+        if (conversation.mode() != ReceptionMode.HUMAN) {
+            return new ResumeReceipt(conversation.resumeId(), ResumeStatus.COMPLETED, "URBA", null,
+                    true, "A conversa já está sob responsabilidade da Urba.");
+        }
+        if (expectedVersion >= 0 && expectedVersion != conversation.version()) {
+            return new ResumeReceipt(conversation.resumeId(), conversation.resumeStatus(), "HUMAN", null,
+                    false, "A conversa mudou; atualize o estado antes de tentar novamente.");
+        }
+        if (conversation.resumeIdempotencyKey() != null
+                && conversation.resumeIdempotencyKey().equals(idempotencyKey)) {
+            if (conversation.resumeStatus() == ResumeStatus.FAILED_SAFE
+                    || conversation.resumeStatus() == ResumeStatus.RETURNED_TO_HUMAN) {
+                return new ResumeReceipt(conversation.resumeId(), conversation.resumeStatus(), "HUMAN", null,
+                        true, "A retomada permanece aguardando a arquiteta.");
+            }
+            if (conversation.resumeStatus() == ResumeStatus.SYNCHRONIZING
+                    || conversation.resumeStatus() == ResumeStatus.DECIDING) {
+                return new ResumeReceipt(conversation.resumeId(), conversation.resumeStatus(), "HUMAN", null,
+                        true, "A retomada está em andamento.");
+            }
+        }
+        if (conversation.resumeStatus() == ResumeStatus.SYNCHRONIZING
+                || conversation.resumeStatus() == ResumeStatus.DECIDING) {
+            return new ResumeReceipt(conversation.resumeId(), conversation.resumeStatus(), "HUMAN", null,
+                    true, "A retomada está em andamento.");
+        }
+        if (resumeGateway == null) {
+            ReceptionConversation failed = conversations.saveExpected(
+                    conversation.failResume(SAFE_RESUME_FAILURE, clock.instant()), conversation.version());
+            return new ResumeReceipt(failed.resumeId(), failed.resumeStatus(), "HUMAN", null,
+                    false, "A conversa permanece com a arquiteta.");
+        }
+
+        List<ReceptionMessage> messages = transcript.findByConversationId(conversation.id()).stream()
+                .sorted(Comparator.comparing(ReceptionMessage::createdAt).thenComparing(ReceptionMessage::eventId))
+                .toList();
+        Instant snapshotAt = clock.instant();
+        List<CustomerFact> currentFacts = facts.findCurrentByContactId(contactId, snapshotAt).stream()
+                .filter(fact -> fact.isCurrentAt(snapshotAt))
+                .toList();
+        String resumeId = UUID.nameUUIDFromBytes((conversation.id() + ":" + idempotencyKey)
+                .getBytes(StandardCharsets.UTF_8)).toString();
+        List<HermesResumeGateway.ContextMessage> typedMessages = resumeMessages(messages);
+        String checksum = resumeChecksum(typedMessages);
+        long ownershipVersion = conversation.version();
+        ReceptionConversation synchronizing = conversations.saveExpected(conversation.beginResume(
+                resumeId, idempotencyKey, checksum, messages.size(), snapshotAt), ownershipVersion);
+        ReceptionConversation state = synchronizing;
+        try {
+            HermesSessionService.SessionResolution session = hermes.resolve(contactId);
+            HermesResumeGateway.ResumeContext context = new HermesResumeGateway.ResumeContext(
+                    RESUME_CONTRACT_VERSION, resumeId, conversation.id(), "sync:" + idempotencyKey,
+                    "FULL", synchronizing.version(), messages.size(), checksum,
+                    typedMessages, resumeFacts(currentFacts));
+            HermesResumeGateway.ContextSyncReceipt receipt = resumeGateway.synchronize(session.sessionId(), context);
+            requireCompleteContextReceipt(receipt, context);
+            state = conversations.saveExpected(synchronizing.markResumeDeciding(clock.instant()), synchronizing.version());
+            ReceptionConversation deciding = state;
+            Map<String, Object> directive = resumeDirective(deciding);
+            HermesResumeGateway.ResumeDecision decision = resumeGateway.decide(session.sessionId(),
+                    new HermesResumeGateway.ResumeCommand(RESUME_CONTRACT_VERSION, resumeId, conversation.id(),
+                            "decide:" + idempotencyKey, receipt, directive));
+            if (decision == null || decision.action() == null) {
+                ReceptionConversation human = failResumeAfterError(contactId, state, "INVALID_RESUME_DECISION");
+                return new ResumeReceipt(human.resumeId(), human.resumeStatus(), "HUMAN", null,
+                        false, "A conversa permanece com a arquiteta.");
+            }
+            if (decision.action() == HermesResumeGateway.Action.RETURN_TO_HUMAN) {
+                ReceptionConversation human = conversations.saveExpected(deciding.returnResumeToHuman(
+                        "retomada devolvida à arquiteta", clock.instant()), deciding.version());
+                return new ResumeReceipt(human.resumeId(), human.resumeStatus(), "HUMAN", null,
+                        false, "A conversa permanece com a arquiteta.");
+            }
+            if (decision.action() == HermesResumeGateway.Action.SEND_MESSAGE
+                    && !provenResumeStep(deciding, decision)) {
+                ReceptionConversation human = conversations.saveExpected(deciding.failResume(
+                        "UNPROVEN_RESUME_STEP", clock.instant()), deciding.version());
+                return new ResumeReceipt(human.resumeId(), human.resumeStatus(), "HUMAN", null,
+                        false, "A conversa permanece com a arquiteta.");
+            }
+            if (decision.action() == HermesResumeGateway.Action.SEND_MESSAGE
+                    && !safeResumeMessage(decision.message())) {
+                ReceptionConversation human = conversations.saveExpected(deciding.failResume(
+                        "UNSAFE_RESUME_MESSAGE", clock.instant()), deciding.version());
+                return new ResumeReceipt(human.resumeId(), human.resumeStatus(), "HUMAN", null,
+                        false, "A conversa permanece com a arquiteta.");
+            }
+            ReceptionConversation completed = conversations.saveExpected(deciding.completeResume(
+                    decision.action().name(), decision.message(), clock.instant()), deciding.version());
+            state = completed;
+            if (decision.action() == HermesResumeGateway.Action.SEND_MESSAGE) {
+                appendOutbound(completed, "resume:" + resumeId, resumeId, decision.message());
+            }
+            return new ResumeReceipt(completed.resumeId(), completed.resumeStatus(), "URBA",
+                    decision.message(), false, "A Urba retomou o atendimento.");
+        } catch (RuntimeException failure) {
+            LOGGER.warn("resume transition failed closed for contact {}", contactId, failure);
+            ReceptionConversation human = failResumeAfterError(contactId, state, SAFE_RESUME_FAILURE);
+            return new ResumeReceipt(human.resumeId(), human.resumeStatus(), "HUMAN", null,
+                    false, "A conversa permanece com a arquiteta.");
+        }
+    }
+
+    private ReceptionConversation failResumeAfterError(String contactId, ReceptionConversation fallback,
+                                                       String failureCode) {
+        ReceptionConversation current = conversations.findByContactId(contactId).orElse(fallback);
+        return conversations.save(current.failResume(failureCode, clock.instant()));
+    }
+
+    private static List<HermesResumeGateway.ContextMessage> resumeMessages(List<ReceptionMessage> messages) {
+        return java.util.stream.IntStream.range(0, messages.size()).mapToObj(index -> {
+            ReceptionMessage message = messages.get(index);
+            String sender = message.senderType().name();
+            String role = switch (message.senderType()) {
+                case CONTACT -> "user";
+                case URBA -> "assistant";
+                case HUMAN -> "human";
+                case SYSTEM -> "system";
+            };
+            String content = message.text() == null ? "[Conteúdo não textual]" : message.text();
+            return new HermesResumeGateway.ContextMessage(index + 1, message.eventId(), sender, role, content);
+        }).toList();
+    }
+
+    private static List<HermesResumeGateway.ContextFact> resumeFacts(List<CustomerFact> facts) {
+        return facts.stream().map(fact -> new HermesResumeGateway.ContextFact(
+                fact.type(), fact.value(), fact.confidence().name())).toList();
+    }
+
+    private static void requireCompleteContextReceipt(HermesResumeGateway.ContextSyncReceipt receipt,
+                                                       HermesResumeGateway.ResumeContext context) {
+        if (receipt == null || !Objects.equals(receipt.resumeId(), context.resumeId())
+                || !Objects.equals(receipt.lineageId(), context.lineageId())
+                || !Objects.equals(receipt.checksum(), context.checksum())
+                || receipt.coveredThroughSequence() < context.watermark()
+                || receipt.effectiveSessionId() == null || receipt.effectiveSessionId().isBlank()) {
+            throw new IllegalStateException("resume context receipt is incomplete");
+        }
+    }
+
+    /**
+     * Hermes v1 canonicalizes the ordered message projection itself. Facts are
+     * sent as context, but are intentionally outside this checksum contract.
+     */
+    private static String resumeChecksum(List<HermesResumeGateway.ContextMessage> messages) {
+        try {
+            List<Map<String, Object>> projection = java.util.stream.IntStream.range(0, messages.size())
+                    .mapToObj(index -> {
+                        HermesResumeGateway.ContextMessage message = messages.get(index);
+                        Map<String, Object> value = new LinkedHashMap<>();
+                        value.put("content", message.content());
+                        value.put("role", message.role());
+                        value.put("senderType", message.senderType());
+                        value.put("sequence", message.sequence());
+                        value.put("sourceMessageId", message.sourceMessageId());
+                        return value;
+                    }).toList();
+            byte[] canonical = RESUME_JSON.writeValueAsBytes(projection);
+            return "sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical));
+        } catch (Exception failure) {
+            throw new IllegalStateException("resume checksum unavailable", failure);
+        }
+    }
+
+    private Map<String, Object> resumeDirective(ReceptionConversation conversation) {
+        Map<String, Object> operational = new LinkedHashMap<>();
+        operational.put("commercialStage", conversation.commercialStage().name());
+        operational.put("paymentStatus", conversation.paymentStatus().name());
+        operational.put("selectedService", conversation.selectedService());
+        operational.put("nextOperationalAction", conversation.paymentStatus() == PaymentStatus.CONFIRMED
+                ? "BRIEFING" : "NONE");
+        Map<String, Object> directive = new LinkedHashMap<>();
+        directive.put("allowedActions", List.of("SEND_MESSAGE", "WAIT", "RETURN_TO_HUMAN"));
+        directive.put("allowedNextSteps", List.of("BRIEFING", "SUPPORT", "NONE"));
+        directive.put("authorityPolicy", "HUMAN_CASE_DECISIONS_OVERRIDE_CATALOG");
+        directive.put("operationalState", operational);
+        return directive;
+    }
+
+    private static boolean safeResumeMessage(String message) {
+        if (message == null || message.isBlank() || message.length() > 2000) return false;
+        String normalized = message.toLowerCase(java.util.Locale.ROOT);
+        return List.of("system", "sistema", "tool", "ferramenta", "api", "database", "banco de dados",
+                "http", "https", "exception", "exceção", "retry", "retentativa", "idempotency",
+                "idempotência", "stack trace", "hermes", "icp", "internal", "interno",
+                "problema no sistema", "url").stream().noneMatch(normalized::contains)
+                && !normalized.matches(".*\\b(?:conversation|contact|turn|session|resume)[-_]?[a-z0-9-]+\\b.*")
+                && !normalized.matches(".*\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b.*");
+    }
+
+    private static boolean provenResumeStep(ReceptionConversation conversation,
+                                            HermesResumeGateway.ResumeDecision decision) {
+        return conversation.paymentStatus() == PaymentStatus.CONFIRMED
+                && conversation.selectedService() != null
+                && decision.nextStep() != null
+                && "BRIEFING".equalsIgnoreCase(decision.nextStep());
+    }
+
+    private void appendHumanDecision(ReceptionConversation conversation, String eventId,
+                                     String correlationId, String text) {
+        ReceptionMessage message = new ReceptionMessage(UUID.randomUUID().toString(),
+                ReceptionEventIds.outbound(eventId, conversation.id()), correlationId, conversation.id(),
+                conversation.contactId(), ReceptionMessageDirection.OUTBOUND, ReceptionMessageSender.HUMAN,
+                ReceptionMessageType.TEXT, text, null, null, clock.instant());
+        transcript.appendIfAbsent(message);
     }
 
     public Map<String, Object> projection(String contactId) {
@@ -319,6 +599,17 @@ public final class ReceptionOrchestrator {
         Map<String, Object> projection = new LinkedHashMap<>();
         projection.put("contactId", contactId);
         projection.put("conversation", conversation == null ? Map.of() : conversation);
+        projection.put("ownership", conversation == null || conversation.mode() == ReceptionMode.AI
+                ? "URBA" : "HUMAN");
+        projection.put("resumeStatus", conversation == null ? ResumeStatus.NONE.name()
+                : conversation.resumeStatus().name());
+        projection.put("resumeId", conversation == null ? null : conversation.resumeId());
+        projection.put("controlAvailability", conversation != null && conversation.mode() == ReceptionMode.HUMAN
+                ? Map.of("recordHumanMessage", true, "returnToUrba", true,
+                "approvePaymentProof", conversation.paymentStatus() == PaymentStatus.PROOF_RECEIVED)
+                : Map.of("recordHumanMessage", false, "returnToUrba", false,
+                "approvePaymentProof", conversation != null
+                        && conversation.paymentStatus() == PaymentStatus.PROOF_RECEIVED));
         projection.put("facts", customerFacts);
         projection.put("messages", messages);
         projection.put("turn", turns.findLatestByContactId(contactId)
@@ -395,6 +686,9 @@ public final class ReceptionOrchestrator {
         // Hermes session, acquiring a lease, invoking tools, or publishing an
         // automated outbound message.
         if (conversation.mode() == ReceptionMode.HUMAN) {
+            String acknowledgement = events.stream().anyMatch(InboundConversationEvent::isPaymentProof)
+                    ? SAFE_PAYMENT_PROOF_HANDOFF_MESSAGE : StatefulDomainToolService.HUMAN_HANDOFF_ACK;
+            ensureHandoffAck(conversation, correlationId, now, acknowledgement);
             ReceptionTurn blockedTurn = new ReceptionTurn(UUID.randomUUID().toString(), correlationId,
                     first.contactId(), "human:" + conversation.id(), inboundMessages.stream()
                             .map(ReceptionMessage::id).toList(),
@@ -524,7 +818,7 @@ public final class ReceptionOrchestrator {
             persistInteractiveServiceFact(first.contactId(), service, selection);
         }
         Optional<InboundConversationEvent> acceptance = events.stream()
-                .filter(event -> explicitTermsAcceptance(event.conversationalText())).findFirst();
+                .filter(event -> policy.isExplicitTermsAcceptance(event.conversationalText())).findFirst();
         if (initial.termsStatus() == br.com.urbana.connect.domain.reception.model.TermsStatus.PRESENTED
                 && acceptance.isPresent()) {
             beforeChat = conversations.save(policy.acceptTerms(initial, acceptance.get().occurredAt()));
@@ -535,6 +829,16 @@ public final class ReceptionOrchestrator {
             ReceptionConversation proofBase = beforeChat.paymentStatus() == PaymentStatus.PREPARED
                     ? beforeChat : conversations.findByContactId(first.contactId()).orElse(beforeChat);
             beforeChat = conversations.save(policy.receivePaymentProof(proofBase, proof.get().occurredAt()));
+            ReceptionConversation human = beforeChat.requestHumanHandoff(
+                    "comprovante de pagamento aguardando validação da arquiteta", proof.get().occurredAt());
+            if (human != beforeChat) {
+                human = conversations.save(human);
+            }
+            ensureHandoffAck(human, turn.correlationId(), clock.instant(), SAFE_PAYMENT_PROOF_HANDOFF_MESSAGE);
+            ReceptionTurn blocked = turn.blockByHuman(clock.instant());
+            turns.save(blocked);
+            metrics.recordTurn(blocked, invocations == null ? List.of() : invocations.findByTurnId(turn.id()));
+            return new TurnReceipt(last.eventId(), turn.correlationId(), TurnStatus.BLOCKED_BY_HUMAN, null, null);
         }
         String input = events.stream().map(InboundConversationEvent::conversationalText)
                 .filter(text -> text != null && !text.isBlank())
@@ -549,12 +853,6 @@ public final class ReceptionOrchestrator {
         HermesSessionsGateway.HermesChatResult chat = chatWithDelayTracking(first.contactId(),
                 new HermesSessionsGateway.HermesChatRequest(input, images, null, null, null), turn);
         ReceptionConversation canonical = conversations.findByContactId(first.contactId()).orElse(beforeChat);
-        List<CustomerFact> currentFacts = facts.findByContactId(first.contactId());
-        if (canonical.selectedService() != null
-                && canonical.termsStatus() == br.com.urbana.connect.domain.reception.model.TermsStatus.NOT_PRESENTED
-                && policy.isIcpComplete(currentFacts, last.occurredAt())) {
-            canonical = conversations.save(policy.presentTerms(canonical, currentFacts, last.occurredAt()));
-        }
         if (canonical.termsStatus() == br.com.urbana.connect.domain.reception.model.TermsStatus.PRESENTED
                 && acceptance.isPresent()) {
             canonical = conversations.save(policy.acceptTerms(canonical, acceptance.get().occurredAt()));
@@ -566,28 +864,55 @@ public final class ReceptionOrchestrator {
         // automated publication, so do not pass the agent output through the
         // commercial policy, which intentionally rejects human-mode checks.
         if (canonical.mode() == ReceptionMode.HUMAN) {
+            ensureHandoffAck(canonical, turn.correlationId(), clock.instant());
             ReceptionTurn blocked = turn.blockByHuman(clock.instant());
             turns.save(blocked);
             metrics.recordTurn(blocked, ledger);
             return new TurnReceipt(last.eventId(), turn.correlationId(), TurnStatus.BLOCKED_BY_HUMAN, null, null);
         }
-        // The normal conversation path is a transparent pass-through. The
-        // parser only unwraps a compatible legacy message envelope; it never
-        // validates, rewrites or semantically reconciles the textual response.
-        AgentOutput output = parser.parse(chat.content());
+        // Hermes still owns the phrasing, but commercial checkpoints remain
+        // authoritative. A premature briefing/payment claim is replaced with
+        // a customer-safe checkpoint instead of becoming an application
+        // failure or exposing an internal rejection.
+        AgentOutput candidate = parser.parse(chat.content());
+        AgentOutput output;
+        try {
+            output = policy.reconcileOutput(candidate, canonical);
+        } catch (IllegalArgumentException rejection) {
+            LOGGER.warn("reception_output_rejected correlationId={} reason={}",
+                    turn.correlationId(), rejection.getClass().getSimpleName());
+            output = safeOutputAfterRejection(canonical);
+        }
         ReceptionTurn currentTurn = turns.findById(turn.id()).orElse(null);
         if (currentTurn != null && (currentTurn.isTerminal()
                 || currentTurn.status() == ReceptionTurnStatus.RECONCILING)) {
             return new TurnReceipt(last.eventId(), currentTurn.correlationId(),
                     turnStatus(currentTurn.status()), currentTurn.output(), currentTurn.failureClass());
         }
-        appendOutbound(canonical, last.eventId() + ":outbound", turn.correlationId(), output.message());
+        String customerMessage = ensureInitialPresentation(canonical, output.message());
+        output = new AgentOutput(customerMessage, output.nextAction());
+        appendOutbound(canonical, last.eventId() + ":outbound", turn.correlationId(), customerMessage);
         ReceptionTurn completed = turn.complete(chat.usage(), clock.instant(), output);
         turns.save(completed);
         metrics.recordTurn(completed, ledger);
         TurnStatus status = canonical.mode() == ReceptionMode.HUMAN
                 ? TurnStatus.BLOCKED_BY_HUMAN : TurnStatus.COMPLETED;
         return new TurnReceipt(last.eventId(), turn.correlationId(), status, output, null);
+    }
+
+    private AgentOutput safeOutputAfterRejection(ReceptionConversation conversation) {
+        return switch (conversation.paymentStatus()) {
+            case PROOF_RECEIVED -> new AgentOutput(SAFE_PAYMENT_CHECKPOINT_MESSAGE,
+                    AgentNextAction.AWAIT_PAYMENT_APPROVAL);
+            case PREPARED -> new AgentOutput(SAFE_PAYMENT_PROOF_MESSAGE,
+                    AgentNextAction.AWAIT_PAYMENT_PROOF);
+            case NOT_STARTED, REJECTED -> new AgentOutput(
+                    conversation.paymentStatus() == PaymentStatus.NOT_STARTED
+                            ? SAFE_PAYMENT_PREPARATION_MESSAGE : SAFE_COMMERCIAL_RECOVERY_MESSAGE,
+                    AgentNextAction.AWAIT_CUSTOMER);
+            case CONFIRMED -> new AgentOutput(SAFE_COMMERCIAL_RECOVERY_MESSAGE,
+                    AgentNextAction.AWAIT_CUSTOMER);
+        };
     }
 
     private HermesSessionsGateway.HermesChatResult chatWithDelayTracking(
@@ -808,17 +1133,45 @@ public final class ReceptionOrchestrator {
         transcript.appendIfAbsent(message);
     }
 
-    private static boolean explicitTermsAcceptance(String text) {
-        if (text == null) return false;
-        String normalized = Normalizer.normalize(text, Normalizer.Form.NFD)
-                .replaceAll("\\p{M}+", "")
-                .toLowerCase(java.util.Locale.ROOT)
-                .trim()
-                .replaceAll("\\s+", " ");
-        if (normalized.matches(".*\\b(nao|nunca|jamais|nem)\\b.*")) {
+    /**
+     * The initial identity is a deterministic customer-facing invariant. Hermes
+     * remains responsible for the rest of the wording, so a compliant response
+     * is preserved exactly and only an omitted identity receives a short prefix.
+     */
+    private String ensureInitialPresentation(ReceptionConversation conversation, String text) {
+        boolean hasOutbound = transcript.findByConversationId(conversation.id()).stream()
+                .anyMatch(message -> message.direction() == ReceptionMessageDirection.OUTBOUND);
+        if (hasOutbound || identifiesUrbaAndUrbana(text)) {
+            return text;
+        }
+        return "Olá! Sou a Urba, assistente virtual da Urbana do Brasil. " + text;
+    }
+
+    private static boolean identifiesUrbaAndUrbana(String text) {
+        if (text == null) {
             return false;
         }
-        return normalized.matches(".*\\b(aceito|aceitar|concordo)\\b.*");
+        String normalized = Normalizer.normalize(text, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "").toLowerCase(java.util.Locale.ROOT);
+        return normalized.matches("(?s).*\\burba\\b.*")
+                && normalized.contains("urbana do brasil");
+    }
+
+    private void ensureHandoffAck(ReceptionConversation conversation, String correlationId, Instant now) {
+        ensureHandoffAck(conversation, correlationId, now, StatefulDomainToolService.HUMAN_HANDOFF_ACK);
+    }
+
+    private void ensureHandoffAck(ReceptionConversation conversation, String correlationId, Instant now,
+                                  String text) {
+        String eventId = StatefulDomainToolService.handoffAckEventId(conversation);
+        if (transcript.findByEventId(eventId).isPresent()) {
+            return;
+        }
+        ReceptionMessage ack = new ReceptionMessage(UUID.randomUUID().toString(), eventId, correlationId,
+                conversation.id(), conversation.contactId(), ReceptionMessageDirection.OUTBOUND,
+                ReceptionMessageSender.URBA, ReceptionMessageType.TEXT,
+                text, null, null, now);
+        transcript.appendIfAbsent(ack);
     }
 
     private TurnReceipt duplicateReceipt(InboundConversationEvent event, ReceptionMessage inbound) {
@@ -847,6 +1200,11 @@ public final class ReceptionOrchestrator {
             Objects.requireNonNull(status, "status");
         }
     }
+
+    public record HumanMessageReceipt(String eventId, String status, boolean duplicate, String message) { }
+
+    public record ResumeReceipt(String resumeId, ResumeStatus status, String ownership,
+                                String message, boolean duplicate, String customerMessage) { }
 
     private static void require(String value, String field) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " must not be blank");

@@ -44,8 +44,48 @@ TECHNICAL_PRINCIPAL = "hermes-urbana-domain"
 FORBIDDEN_IDENTIFIERS = frozenset({"contactId", "turnId", "idempotencyKey", "phoneNumber"})
 
 
+SAFE_FAILURE = {
+    "code": "TEMPORARILY_UNAVAILABLE",
+    "nextAction": "WAIT_OR_HANDOFF",
+    "missingFields": [],
+    "customerMessage": "Não consegui concluir esta etapa agora. Posso tentar novamente ou chamar a arquiteta.",
+}
+SAFE_ERROR_FIELDS = frozenset({"code", "nextAction", "missingFields", "customerMessage"})
+
+
+def _is_structured_business_rejection(payload: Any) -> bool:
+    if not isinstance(payload, Mapping) or payload.get("ok") is not False:
+        return False
+    safe_error = payload.get("error")
+    if not isinstance(safe_error, Mapping) or set(safe_error) != SAFE_ERROR_FIELDS:
+        return False
+
+    code = safe_error["code"]
+    next_action = safe_error["nextAction"]
+    missing_fields = safe_error["missingFields"]
+    customer_message = safe_error["customerMessage"]
+    return (
+        isinstance(code, str) and bool(code.strip())
+        and isinstance(next_action, str) and bool(next_action.strip())
+        and isinstance(missing_fields, list)
+        and all(isinstance(field, str) and bool(field.strip()) for field in missing_fields)
+        and isinstance(customer_message, str) and bool(customer_message.strip())
+    )
+
+
 class PluginToolError(ValueError):
-    """Expected validation or domain rejection returned as JSON."""
+    """Safe validation or domain rejection returned as structured JSON."""
+
+    def __init__(self, safe_error: Mapping[str, Any] | None = None) -> None:
+        candidate = safe_error if isinstance(safe_error, Mapping) else {}
+        self.safe_error = {
+            "code": str(candidate.get("code") or "INVALID_REQUEST"),
+            "nextAction": str(candidate.get("nextAction") or "CORRECT_INPUT"),
+            "missingFields": list(candidate.get("missingFields") or []),
+            "customerMessage": str(candidate.get("customerMessage") or
+                                   "Preciso de dados válidos para continuar."),
+        }
+        super().__init__(self.safe_error["customerMessage"])
 
 
 @dataclass(frozen=True)
@@ -56,13 +96,13 @@ class PluginClient:
 
     def call(self, session_id: str, principal: str, tool_name: str, arguments: Mapping[str, Any]) -> Any:
         if tool_name not in TOOL_NAMES:
-            raise PluginToolError(f"tool is not allowlisted: {tool_name}")
+            raise PluginToolError()
         if not session_id or not isinstance(session_id, str):
-            raise PluginToolError("runtime session id is required")
+            raise PluginToolError()
         if not principal or not isinstance(principal, str):
-            raise PluginToolError("technical principal is required")
+            raise PluginToolError()
         if FORBIDDEN_IDENTIFIERS.intersection(arguments):
-            raise PluginToolError("model identifiers are not accepted")
+            raise PluginToolError()
         body = json.dumps({
             "sessionId": session_id,
             "principal": principal,
@@ -78,12 +118,25 @@ class PluginClient:
         try:
             with opener(req, timeout=15) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            # Business rejections use HTTP 409 at the internal boundary. Keep
+            # their safe, structured envelope so Hermes can correct the turn
+            # instead of seeing a generic transport outage.
+            if exc.code != 409:
+                raise PluginToolError(SAFE_FAILURE) from exc
+            try:
+                payload = json.loads(exc.read().decode("utf-8"))
+            except (AttributeError, OSError, TypeError, UnicodeDecodeError, ValueError) as decode_error:
+                raise PluginToolError(SAFE_FAILURE) from decode_error
+            if not _is_structured_business_rejection(payload):
+                raise PluginToolError(SAFE_FAILURE)
+            raise PluginToolError(payload["error"])
         except (error.URLError, TimeoutError, ValueError) as exc:
-            raise PluginToolError(f"domain tool request failed: {exc}") from exc
+            raise PluginToolError(SAFE_FAILURE) from exc
         if not isinstance(payload, dict):
-            raise PluginToolError("domain tool returned a non-object JSON response")
+            raise PluginToolError(SAFE_FAILURE)
         if payload.get("ok") is False:
-            raise PluginToolError(str(payload.get("error") or "domain operation rejected"))
+            raise PluginToolError(payload.get("error"))
         return payload.get("result", payload)
 
 
@@ -94,15 +147,15 @@ def _runtime_identity(runtime: Mapping[str, Any]) -> tuple[str, str]:
     # or copied from arbitrary runtime metadata.
     principal = TECHNICAL_PRINCIPAL
     if not isinstance(session_id, str) or not session_id.strip():
-        raise PluginToolError("runtime task_id/session_id is required")
+        raise PluginToolError()
     if not isinstance(principal, str) or not principal.strip():
-        raise PluginToolError("technical principal is required")
+        raise PluginToolError()
     return session_id.strip(), principal.strip()
 
 
 def _validate(tool_name: str, arguments: Mapping[str, Any]) -> None:
     if not isinstance(arguments, Mapping):
-        raise PluginToolError("arguments must be an object")
+        raise PluginToolError()
     if tool_name == "get_customer_profile":
         GetCustomerProfileInput.from_payload(arguments)
     elif tool_name == "update_customer_fact":
@@ -116,7 +169,7 @@ def _validate(tool_name: str, arguments: Mapping[str, Any]) -> None:
     elif tool_name == "request_human_handoff":
         RequestHumanHandoffInput.from_payload(arguments)
     else:
-        raise PluginToolError(f"tool is not allowlisted: {tool_name}")
+        raise PluginToolError()
 
 
 def dispatch_tool(tool_name: str, arguments: Mapping[str, Any] | None = None,
@@ -133,8 +186,10 @@ def dispatch_tool(tool_name: str, arguments: Mapping[str, Any] | None = None,
         )
         result = active_client.call(session_id, principal, tool_name, arguments)
         return json.dumps({"ok": True, "result": result}, ensure_ascii=False, separators=(",", ":"))
-    except Exception as exc:  # plugin boundary must never leak an exception to Hermes
-        return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, separators=(",", ":"))
+    except PluginToolError as exc:
+        return json.dumps({"ok": False, "error": exc.safe_error}, ensure_ascii=False, separators=(",", ":"))
+    except Exception:  # plugin boundary must never leak an exception to Hermes
+        return json.dumps({"ok": False, "error": SAFE_FAILURE}, ensure_ascii=False, separators=(",", ":"))
 
 
 def handle_tool_call(tool_name: str, arguments: Mapping[str, Any] | None = None,

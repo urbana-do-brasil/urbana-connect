@@ -41,7 +41,7 @@ class HumanHandoffServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-05T12:00:00Z");
 
     @Test
-    void humanModePersistsInboundAndBlocksWithoutCallingHermesOrPublishingOutbound() {
+    void humanModePersistsInboundPublishesTheSingleHandoffAckAndBlocksHermes() {
         HermesSessionService hermes = mock(HermesSessionService.class);
         ReceptionConversationGateway conversations = mock(ReceptionConversationGateway.class);
         CustomerFactGateway facts = mock(CustomerFactGateway.class);
@@ -65,8 +65,11 @@ class HumanHandoffServiceTest {
         assertThat(receipt.output()).isNull();
         verifyNoInteractions(hermes);
         ArgumentCaptor<ReceptionMessage> messages = ArgumentCaptor.forClass(ReceptionMessage.class);
-        verify(transcript).appendIfAbsent(messages.capture());
-        assertThat(messages.getAllValues()).allMatch(message -> message.senderType() == ReceptionMessageSender.CONTACT);
+        verify(transcript, times(2)).appendIfAbsent(messages.capture());
+        assertThat(messages.getAllValues()).extracting(ReceptionMessage::senderType)
+                .containsExactly(ReceptionMessageSender.CONTACT, ReceptionMessageSender.URBA);
+        assertThat(messages.getAllValues().get(1).text())
+                .isEqualTo(StatefulDomainToolService.HUMAN_HANDOFF_ACK);
         ArgumentCaptor<ReceptionTurn> savedTurns = ArgumentCaptor.forClass(ReceptionTurn.class);
         verify(turns).save(savedTurns.capture());
         assertThat(savedTurns.getValue().status()).isEqualTo(ReceptionTurnStatus.BLOCKED_BY_HUMAN);
@@ -88,7 +91,9 @@ class HumanHandoffServiceTest {
         Map<String, Object> result = tools.execute(DomainToolName.REQUEST_HUMAN_HANDOFF,
                 "poc:ana", Map.of("reason", "não consigo resolver"), new ToolExecutionContext(lease, NOW));
 
-        assertThat(result).containsEntry("status", "HUMAN_MODE");
+        assertThat(result).containsEntry("status", "TRANSFERRED")
+                .containsEntry("ownership", "HUMAN")
+                .containsKey("handoffId");
         ArgumentCaptor<ReceptionConversation> saved = ArgumentCaptor.forClass(ReceptionConversation.class);
         verify(conversations).save(saved.capture());
         assertThat(saved.getValue().mode()).isEqualTo(ReceptionMode.HUMAN);
@@ -141,7 +146,12 @@ class HumanHandoffServiceTest {
 
         assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.BLOCKED_BY_HUMAN);
         assertThat(receipt.output()).isNull();
-        verify(transcript).appendIfAbsent(any(ReceptionMessage.class));
+        ArgumentCaptor<ReceptionMessage> messages = ArgumentCaptor.forClass(ReceptionMessage.class);
+        verify(transcript, times(2)).appendIfAbsent(messages.capture());
+        assertThat(messages.getAllValues()).filteredOn(message -> message.senderType() == ReceptionMessageSender.URBA)
+                .singleElement().extracting(ReceptionMessage::text)
+                .isEqualTo("Vou encaminhar sua conversa para a arquiteta, que continuará com você por aqui.");
+        assertThat(messages.getAllValues()).noneMatch(message -> "Vou transferir você agora.".equals(message.text()));
         ArgumentCaptor<ReceptionTurn> saved = ArgumentCaptor.forClass(ReceptionTurn.class);
         verify(turns, times(2)).save(saved.capture());
         assertThat(saved.getAllValues().get(1).status()).isEqualTo(ReceptionTurnStatus.BLOCKED_BY_HUMAN);

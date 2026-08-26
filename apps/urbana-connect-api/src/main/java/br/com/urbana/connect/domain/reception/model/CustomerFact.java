@@ -1,6 +1,7 @@
 package br.com.urbana.connect.domain.reception.model;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -19,7 +20,7 @@ public record CustomerFact(
     public CustomerFact {
         id = require(id, "id");
         contactId = require(contactId, "contactId");
-        type = require(type, "type").toUpperCase();
+        type = require(type, "type").toUpperCase(Locale.ROOT);
         value = require(value, "value");
         confidence = Objects.requireNonNull(confidence, "confidence");
         sourceMessageId = require(sourceMessageId, "sourceMessageId");
@@ -46,11 +47,26 @@ public record CustomerFact(
     }
 
     public boolean isCurrentAt(Instant instant) {
+        if (instant == null) {
+            return false;
+        }
         return !validFrom.isAfter(instant) && (validUntil == null || instant.isBefore(validUntil));
     }
 
     public boolean isConfirmedCurrentAt(Instant instant) {
-        return confidence == FactConfidence.CONFIRMED && supersededBy == null && isCurrentAt(instant);
+        return isReusableAt(instant);
+    }
+
+    /**
+     * A fact is reusable only when it is an explicit, confirmed version that is
+     * still valid and has not been superseded. Refusals such as
+     * {@code PREFER_NOT_TO_ANSWER} remain valid non-blank values.
+     */
+    public boolean isReusableAt(Instant instant) {
+        return confidence == FactConfidence.CONFIRMED
+                && supersededBy == null
+                && isCurrentAt(instant)
+                && !value.isBlank();
     }
 
     public CustomerFact supersede(String replacementId, Instant until) {

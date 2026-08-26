@@ -9,6 +9,8 @@ import br.com.urbana.connect.application.reception.ReceptionOrchestrator;
 import br.com.urbana.connect.domain.reception.model.AgentNextAction;
 import br.com.urbana.connect.domain.reception.model.AgentOutput;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessageType;
+import br.com.urbana.connect.domain.reception.model.ResumeStatus;
+import br.com.urbana.connect.domain.reception.port.out.HermesResumeGateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -23,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -78,6 +81,65 @@ class ConversationSimulatorControllerTest {
                 .andExpect(jsonPath("$.output.message").value("Briefing DECOR liberado."));
 
         verify(orchestrator).approvePaymentProof("poc:ana");
+    }
+
+    @Test
+    void exposesBackendControlledHumanMessageAndIdempotentReturnRoutesBehindThePocToken() throws Exception {
+        ReceptionOrchestrator orchestrator = mock(ReceptionOrchestrator.class);
+        PocReceptionIngress ingress = mock(PocReceptionIngress.class);
+        HermesResumeGateway resumeGateway = mock(HermesResumeGateway.class);
+        when(orchestrator.recordHumanMessage(eq("poc:ana"), eq("human-1"), eq("Decisão humana"),
+                eq(Instant.parse("2026-08-05T12:00:00Z"))))
+                .thenReturn(new ReceptionOrchestrator.HumanMessageReceipt(
+                        "human-event-1", "RECORDED", false, "Mensagem humana registrada."));
+        when(orchestrator.returnToUrba(eq("poc:ana"), eq("return-1"), eq(7L), same(resumeGateway)))
+                .thenReturn(new ReceptionOrchestrator.ResumeReceipt(
+                        "resume-1", ResumeStatus.COMPLETED, "URBA", null, false,
+                        "A Urba retomou o atendimento."));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(
+                new ConversationSimulatorController(orchestrator, ingress, "poc-token", resumeGateway)).build();
+
+        mvc.perform(post("/api/poc/conversations/ana/human/messages")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer poc-token")
+                        .header("Idempotency-Key", "human-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"text\":\"Decisão humana\",\"occurredAt\":\"2026-08-05T12:00:00Z\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RECORDED"))
+                .andExpect(jsonPath("$.message").value("Mensagem humana registrada."));
+
+        mvc.perform(post("/api/poc/conversations/ana/ownership/urba")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer poc-token")
+                        .header("Idempotency-Key", "return-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":7}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownership").value("URBA"))
+                .andExpect(jsonPath("$.status").value("COMPLETED"));
+
+        verify(orchestrator).recordHumanMessage("poc:ana", "human-1", "Decisão humana",
+                Instant.parse("2026-08-05T12:00:00Z"));
+        verify(orchestrator).returnToUrba("poc:ana", "return-1", 7L, resumeGateway);
+    }
+
+    @Test
+    void protectsOperatorRoutesWithTheSamePocToken() throws Exception {
+        ReceptionOrchestrator orchestrator = mock(ReceptionOrchestrator.class);
+        PocReceptionIngress ingress = mock(PocReceptionIngress.class);
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(
+                new ConversationSimulatorController(orchestrator, ingress, "poc-token", mock(HermesResumeGateway.class)))
+                .build();
+
+        mvc.perform(post("/api/poc/conversations/ana/human/messages")
+                        .header("Idempotency-Key", "human-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"text\":\"Decisão\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/poc/conversations/ana/ownership/urba")
+                        .header("Idempotency-Key", "return-1"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(orchestrator);
     }
 
     @Test

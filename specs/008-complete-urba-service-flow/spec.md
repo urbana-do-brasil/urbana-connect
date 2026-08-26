@@ -1,18 +1,19 @@
 # Feature Specification: Atendimento comercial completo e seguro da Urba
 
-- **Feature Branch**: `008-complete-urba-service-flow`
+- **Feature Branch**: `feature/008-complete-urba-service-flow`
 - **Created**: 2026-08-17
-- **Status**: Draft — aguardando GO de Emanuel
-- **Input**: Materializar no atendimento da Urba todo o catálogo operacional refinado, corrigir o avanço comercial, impedir exposição de falhas internas, confirmar transferências humanas e viabilizar uma validação manual ponta a ponta.
+- **Status**: Gate 0 concluído com baseline reconciliado e lacunas registradas em `baseline.md`; implementação delegada em workstreams separados, sem aceite de produto ainda
+- **Input**: Materializar no atendimento da Urba o catálogo operacional refinado, corrigir o avanço comercial, coletar enriquecimento de lead no momento certo, impedir exposição de falhas internas, confirmar transferências humanas e viabilizar uma validação manual ponta a ponta.
 
 ## Metadados
 
 - `Título da feature`: Atendimento comercial completo e seguro da Urba
-- `Ticket Jira`: a criar ou vincular após o GO; relacionado a PEE-23, PEE-102, PEE-103 e PEE-104
+- `Ticket Jira`: `PEE-105`, subtarefa de implementação sob PEE-23, com dependências registradas em PEE-102, PEE-103 e PEE-104
 - `Responsável pela spec`: Tech Lead Orchestrator
 - `Aprovador de negócio`: Emanuel
-- `Contexto de branch`: `feature/* -> hml -> main`
-- `Fonte principal de negócio`: entrevista de refinamento da PEE-102, cujo contrato necessário está consolidado nesta spec
+- `Branch de execução`: `feature/008-complete-urba-service-flow`, descendente local de `hml` e contendo alterações preexistentes não verificadas
+- `Fluxo de promoção`: `feature/008-complete-urba-service-flow -> hml -> main`; a branch foi renomeada preservando integralmente o baseline, e nenhuma promoção foi feita
+- `Fonte principal de negócio`: entrevista de refinamento da PEE-102, concluída em 2026-08-26, cujo contrato necessário está consolidado nesta spec
 - `Diagnóstico de origem`: teste manual de 2026-08-17, cujas falhas relevantes estão consolidadas nesta spec
 
 ## 1. Contexto
@@ -26,18 +27,20 @@ defeitos:
 
 1. o catálogo apresentado ao agente contém somente nome, descrição curta e
    preço, sem processo, entregas, responsabilidades ou limites detalhados;
-2. um checkpoint comercial exige dados de ICP que não foram coletados e que
-   não constam como pré-requisito da contratação refinada;
+2. o fluxo comercial chega aos termos sem executar o checkpoint conversacional
+   de enriquecimento de lead que foi definido para o momento de contratação;
 3. a rejeição desse checkpoint chega ao agente como falha operacional e é
    transformada em uma fala que menciona problema no sistema;
 4. a transferência humana funciona, mas a confirmação gerada para o cliente é
    descartada antes de entrar no histórico visível.
 
-A PEE-102 consolidou o contrato de negócio, porém declara que sua implementação
-não foi iniciada. PEE-103 e PEE-104 entregaram capacidades técnicas de retomada
-de contexto e persistência transacional, mas não materializaram o catálogo nem
-reescreveram os turnos comerciais normais. Esta feature fecha essa lacuna
-funcional.
+A PEE-102 consolidou o contrato de negócio e PEE-103/PEE-104 entregaram
+capacidades técnicas relacionadas à retomada de contexto e persistência
+transacional. A árvore de trabalho atual já contém alterações extensas de
+catálogo, handoff, retomada, POC, SOUL e testes, porém elas ainda não foram
+reconciliadas nem aceitas contra esta especificação. Esta feature fecha o delta
+funcional sem presumir que código existente está concluído e sem reimplementar
+ou sobrescrever mudanças preexistentes.
 
 ### 1.2 Objetivo
 
@@ -48,6 +51,8 @@ conversa que:
 - diferencie e explique os quatro serviços com precisão;
 - apresente progressivamente entregas, processo e responsabilidades;
 - avance com segurança por termos, pagamento e briefing;
+- colete, sem travar a contratação, as três informações de enriquecimento de
+  lead no momento adequado;
 - transfira para a arquiteta com uma confirmação clara;
 - preserve o contexto durante o atendimento humano;
 - retome proativamente quando houver uma próxima ação segura;
@@ -62,6 +67,7 @@ Incluído:
 - respostas comparativas e explicações de “como funciona”;
 - regras de área, múltiplos ambientes e serviços independentes;
 - sequência comercial até termos, pagamento, validação humana e briefing;
+- checkpoint conversacional de enriquecimento de lead antes dos termos;
 - conhecimento sobre reunião, produção, entrega e suporte;
 - erros comerciais recuperáveis e falhas técnicas com linguagem segura;
 - transferência URBA → HUMANO com aviso visível e notificação interna;
@@ -82,25 +88,68 @@ Quando houver conflito, a ordem de precedência é:
 Preços, links históricos e descrições legadas não podem substituir a fonte
 canônica definida por esta feature.
 
-### 1.5 Decisões adotadas para aprovação no GO
+### 1.5 Decisões consolidadas no refinamento técnico
 
-1. `PRONOUN_PREFERENCE`, `FIRST_TIME_HIRING` e `OCCUPATION` são informações
-   opcionais e não bloqueiam termos, pagamento ou briefing.
-2. Para apresentar os termos, os únicos pré-requisitos comerciais são serviço
-   confirmado, ambiente identificado e área validada quando o serviço possuir
-   limite padrão.
-3. O ambiente local pode usar links de teste claramente identificados e sem
-   valor comercial. Homologação e produção exigem recursos vigentes e
-   aprovados.
-4. A confirmação de handoff é determinística, curta e configurável; seu
-   significado não depende de texto livre produzido pelo agente.
-5. Nenhuma rejeição ou falha pode revelar sistema, ferramenta, integração,
-   banco de dados, código, HTTP, exceção, retry, idempotência ou outro detalhe
-   técnico ao cliente.
-6. Uma mensagem enviada pelo cliente enquanto a conversa está em modo humano
-   não reativa automaticamente a Urba.
-7. A retomada proativa só ocorre quando o próximo passo estiver comprovado
-   pelo estado; na dúvida, a Urba aguarda ou devolve o caso ao humano.
+1. O ICP desta feature é composto exatamente por `PRONOUN_PREFERENCE`,
+   `FIRST_TIME_HIRING` e `OCCUPATION`. Ele é um checkpoint conversacional de
+   enriquecimento de lead, não um bloqueio comercial de backend.
+2. O checkpoint só é iniciado quando o serviço estiver claramente confirmado e
+   o cliente demonstrar intenção explícita de contratar. Serviço ambíguo,
+   curiosidade, comparação ou pergunta de preço continuam no fluxo de
+   descoberta.
+3. A mensagem inicial pergunta somente os campos ausentes, em formato curto,
+   com quebras de linha e sem usar o termo técnico “ICP”. Se todos os campos já
+   existirem, a Urba não repete a coleta.
+4. Cada campo ausente recebe no máximo uma nova tentativa. “Prefiro não
+   informar” conclui o campo imediatamente; ausência de resposta na segunda
+   tentativa registra `NÃO INFORMADO` e permite o avanço.
+5. Uma resposta paralela do cliente deve ser atendida normalmente, mantendo o
+   checkpoint pendente e retomando somente os campos faltantes depois. Pedir
+   atendimento humano interrompe a coleta e impede termos/pagamento até a
+   arquiteta devolver a responsabilidade.
+6. Declarações explícitas do cliente podem ser capturadas incidentalmente em
+   qualquer momento, antes ou depois da contratação, para qualquer um dos quatro
+   serviços. Não são permitidas inferências; interpretação da arquiteta não é
+   fato do cliente.
+7. O perfil é global por cliente e reutilizado entre serviços e conversas. Um
+   valor explícito mais recente substitui silenciosamente o anterior, inclusive
+   por `NÃO INFORMADO`; essa alteração não é comunicada ao cliente.
+8. Depois de todos os campos estarem respondidos, recusados ou marcados como
+   `NÃO INFORMADO`, a Urba avança automaticamente para os termos, sem pedir uma
+   confirmação extra.
+9. O backend não fará um hard gate nem manterá estado autoritativo de diálogo
+   para impedir termos quando o Hermes deixar de executar o checkpoint. O SOUL,
+   a thread atual e os fatos correntes orientam perguntas, segunda tentativa,
+   pausa e retomada. O backend apenas persiste fatos explícitos e registra o
+   evento interno `ICP_SKIPPED_BEFORE_TERMS` para detectar a regressão sem
+   expor erro nem bloquear o cliente.
+10. O Hermes recebe a íntegra do histórico da thread atual, incluindo mensagens
+    da arquiteta, e o contexto associado do cliente. Threads antigas inteiras
+    não são despejadas; o contexto não deve ser podado especificamente por
+    causa do ICP.
+11. O resumo interno do handoff pode incluir quais campos do ICP estão
+    preenchidos ou ausentes. Ele não transfere ao backend a condução da coleta
+    nem precisa transportar contadores de tentativas. Logs técnicos não devem
+    duplicar os valores brutos.
+12. O E2E valida semântica e invariantes, não uma cópia literal da redação
+    aprovada. A mensagem deve permanecer curta, natural e progressiva.
+13. O ambiente local pode usar links de teste claramente identificados e sem
+    valor comercial. Homologação e produção exigem recursos vigentes e
+    aprovados.
+14. A confirmação de handoff é determinística, curta e configurável; seu
+    significado não depende de texto livre produzido pelo agente.
+15. Nenhuma rejeição ou falha pode revelar sistema, ferramenta, integração,
+    banco de dados, código, HTTP, exceção, retry, idempotência ou outro detalhe
+    técnico ao cliente.
+16. Uma mensagem enviada pelo cliente enquanto a conversa está em modo humano
+    não reativa automaticamente a Urba.
+17. A retomada proativa só ocorre quando o próximo passo estiver comprovado
+    pelo estado; na dúvida, a Urba aguarda ou devolve o caso ao humano.
+18. Toda implementação já presente na árvore de trabalho é baseline não
+    verificado. Antes de novos escritores, ela deve ser inventariada, associada
+    aos requisitos, testada e classificada como aproveitável, incompleta,
+    conflitante ou fora de escopo; nenhuma tarefa é considerada concluída apenas
+    pela existência de um diff.
 
 ### 1.6 Entidades de negócio
 
@@ -121,6 +170,14 @@ canônica definida por esta feature.
   responsabilidade e estado de retomada.
 - **Decisão humana**: orientação específica da arquiteta que prevalece sobre o
   catálogo geral naquele caso.
+- **Enriquecimento de lead (ICP)**: conjunto global por cliente dos três campos
+  de perfil, com valor atual, estado `NÃO INFORMADO`, origem explícita e
+  histórico de versões interno. A pendência e a regra de tentativa pertencem à
+  interpretação conversacional do SOUL sobre a thread, não a uma máquina de
+  estados autoritativa do backend.
+- **Evento de desvio do ICP**: registro interno idempotente que informa apenas
+  conversa, turno, serviço, campos ausentes, ponto de detecção e momento, sem
+  valores do perfil, conteúdo do cliente ou efeito bloqueante.
 - **Mensagem canônica**: mensagem recebida ou enviada que compõe o histórico
   visível e a reidratação de contexto.
 
@@ -150,24 +207,42 @@ canônica definida por esta feature.
 
 ### 2.2 Cenário prioritário B — termos, pagamento e briefing
 
-1. Dado serviço, ambiente e área aplicável confirmados, quando o cliente quiser
-   contratar, então a Urba deve apresentar os termos sem exigir dados opcionais
-   de perfil.
-2. Dado que os termos tenham sido apresentados, quando o cliente responder de
+1. Dado serviço, ambiente e área aplicável confirmados, quando o cliente
+   demonstrar intenção explícita de contratar, então a Urba deve verificar o
+   enriquecimento de lead antes de apresentar os termos.
+2. Dado que existam campos do ICP ausentes, quando o checkpoint for iniciado,
+   então a Urba deve perguntar somente os campos ausentes, em mensagem curta e
+   sem usar a palavra “ICP”.
+3. Dado que o cliente responda, recuse ou deixe de responder após a segunda
+   tentativa, quando os campos pendentes forem concluídos, então a Urba deve
+   avançar automaticamente para os termos.
+4. Dado que todos os campos do ICP já estejam disponíveis, quando o cliente
+   demonstrar intenção explícita de contratar, então a Urba deve pular a coleta
+   e seguir diretamente para os termos.
+5. Dado que os termos tenham sido apresentados, quando o cliente responder de
    forma ambígua, então a Urba deve pedir um aceite textual claro e não liberar
    pagamento.
-3. Dado aceite textual claro, quando a contratação avançar, então a Urba deve
+6. Dado aceite textual claro, quando a contratação avançar, então a Urba deve
    perguntar o método e apresentar somente a instrução de pagamento vigente da
    contratação.
-4. Dado que o cliente envie comprovante, quando o recebimento for registrado,
+7. Dado que o cliente envie comprovante, quando o recebimento for registrado,
    então a Urba deve informar que a validação será humana, confirmar a
    transferência e parar de responder automaticamente.
-5. Dado que a pessoa responsável confirme o pagamento e devolva a conversa,
+8. Dado que a pessoa responsável confirme o pagamento e devolva a conversa,
    quando o contexto for retomado, então a Urba deve enviar proativamente o
    briefing correto sem pedir que o cliente repita o que aconteceu.
-6. Dado briefing, medidas, fotos ou vídeos pendentes, quando o cliente pedir
+9. Dado briefing, medidas, fotos ou vídeos pendentes, quando o cliente pedir
    ajuda, então a Urba deve orientar com o material oficial e escalar apenas a
    dificuldade que não conseguir resolver.
+
+Durante o checkpoint:
+
+- uma declaração explícita do cliente pode preencher qualquer campo sem que a
+  Urba diga que registrou a informação;
+- uma pergunta paralela deve ser respondida sem perder o checkpoint pendente;
+- um pedido de humano deve gerar handoff imediato, sem termos ou pagamento;
+- ao retornar para a Urba, a coleta é retomada apenas para os campos faltantes;
+- a arquiteta pode receber no resumo interno os campos atuais e pendentes.
 
 ### 2.3 Cenário prioritário C — handoff solicitado pelo cliente
 
@@ -256,7 +331,11 @@ Regras que a Urba deve conhecer e aplicar:
 | Situação | Comportamento visível esperado |
 |---|---|
 | Dado comercial obrigatório ausente | Fazer uma pergunta curta para coletar o dado necessário. |
-| Dado opcional de perfil ausente | Continuar o fluxo sem bloquear. |
+| Serviço confirmado e intenção explícita, com ICP ausente | Perguntar os campos faltantes antes dos termos, sem hard gate técnico. |
+| Cliente recusa ou não responde ao ICP | Registrar `NÃO INFORMADO` conforme a regra de tentativa e seguir para os termos. |
+| Cliente já possui ICP no perfil | Reutilizar os valores e não perguntar novamente. |
+| Cliente informa ICP espontaneamente | Capturar somente a declaração explícita, sem interromper a conversa. |
+| Hermes ignora o checkpoint | Registrar `ICP_SKIPPED_BEFORE_TERMS` internamente, sem erro visível ou bloqueio. |
 | Área desconhecida em Interiores/Reforma | Ajudar a estimar/medir; escalar apenas se a dificuldade persistir. |
 | Área acima de 20 m² em Interiores/Reforma | Informar o limite padrão e encaminhar para avaliação, sem prometer exceção. |
 | Link vigente indisponível | Não usar link legado; confirmar encaminhamento humano para obtenção segura. |
@@ -303,9 +382,12 @@ Frases proibidas incluem, sem se limitar a:
   mini resumo e pedido de confirmação.
 - **FR-012**: a confirmação comercial do serviço deve ser separada do aceite
   formal dos termos.
-- **FR-013**: dados opcionais de ICP não podem bloquear nenhuma etapa.
-- **FR-014**: serviço, ambiente e área aplicável são os únicos dados de
-  qualificação exigidos antes dos termos.
+- **FR-013**: após serviço confirmado e intenção explícita de contratar, a Urba
+  deve executar o checkpoint conversacional dos campos de ICP ausentes antes de
+  apresentar os termos, sem transformá-lo em hard gate de backend.
+- **FR-014**: serviço, ambiente e área aplicável continuam sendo os únicos
+  pré-requisitos comerciais de estado para os termos; o ICP é uma etapa de
+  orientação do Hermes e enriquecimento de lead.
 - **FR-015**: mudança de serviço antes do pagamento deve invalidar os termos da
   contratação anterior e reiniciar termos/aceite para a nova contratação.
 - **FR-016**: múltiplos ambientes ou serviços devem manter estados e aceites
@@ -388,13 +470,62 @@ Frases proibidas incluem, sem se limitar a:
   link do Tour Virtual.
 - **FR-050**: suporte deve ser descrito como três meses de dúvidas sobre Manual
   e cores, sem visita ou gestão da execução.
+- **FR-051**: a primeira mensagem OUTBOUND de uma conversa nova deve identificar
+  a Urba como assistente virtual da Urbana do Brasil, sem depender de o cliente
+  perguntar quem está atendendo.
+- **FR-052**: uma pergunta informativa sobre como funciona o serviço deve
+  consultar o catálogo rico e responder progressivamente; ela não pode, por si
+  só, apresentar termos, preparar pagamento ou transferir ao humano.
+- **FR-053**: `TERMS=PRESENTED` só pode ser persistido quando a etapa de termos
+  for explicitamente solicitada e efetivamente apresentada ao cliente; um turno
+  meramente explicativo não pode alterar esse estado.
+- **FR-054**: o ambiente local deve compilar o backend a partir do código-fonte
+  atual durante a construção da imagem, sem depender de JAR previamente gerado
+  no host.
+- **FR-055**: o cenário conversacional principal deve possuir um E2E live que
+  preserve o transcript integral, avalie invariantes operacionais e qualidade
+  factual mínima, e falhe com diagnóstico quando uma resposta ficar silenciosa,
+  técnica, incompleta ou encaminhar indevidamente.
+- **FR-056**: o ICP deve conter somente `PRONOUN_PREFERENCE`,
+  `FIRST_TIME_HIRING` e `OCCUPATION`, aplicando `SIM`, `NÃO` ou `NÃO INFORMADO`
+  apenas ao campo de primeira contratação; os outros dois preservam o texto
+  explícito informado pelo cliente.
+- **FR-057**: o checkpoint deve perguntar apenas os campos ausentes, usar
+  mensagem curta com quebras de linha e não expor o termo “ICP” ao cliente.
+- **FR-058**: o SOUL deve oferecer a cada campo ausente somente uma segunda
+  oportunidade conversacional; recusa explícita conclui imediatamente e
+  ausência após essa oportunidade conclui como `NÃO INFORMADO`, sem insistência
+  ou bloqueio. Essa regra deve ser conduzida a partir da thread e dos fatos
+  correntes, sem contador autoritativo persistido pelo backend.
+- **FR-059**: declarações explícitas do cliente podem preencher ou atualizar o
+  ICP incidentalmente em qualquer etapa; inferências e interpretações da
+  arquiteta não podem gerar fato do cliente.
+- **FR-060**: o ICP deve ser global por cliente, reutilizado entre os quatro
+  serviços, e um valor explícito mais recente — inclusive `NÃO INFORMADO` —
+  substitui silenciosamente o valor atual.
+- **FR-061**: após a conclusão de todos os campos, a Urba deve avançar
+  automaticamente para os termos; perguntas paralelas, handoff e retomada
+  humana devem preservar os campos ainda pendentes por meio da thread integral,
+  dos fatos correntes e das instruções do SOUL.
+- **FR-062**: a ausência do checkpoint não pode produzir erro técnico, alterar
+  o resultado comercial nem criar bloqueio de backend; deve gerar apenas um
+  evento interno idempotente `ICP_SKIPPED_BEFORE_TERMS`, correlacionado por
+  conversa/turno/serviço e campos ausentes, sem valores brutos, transcript,
+  links, prompt ou detalhes técnicos.
+- **FR-063**: o Hermes deve receber a íntegra da thread atual e o contexto
+  associado, incluindo mensagens humanas, sem que a Urba filtre o histórico
+  especificamente por causa do ICP.
+- **FR-064**: o resumo interno de handoff pode indicar quais campos do ICP estão
+  preenchidos ou ausentes, sem transportar contadores de tentativa; logs
+  técnicos não repetem os valores brutos.
 
 ### 3.7 Critérios mensuráveis de sucesso
 
 - **SC-001**: 100% dos quatro serviços passam na matriz factual de nome, preço,
   área, escopo e entregas.
-- **SC-002**: o roteiro prioritário do quarto infantil chega aos termos sem
-  handoff inesperado, bloqueio de ICP ou afirmação incorreta sobre área.
+- **SC-002**: o roteiro prioritário do quarto infantil executa o checkpoint de
+  ICP antes dos termos quando houver campo ausente, sem handoff inesperado,
+  linguagem interna ou afirmação incorreta sobre área.
 - **SC-003**: 100% das perguntas “como funciona” usadas no roteiro recebem
   explicação suficiente sem alegar falta de informação existente.
 - **SC-004**: 100% dos casos de rejeição controlada resultam em pergunta ou
@@ -407,11 +538,44 @@ Frases proibidas incluem, sem se limitar a:
   máximo uma mensagem proativa e não precisa repetir contexto.
 - **SC-008**: 100% dos cenários manuais obrigatórios da seção 5.4 passam em uma
   execução limpa antes de promover a feature.
+- **SC-009**: uma execução live do roteiro principal captura o transcript
+  integral e produz score/racional reproduzível para apresentação, catálogo,
+  ausência de linguagem interna, handoff e ownership.
+- **SC-010**: reconstruir o stack local a partir da árvore de trabalho resulta
+  em imagem backend cujo artefato executado contém as alterações atuais,
+  verificadas por build e healthcheck, sem depender de `build/libs` obsoleto.
+- **SC-011**: em 100% dos caminhos conversacionais normais e visíveis ao cliente
+  cobertos pelo E2E, os termos só aparecem depois de os campos ausentes serem
+  respondidos, recusados ou marcados como `NÃO INFORMADO`; quando já
+  preenchidos, o checkpoint é omitido. O cenário técnico de injeção controlada
+  definido em SC-014 é explicitamente excluído desta população.
+- **SC-012**: uma segunda tentativa do ICP contém somente campos ainda ausentes,
+  e nenhum campo recebe mais de duas oportunidades de resposta no mesmo ciclo.
+- **SC-013**: uma declaração espontânea explícita é reutilizada sem nova
+  pergunta, e uma atualização posterior não gera mensagem ao cliente sobre a
+  substituição do valor.
+- **SC-014**: em 100% das injeções controladas que invocam a preparação de
+  termos com ICP incompleto fora do caminho conversacional normal, o backend
+  preserva o resultado comercial e registra exatamente um evento interno por
+  chave idempotente; 0% dos resultados/mensagens expõem o evento ou falha
+  técnica ao cliente/Hermes, e 0% dos eventos/logs contêm valores brutos do ICP.
 
 ## 4. Edge Cases
 
 - Cliente fornece nome, mas não preferência de tratamento, ocupação ou histórico
   de contratação.
+- Cliente já possui um ou dois campos do ICP e deve receber pergunta somente
+  sobre os campos restantes.
+- Cliente responde parcialmente ao primeiro bloco do ICP.
+- Cliente diz explicitamente que prefere não informar um campo.
+- Cliente ignora o primeiro bloco e também a segunda tentativa.
+- Cliente fornece um valor explícito do ICP espontaneamente durante a descoberta.
+- Cliente fornece depois um valor diferente ou `NÃO INFORMADO`; a troca é
+  silenciosa e o valor mais recente prevalece.
+- Cliente pergunta algo paralelo durante o ICP.
+- Cliente pede a arquiteta durante o ICP e a arquiteta devolve a conversa com
+  campos ainda ausentes.
+- Hermes recebe histórico integral contendo respostas antigas e novas do cliente.
 - Cliente quer pintura temática e reaproveitar móveis; a Urba deve diferenciar
   Pintura de Interiores sem prometer layout em Pintura.
 - Cliente não sabe a metragem ou informa medida aproximada.
@@ -447,7 +611,11 @@ Frases proibidas incluem, sem se limitar a:
 
 - testes de contrato do catálogo para os quatro serviços;
 - testes de comparação entre serviços e regras de área;
-- testes do avanço comercial com ICP opcional;
+- testes do checkpoint de ICP antes dos termos, reutilização, captura incidental,
+  recusa, segunda tentativa, atualização silenciosa e retomada após humano;
+- teste unitário/integração de injeção controlada em que termos são preparados
+  com ICP incompleto, comprovando evento idempotente, payload sem valores e
+  resultado comercial inalterado;
 - testes de termos, aceite ambíguo, mudança de serviço e contratações
   independentes;
 - testes de falhas recuperáveis e sanitização de falhas técnicas;
@@ -469,6 +637,10 @@ Cada turno comercial relevante deve permitir correlacionar internamente:
 - ação comercial solicitada;
 - resultado seguro ou classe de falha;
 - handoff e ownership;
+- campos de ICP ausentes/preenchidos sem registrar valores brutos, conteúdo do
+  cliente ou contador conversacional nos logs;
+- evento idempotente `ICP_SKIPPED_BEFORE_TERMS` quando houver desvio do
+  checkpoint, sem alterar a resposta de preparação dos termos;
 - sincronização/decisão de retomada;
 - criação ou supressão justificada de mensagem canônica.
 
@@ -503,19 +675,38 @@ O ambiente de validação deve oferecer meios seguros de:
 8. Pedir detalhes sobre entregas, execução, materiais, prazo e suporte.
 9. Confirmar que a Urba responde com o catálogo refinado, sem encaminhar e sem
    mencionar falta de informação.
-10. Pedir contratação e confirmar que os termos são apresentados sem coleta
-    obrigatória de ocupação, pronome ou primeira contratação.
-11. Responder “ok” e confirmar que o pagamento não é liberado.
-12. Dar aceite textual claro e escolher método de pagamento.
-13. Confirmar instrução de teste vinculada à contratação correta.
-14. Enviar comprovante de teste.
-15. Confirmar mensagem de validação humana e exatamente uma confirmação de
+10. Demonstrar intenção explícita de contratar e confirmar que a Urba pergunta
+    os campos de ICP ausentes antes dos termos.
+11. Responder os três campos e confirmar que os termos só aparecem depois do
+    checkpoint, sem uma nova confirmação intermediária.
+12. Responder “ok” e confirmar que o pagamento não é liberado.
+13. Dar aceite textual claro e escolher método de pagamento.
+14. Confirmar instrução de teste vinculada à contratação correta.
+15. Enviar comprovante de teste.
+16. Confirmar mensagem de validação humana e exatamente uma confirmação de
     handoff.
-16. Confirmar que mensagens posteriores não recebem automação durante modo
+17. Confirmar que mensagens posteriores não recebem automação durante modo
     humano.
-17. Como arquiteta, validar o pagamento e devolver a conversa à Urba.
-18. Confirmar que a Urba retoma com contexto e envia proativamente o briefing
+18. Como arquiteta, validar o pagamento e devolver a conversa à Urba.
+19. Confirmar que a Urba retoma com contexto e envia proativamente o briefing
     correto, sem pedir repetição.
+
+#### Roteiro E — checkpoint de enriquecimento de lead
+
+1. Iniciar uma conversa em que o cliente já tenha dois campos do ICP no perfil
+   e demonstrar intenção explícita por um serviço confirmado.
+2. Confirmar que a Urba pergunta somente o campo ausente.
+3. Em uma conversa limpa, responder parcialmente ao primeiro bloco e confirmar
+   que a segunda mensagem contém apenas o campo restante.
+4. Recusar explicitamente um campo e confirmar avanço sem insistência.
+5. Ignorar um campo duas vezes e confirmar registro interno de `NÃO INFORMADO`
+   e avanço para os termos.
+6. Informar espontaneamente um campo antes da contratação e confirmar que ele é
+   reutilizado sem nova pergunta.
+7. Fornecer depois um valor diferente e confirmar que a Urba não anuncia a
+   substituição ao cliente.
+8. Pedir a arquiteta durante o checkpoint, devolver a conversa e confirmar que
+   a Urba retoma somente os campos ainda faltantes.
 
 #### Roteiro B — dificuldade no briefing e retorno
 
@@ -545,15 +736,24 @@ O ambiente de validação deve oferecer meios seguros de:
 4. Solicitar humano duas vezes e confirmar uma única mensagem/notificação.
 5. Repetir a devolução HUMANO → URBA e confirmar uma única retomada proativa.
 
+O desvio de SC-014 não faz parte desses roteiros conversacionais: ele é um teste
+técnico controlado do boundary de preparação de termos. Um cliente real ou o
+E2E normal nunca deve ser instruído a burlar o checkpoint para produzir esse
+evento.
+
 ### 5.5 Gate de aprovação manual
 
 A feature somente pode seguir para homologação quando:
 
 - todos os testes automatizados obrigatórios estiverem verdes;
-- os quatro roteiros manuais tiverem evidência registrada;
+- os cinco roteiros manuais tiverem evidência registrada;
 - nenhuma fala contiver linguagem técnica proibida;
 - o histórico canônico e o ownership forem consistentes;
 - não houver link legado apresentado como vigente;
+- o baseline local tiver sido reconciliado e nenhuma alteração preexistente
+  permanecer sem classificação ou teste proporcional;
+- a subtarefa Jira estiver vinculada, a branch de execução seguir
+  `feature/* -> hml` e as evidências estiverem preparadas para o PR;
 - Emanuel aprovar a qualidade e naturalidade da conversa.
 
 ## 6. Fora de escopo
@@ -569,19 +769,30 @@ A feature somente pode seguir para homologação quando:
   puder comprovar o mesmo contrato;
 - simulação do decurso real de sete dias úteis;
 - alta disponibilidade do ambiente local;
-- uso de memória global do agente como fonte canônica de negócio.
+- uso de memória global do agente como fonte canônica de negócio;
+- criação de um hard gate backend específico para o ICP;
+- coleta de novos campos de ICP além dos três confirmados;
+- dashboard de Growth ou definição de um snapshot imutável de primeira
+  interação; o valor corrente e seu histórico são suficientes para esta feature.
 
-## 7. Dúvidas em aberto
+## 7. Decisões operacionais e gates de execução
 
-Não há pergunta de negócio bloqueante para planejar após o GO. O GO de Emanuel
-aprovará também as decisões da seção 1.5.
+Não há pergunta de negócio ou técnica bloqueante nesta especificação. As
+decisões de negócio e experiência da seção 1.5 foram confirmadas na entrevista
+de 2026-08-26. Os pontos operacionais ficam resolvidos assim:
 
-Pendências operacionais que devem ser resolvidas no planejamento, sem alterar o
-contrato desta spec:
-
-- definir a origem e a governança dos recursos vigentes de termos, pagamento,
-  briefing e agendamento para cada ambiente;
-- definir como o ambiente local simulará as ações exclusivas da arquiteta;
-- associar esta feature ao ticket Jira de implementação e às dependências
-  formais de PEE-103/PEE-104;
-- definir quais evidências dos roteiros serão anexadas ao Jira/PR.
+- o ambiente local utiliza somente recursos e controles inequivocamente de
+  teste; homologação/produção recebem recursos vigentes por configuração segura
+  externa ao repositório;
+- as ações exclusivas da arquiteta são simuladas pelos controles determinísticos
+  já previstos na POC, sem envio externo ou pagamento real;
+- antes do primeiro escritor, o Tech Lead deve concluir o gate de baseline,
+  vincular a subtarefa Jira e garantir a branch de execução `feature/*` baseada
+  em `hml`, preservando a árvore atual;
+- testes, transcript E2E, matriz factual e roteiros manuais compõem o pacote de
+  evidência a ser vinculado ao Jira e descrito no PR;
+- Jira só muda para `Em andamento` quando a execução for efetivamente iniciada;
+  implementação mais PR aberto mudam para `Awaiting approval`, e apenas merge
+  aprovado permite `Concluído`;
+- este documento não autoriza deploy, promoção, recurso comercial real nem
+  comunicação externa.

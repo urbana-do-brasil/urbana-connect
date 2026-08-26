@@ -20,6 +20,7 @@ import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -80,8 +81,10 @@ public class DomainToolInvocationUseCase {
         if (conversations != null) {
             ReceptionConversation conversation = conversations.findByContactId(lease.contactId())
                     .orElseThrow(() -> new IllegalStateException("conversation does not exist"));
-            if (conversation.mode() == ReceptionMode.HUMAN) {
-                throw new IllegalStateException("domain tools are disabled in HUMAN mode");
+            if (conversation.mode() == ReceptionMode.HUMAN
+                    && toolName != DomainToolName.REQUEST_HUMAN_HANDOFF) {
+                throw new DomainRejectionException("HUMAN_OWNS_CONVERSATION", "WAIT_FOR_HUMAN",
+                        List.of(), "A arquiteta continuará este atendimento por aqui.");
             }
         }
         String key = DomainToolInvocation.deriveIdempotencyKey(lease.turnId(), toolName, hash);
@@ -113,11 +116,20 @@ public class DomainToolInvocationUseCase {
             invocations.save(started.finish(DomainToolInvocationStatus.SUCCEEDED, "OK", payloadSnapshot,
                     clock.instant()));
             return new InvocationResult(snapshot(payloadSnapshot), key, false);
+        } catch (DomainRejectionException rejection) {
+            Object failurePayload = snapshot(rejection.toPayload());
+            invocations.save(started.finish(DomainToolInvocationStatus.REJECTED,
+                    rejection.code(), failurePayload, clock.instant()));
+            throw rejection;
         } catch (RuntimeException exception) {
-            Object failurePayload = snapshot(Map.of("error", String.valueOf(exception.getMessage())));
+            Object failurePayload = snapshot(Map.of(
+                    "code", "TEMPORARILY_UNAVAILABLE",
+                    "nextAction", "WAIT_OR_HANDOFF",
+                    "missingFields", List.of(),
+                    "customerMessage", "Não consegui concluir esta etapa agora. Posso tentar novamente ou chamar a arquiteta."));
             invocations.save(started.finish(DomainToolInvocationStatus.FAILED,
-                    exception.getClass().getSimpleName(), failurePayload, clock.instant()));
-            throw exception;
+                    "TECHNICAL_FAILURE", failurePayload, clock.instant()));
+            throw new TechnicalToolFailureException("Não consegui concluir esta etapa agora.", exception);
         }
     }
 
@@ -126,8 +138,9 @@ public class DomainToolInvocationUseCase {
             case SUCCEEDED -> new InvocationResult(snapshot(prior.resultPayload()), key, true);
             case STARTED -> throw new InvocationInProgressException(
                     "tool invocation is already in progress");
-            case FAILED, REJECTED -> throw new DurableToolFailureException(
-                    "tool invocation previously failed", prior.resultCode(), prior.resultPayload());
+            case REJECTED -> throw DomainRejectionException.from(prior.resultCode(), prior.resultPayload());
+            case FAILED -> throw new DurableToolFailureException(
+                    "Não consegui concluir esta etapa agora.", prior.resultCode(), prior.resultPayload());
         };
     }
 
@@ -145,7 +158,61 @@ public class DomainToolInvocationUseCase {
 
     public static class InvocationInProgressException extends IllegalArgumentException {
         public InvocationInProgressException(String message) {
-            super(message);
+            super("Esta etapa ainda está sendo concluída.");
+        }
+    }
+
+    public static final class DomainRejectionException extends IllegalArgumentException {
+        private final String code;
+        private final String nextAction;
+        private final List<String> missingFields;
+        private final String customerMessage;
+
+        public DomainRejectionException(String code, String nextAction,
+                                        List<String> missingFields, String customerMessage) {
+            super(customerMessage);
+            this.code = requireText(code, "BUSINESS_RULE_REJECTED");
+            this.nextAction = requireText(nextAction, "ASK_FOR_CLARIFICATION");
+            this.missingFields = missingFields == null ? List.of() : List.copyOf(missingFields);
+            this.customerMessage = requireText(customerMessage,
+                    "Preciso confirmar uma informação antes de continuar.");
+        }
+
+        public String code() { return code; }
+        public String nextAction() { return nextAction; }
+        public List<String> missingFields() { return missingFields; }
+        public String customerMessage() { return customerMessage; }
+
+        public Map<String, Object> toPayload() {
+            return Map.of("code", code, "nextAction", nextAction,
+                    "missingFields", missingFields, "customerMessage", customerMessage);
+        }
+
+        @SuppressWarnings("unchecked")
+        static DomainRejectionException from(String code, Object payload) {
+            if (payload instanceof Map<?, ?> map) {
+                Object fields = map.get("missingFields");
+                List<String> missing = fields instanceof List<?> list
+                        ? list.stream().map(String::valueOf).toList() : List.of();
+                Object replayCode = map.containsKey("code") ? map.get("code") : code;
+                Object replayAction = map.containsKey("nextAction") ? map.get("nextAction") : "ASK_FOR_CLARIFICATION";
+                Object replayMessage = map.containsKey("customerMessage") ? map.get("customerMessage")
+                        : "Preciso confirmar uma informação antes de continuar.";
+                return new DomainRejectionException(String.valueOf(replayCode),
+                        String.valueOf(replayAction), missing, String.valueOf(replayMessage));
+            }
+            return new DomainRejectionException(code, "ASK_FOR_CLARIFICATION", List.of(),
+                    "Preciso confirmar uma informação antes de continuar.");
+        }
+
+        private static String requireText(String value, String fallback) {
+            return value == null || value.isBlank() ? fallback : value;
+        }
+    }
+
+    public static final class TechnicalToolFailureException extends IllegalStateException {
+        TechnicalToolFailureException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 

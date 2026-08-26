@@ -41,6 +41,18 @@ class ReceptionConversationTest {
     }
 
     @Test
+    void incompleteIcpDoesNotBlockPaymentAfterTermsAreAccepted() {
+        ReceptionConversation conversation = ReceptionConversation.start("contact-1", now)
+                .selectService("DECOR_INTERIORES", now)
+                .presentTerms(now)
+                .acceptTerms(now);
+
+        ReceptionConversation prepared = conversation.preparePayment(false, "PIX", now);
+
+        assertThat(prepared.paymentStatus()).isEqualTo(PaymentStatus.PREPARED);
+    }
+
+    @Test
     void handoffStopsAiAndReturnRequiresExplicitOperatorAction() {
         ReceptionConversation conversation = ReceptionConversation.start("contact-1", now)
                 .requestHumanHandoff("cliente pediu uma pessoa", now.plusSeconds(1));
@@ -49,6 +61,41 @@ class ReceptionConversationTest {
         assertThat(conversation.handoffReason()).isEqualTo("cliente pediu uma pessoa");
         assertThatIllegalStateException().isThrownBy(() -> conversation.presentTerms(now.plusSeconds(2)));
 
+    }
+
+    @Test
+    void modelsTheVersionedFailClosedResumeStateAndOwnershipTransition() {
+        ReceptionConversation human = ReceptionConversation.start("contact-1", now)
+                .requestHumanHandoff("cliente pediu uma pessoa", now.plusSeconds(1));
+
+        ReceptionConversation syncing = human.beginResume("resume-1", "return-1", "sha256:abc", 3,
+                now.plusSeconds(2));
+        ReceptionConversation deciding = syncing.markResumeDeciding(now.plusSeconds(3));
+        ReceptionConversation completed = deciding.completeResume("WAIT", null, now.plusSeconds(4));
+
+        assertThat(syncing.mode()).isEqualTo(ReceptionMode.HUMAN);
+        assertThat(syncing.resumeStatus()).isEqualTo(ResumeStatus.SYNCHRONIZING);
+        assertThat(deciding.resumeStatus()).isEqualTo(ResumeStatus.DECIDING);
+        assertThat(completed.mode()).isEqualTo(ReceptionMode.AI);
+        assertThat(completed.resumeStatus()).isEqualTo(ResumeStatus.COMPLETED);
+        assertThat(completed.resumeId()).isEqualTo("resume-1");
+        assertThat(completed.version()).isEqualTo(human.version() + 3);
+    }
+
+    @Test
+    void preservesHumanOwnershipWhenResumeFailsAndReplaysSameActiveRequest() {
+        ReceptionConversation human = ReceptionConversation.start("contact-1", now)
+                .requestHumanHandoff("cliente pediu uma pessoa", now.plusSeconds(1));
+        ReceptionConversation syncing = human.beginResume("resume-1", "return-1", "sha256:abc", 1,
+                now.plusSeconds(2));
+
+        assertThat(syncing.beginResume("resume-1", "return-1", "sha256:abc", 1, now.plusSeconds(3)))
+                .isSameAs(syncing);
+        ReceptionConversation failed = syncing.failResume("RESUME_UNAVAILABLE", now.plusSeconds(4));
+
+        assertThat(failed.mode()).isEqualTo(ReceptionMode.HUMAN);
+        assertThat(failed.resumeStatus()).isEqualTo(ResumeStatus.FAILED_SAFE);
+        assertThat(failed.resumeFailureCode()).isEqualTo("RESUME_UNAVAILABLE");
     }
 
     @Test

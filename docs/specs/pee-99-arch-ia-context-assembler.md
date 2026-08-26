@@ -11,6 +11,15 @@
 - `Data`: 2026-05-01
 - `Fonte principal`: [Refinamento Participação da IA v7](https://urbanadobrasil.atlassian.net/wiki/spaces/pro/pages/374865922)
 
+> **Contrato de negócio relacionado — PEE-102 (2026-08-16):** o Context
+> Assembler também deve suportar a retomada da conversa após responsabilidade
+> humana. A semântica de negócio do evento `HUMANO -> URBA`, da precedência das
+> decisões da arquiteta, do histórico completo e da retomada proativa está
+> definida em [`pee-102-catalogo-e-contexto-operacional-urba.md`](pee-102-catalogo-e-contexto-operacional-urba.md).
+> O contrato técnico que preserva o pass-through dos turnos normais e cria um
+> canal interno separado está em
+> [`pee-102-retomada-tecnica-humano-urba-hermes.md`](pee-102-retomada-tecnica-humano-urba-hermes.md).
+
 ---
 
 ## 1. Contexto

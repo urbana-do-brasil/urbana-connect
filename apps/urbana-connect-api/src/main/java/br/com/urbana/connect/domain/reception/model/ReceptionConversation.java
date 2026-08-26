@@ -16,7 +16,25 @@ public record ReceptionConversation(
         String handoffReason,
         Instant createdAt,
         Instant updatedAt,
-        long version) {
+        long version,
+        ResumeStatus resumeStatus,
+        String resumeId,
+        String resumeIdempotencyKey,
+        String resumeChecksum,
+        int resumeBoundarySequence,
+        String resumeDecisionAction,
+        String resumeDecisionMessage,
+        String resumeFailureCode) {
+
+    public ReceptionConversation(String id, String contactId, ReceptionMode mode,
+                                 CommercialStage commercialStage, String selectedService,
+                                 TermsStatus termsStatus, PaymentStatus paymentStatus,
+                                 String handoffReason, Instant createdAt, Instant updatedAt,
+                                 long version) {
+        this(id, contactId, mode, commercialStage, selectedService, termsStatus, paymentStatus,
+                handoffReason, createdAt, updatedAt, version, ResumeStatus.NONE, null, null,
+                null, 0, null, null, null);
+    }
 
     public ReceptionConversation {
         id = require(id, "id");
@@ -25,6 +43,7 @@ public record ReceptionConversation(
         commercialStage = Objects.requireNonNull(commercialStage, "commercialStage");
         termsStatus = Objects.requireNonNull(termsStatus, "termsStatus");
         paymentStatus = Objects.requireNonNull(paymentStatus, "paymentStatus");
+        resumeStatus = resumeStatus == null ? ResumeStatus.NONE : resumeStatus;
         createdAt = Objects.requireNonNull(createdAt, "createdAt");
         updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
         if (version < 0) {
@@ -35,6 +54,9 @@ public record ReceptionConversation(
         }
         if (paymentStatus != PaymentStatus.NOT_STARTED && selectedService == null) {
             throw new IllegalArgumentException("payment state requires a selected service");
+        }
+        if (resumeBoundarySequence < 0) {
+            throw new IllegalArgumentException("resume boundary must be non-negative");
         }
     }
 
@@ -51,8 +73,8 @@ public record ReceptionConversation(
         return mode == ReceptionMode.HUMAN;
     }
 
-    public boolean canPreparePayment(boolean icpComplete) {
-        return mode == ReceptionMode.AI && icpComplete && selectedService != null
+    public boolean canPreparePayment(boolean ignoredIcpComplete) {
+        return mode == ReceptionMode.AI && selectedService != null
                 && termsStatus == TermsStatus.ACCEPTED;
     }
 
@@ -89,10 +111,10 @@ public record ReceptionConversation(
                 paymentStatus, handoffReason, now);
     }
 
-    public ReceptionConversation preparePayment(boolean icpComplete, String method, Instant now) {
+    public ReceptionConversation preparePayment(boolean ignoredIcpComplete, String method, Instant now) {
         require(method, "method");
-        if (!canPreparePayment(icpComplete)) {
-            throw new IllegalStateException("payment requires complete ICP, service and accepted terms");
+        if (!canPreparePayment(ignoredIcpComplete)) {
+            throw new IllegalStateException("payment requires service and accepted terms");
         }
         return copy(mode, CommercialStage.PAYMENT, selectedService, termsStatus,
                 PaymentStatus.PREPARED, handoffReason, now);
@@ -128,14 +150,79 @@ public record ReceptionConversation(
             return this;
         }
         return copy(ReceptionMode.HUMAN, commercialStage, selectedService, termsStatus,
-                paymentStatus, reason, now);
+                paymentStatus, reason, now, ResumeStatus.NONE, null, null, null, 0, null, null, null);
+    }
+
+    public ReceptionConversation beginResume(String nextResumeId, String idempotencyKey,
+                                              String checksum, int boundarySequence, Instant now) {
+        require(nextResumeId, "resumeId");
+        require(idempotencyKey, "idempotencyKey");
+        require(checksum, "resumeChecksum");
+        if (mode != ReceptionMode.HUMAN) {
+            throw new IllegalStateException("only human conversations can return to Urba");
+        }
+        if (resumeStatus != ResumeStatus.NONE && resumeStatus != ResumeStatus.FAILED_SAFE
+                && resumeStatus != ResumeStatus.RETURNED_TO_HUMAN) {
+            if (nextResumeId.equals(resumeId) && idempotencyKey.equals(resumeIdempotencyKey)) {
+                return this;
+            }
+            throw new IllegalStateException("a resume is already in progress");
+        }
+        return copy(mode, commercialStage, selectedService, termsStatus, paymentStatus, handoffReason, now,
+                ResumeStatus.SYNCHRONIZING, nextResumeId, idempotencyKey, checksum, boundarySequence,
+                null, null, null);
+    }
+
+    public ReceptionConversation markResumeDeciding(Instant now) {
+        if (resumeStatus != ResumeStatus.SYNCHRONIZING) {
+            throw new IllegalStateException("resume is not synchronized");
+        }
+        return copy(mode, commercialStage, selectedService, termsStatus, paymentStatus, handoffReason, now,
+                ResumeStatus.DECIDING, resumeId, resumeIdempotencyKey, resumeChecksum,
+                resumeBoundarySequence, null, null, null);
+    }
+
+    public ReceptionConversation completeResume(String action, String message, Instant now) {
+        if (resumeStatus != ResumeStatus.DECIDING && resumeStatus != ResumeStatus.SYNCHRONIZING) {
+            throw new IllegalStateException("resume decision is not ready");
+        }
+        return copy(ReceptionMode.AI, commercialStage, selectedService, termsStatus, paymentStatus, null, now,
+                ResumeStatus.COMPLETED, resumeId, resumeIdempotencyKey, resumeChecksum,
+                resumeBoundarySequence, action, message, null);
+    }
+
+    public ReceptionConversation failResume(String failureCode, Instant now) {
+        require(failureCode, "resumeFailureCode");
+        return copy(ReceptionMode.HUMAN, commercialStage, selectedService, termsStatus, paymentStatus,
+                handoffReason == null ? "retomada não concluída" : handoffReason, now,
+                ResumeStatus.FAILED_SAFE, resumeId, resumeIdempotencyKey, resumeChecksum,
+                resumeBoundarySequence, resumeDecisionAction, null, failureCode);
+    }
+
+    public ReceptionConversation returnResumeToHuman(String reason, Instant now) {
+        return copy(ReceptionMode.HUMAN, commercialStage, selectedService, termsStatus, paymentStatus,
+                reason, now, ResumeStatus.RETURNED_TO_HUMAN, resumeId, resumeIdempotencyKey,
+                resumeChecksum, resumeBoundarySequence, "RETURN_TO_HUMAN", null, null);
     }
 
     private ReceptionConversation copy(ReceptionMode nextMode, CommercialStage nextStage,
                                        String nextService, TermsStatus nextTerms,
                                        PaymentStatus nextPayment, String nextReason, Instant now) {
+        return copy(nextMode, nextStage, nextService, nextTerms, nextPayment, nextReason, now,
+                resumeStatus, resumeId, resumeIdempotencyKey, resumeChecksum, resumeBoundarySequence,
+                resumeDecisionAction, resumeDecisionMessage, resumeFailureCode);
+    }
+
+    private ReceptionConversation copy(ReceptionMode nextMode, CommercialStage nextStage,
+                                       String nextService, TermsStatus nextTerms,
+                                       PaymentStatus nextPayment, String nextReason, Instant now,
+                                       ResumeStatus nextResumeStatus, String nextResumeId,
+                                       String nextResumeKey, String nextChecksum, int nextBoundary,
+                                       String nextAction, String nextMessage, String nextFailure) {
         return new ReceptionConversation(id, contactId, nextMode, nextStage, nextService,
-                nextTerms, nextPayment, nextReason, createdAt, now, version + 1);
+                nextTerms, nextPayment, nextReason, createdAt, now, version + 1,
+                nextResumeStatus, nextResumeId, nextResumeKey, nextChecksum, nextBoundary,
+                nextAction, nextMessage, nextFailure);
     }
 
     private static String require(String value, String field) {

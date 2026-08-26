@@ -57,7 +57,15 @@ public class MongoReceptionConversationGateway implements ReceptionConversationG
                 .set("handoffReason", conversation.handoffReason())
                 .set("createdAt", conversation.createdAt())
                 .set("updatedAt", conversation.updatedAt())
-                .set("version", conversation.version());
+                .set("version", conversation.version())
+                .set("resumeStatus", conversation.resumeStatus())
+                .set("resumeId", conversation.resumeId())
+                .set("resumeIdempotencyKey", conversation.resumeIdempotencyKey())
+                .set("resumeChecksum", conversation.resumeChecksum())
+                .set("resumeBoundarySequence", conversation.resumeBoundarySequence())
+                .set("resumeDecisionAction", conversation.resumeDecisionAction())
+                .set("resumeDecisionMessage", conversation.resumeDecisionMessage())
+                .set("resumeFailureCode", conversation.resumeFailureCode());
         ReceptionConversationDocument updated = template.findAndModify(query, update,
                 FindAndModifyOptions.options().returnNew(true), ReceptionConversationDocument.class);
         if (updated == null) {
@@ -73,12 +81,21 @@ public class MongoReceptionConversationGateway implements ReceptionConversationG
         d.setTermsStatus(value.termsStatus()); d.setPaymentStatus(value.paymentStatus());
         d.setHandoffReason(value.handoffReason()); d.setCreatedAt(value.createdAt());
         d.setUpdatedAt(value.updatedAt()); d.setVersion(value.version());
+        d.setResumeStatus(value.resumeStatus()); d.setResumeId(value.resumeId());
+        d.setResumeIdempotencyKey(value.resumeIdempotencyKey()); d.setResumeChecksum(value.resumeChecksum());
+        d.setResumeBoundarySequence(value.resumeBoundarySequence());
+        d.setResumeDecisionAction(value.resumeDecisionAction());
+        d.setResumeDecisionMessage(value.resumeDecisionMessage());
+        d.setResumeFailureCode(value.resumeFailureCode());
         return d;
     }
 
     private ReceptionConversation toDomain(ReceptionConversationDocument d) {
         return new ReceptionConversation(d.getId(), d.getContactId(), d.getMode(), d.getCommercialStage(),
                 d.getSelectedService(), d.getTermsStatus(), d.getPaymentStatus(), d.getHandoffReason(),
-                d.getCreatedAt(), d.getUpdatedAt(), d.getVersion());
+                d.getCreatedAt(), d.getUpdatedAt(), d.getVersion(),
+                d.getResumeStatus(), d.getResumeId(), d.getResumeIdempotencyKey(), d.getResumeChecksum(),
+                d.getResumeBoundarySequence(), d.getResumeDecisionAction(), d.getResumeDecisionMessage(),
+                d.getResumeFailureCode());
     }
 }

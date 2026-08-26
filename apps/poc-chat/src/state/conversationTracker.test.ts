@@ -286,4 +286,26 @@ describe('ConversationTracker', () => {
     expect(actions.some((action) => action.type === 'RECEIPT_RECEIVED')).toBe(true);
     tracker.dispose();
   });
+
+  it('does not send automation after the canonical projection assigns HUMAN ownership', async () => {
+    const api: ConversationApi = {
+      sendTextMessage: vi.fn(),
+      getConversationProjection: vi.fn().mockResolvedValue({
+        contactId: `poc:${ALIAS_A}`,
+        ownership: 'HUMAN',
+        resumeStatus: 'SYNCHRONIZING',
+        conversation: { mode: 'HUMAN', version: 1 },
+        messages: [],
+        turn: null,
+      }),
+    };
+    const { tracker } = harness(api);
+
+    await tracker.sync(ALIAS_A);
+    const receipt = await tracker.send(ALIAS_A, 'Não deve ser enviado');
+
+    expect(receipt).toBeNull();
+    expect(api.sendTextMessage).not.toHaveBeenCalled();
+    tracker.dispose();
+  });
 });
