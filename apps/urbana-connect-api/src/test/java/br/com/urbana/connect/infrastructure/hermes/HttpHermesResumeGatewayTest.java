@@ -107,11 +107,11 @@ class HttpHermesResumeGatewayTest {
         HttpHermesResumeGateway gateway = new HttpHermesResumeGateway(
                 builder, "http://hermes.test", null);
 
-        server.expect(requestTo("http://hermes.test/api/internal/v1/sessions/s%2F1/context-sync"))
+        server.expect(requestTo("http://hermes.test/api/internal/v1/sessions/session-1/context-sync"))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer "))
                 .andRespond(withServerError());
 
-        assertThatThrownBy(() -> gateway.synchronize("s/1",
+        assertThatThrownBy(() -> gateway.synchronize("session-1",
                 new HermesResumeGateway.ResumeContext(1, "r", "l", "i", "mode", 0, 0, "checksum",
                         List.of())))
                 .isInstanceOf(HttpHermesResumeGateway.ResumeGatewayException.class)
