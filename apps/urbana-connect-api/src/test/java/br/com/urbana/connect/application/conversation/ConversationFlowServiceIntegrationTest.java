@@ -247,10 +247,10 @@ class ConversationFlowServiceIntegrationTest {
         );
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_CONFIRMATION);
-        assertThat(updated.selectedService()).isEqualTo(br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR);
+        assertThat(updated.selectedService()).isEqualTo(br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR_INTERIORES);
         verify(whatsAppMessageGateway).sendServicePresentation(
             eq(phoneNumber),
-            argThat(service -> service.type() == br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR)
+            argThat(service -> service.type() == br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR_INTERIORES)
         );
     }
 
@@ -284,10 +284,10 @@ class ConversationFlowServiceIntegrationTest {
         );
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_CONFIRMATION);
-        assertThat(updated.selectedService()).isEqualTo(ServiceType.DECOR);
+        assertThat(updated.selectedService()).isEqualTo(ServiceType.DECOR_INTERIORES);
         verify(whatsAppMessageGateway).sendServicePresentation(
             eq(phoneNumber),
-            argThat(service -> service.type() == ServiceType.DECOR)
+            argThat(service -> service.type() == ServiceType.DECOR_INTERIORES)
         );
     }
 
@@ -340,7 +340,7 @@ class ConversationFlowServiceIntegrationTest {
         );
 
         assertThat(updated.currentStep()).isEqualTo(ConversationStep.AWAITING_TERMS);
-        assertThat(updated.context().slotValue(ConversationSlotName.CONFIRMED_SERVICE)).contains("DECOR");
+        assertThat(updated.context().slotValue(ConversationSlotName.CONFIRMED_SERVICE)).contains("DECOR_INTERIORES");
         verify(whatsAppMessageGateway).sendTermsOfUse(phoneNumber);
     }
 
@@ -475,7 +475,7 @@ class ConversationFlowServiceIntegrationTest {
         assertThat(updated.context().paymentMethod()).isEqualTo("PIX");
         verify(whatsAppMessageGateway).sendPaymentLink(
             eq(phoneNumber),
-            argThat(service -> service.type() == br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR)
+            argThat(service -> service.type() == br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR_INTERIORES)
         );
         verify(whatsAppMessageGateway).sendClosingMessage(phoneNumber);
     }
@@ -487,7 +487,7 @@ class ConversationFlowServiceIntegrationTest {
 
         advanceToAwaitingPaymentMethod(phoneNumber, now);
         var removedService = mongoTemplate.findAndRemove(
-            Query.query(Criteria.where("type").is(br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR)),
+            Query.query(Criteria.where("type").is(br.com.urbana.connect.domain.servicecatalog.model.ServiceType.DECOR_INTERIORES)),
             ServiceCatalogDocument.class
         );
 
@@ -501,7 +501,7 @@ class ConversationFlowServiceIntegrationTest {
             verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), anyList());
             verify(whatsAppMessageGateway, times(0)).sendClosingMessage(phoneNumber);
             assertThat(output)
-                    .contains("Servico DECOR nao encontrado para enviar link de pagamento para +5583***1111");
+                    .contains("Servico DECOR_INTERIORES nao encontrado para enviar link de pagamento para +5583***1111");
         } finally {
             if (removedService != null) {
                 mongoTemplate.save(removedService);
