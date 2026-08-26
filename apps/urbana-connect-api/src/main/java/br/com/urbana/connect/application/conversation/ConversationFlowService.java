@@ -553,7 +553,7 @@ public class ConversationFlowService {
         try {
             ServiceType selectedType = ServiceType.canonicalize(ServiceType.valueOf(replyId));
             return availableServices.stream()
-                .filter(service -> service.type() == selectedType)
+                .filter(service -> ServiceType.canonicalize(service.type()) == selectedType)
                 .findFirst();
         } catch (IllegalArgumentException ignored) {
             return Optional.empty();
@@ -568,7 +568,7 @@ public class ConversationFlowService {
                 try {
                     ServiceType selectedType = ServiceType.canonicalize(ServiceType.valueOf(slotValue));
                     return availableServices.stream()
-                        .filter(service -> service.type() == selectedType)
+                        .filter(service -> ServiceType.canonicalize(service.type()) == selectedType)
                         .findFirst();
                 } catch (IllegalArgumentException ignored) {
                     return Optional.empty();

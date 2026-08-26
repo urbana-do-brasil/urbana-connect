@@ -52,6 +52,32 @@ class ConversationResponseValidatorTest {
     }
 
     @Test
+    void shouldAcceptLegacyDecorAliasWhenCanonicalCatalogContainsDecorInteriores() {
+        ResponseValidationResult result = validator.validate(
+            stepContract(),
+            new ConversationalAiReply(
+                "Decor parece a melhor opção para isso 😊",
+                ConversationalAiAction.PROPOSE_SERVICE,
+                List.of(new ConversationSlotUpdate(
+                    ConversationSlotName.SUGGESTED_SERVICE,
+                    "DECOR",
+                    ConversationSlotLevel.TENTATIVE,
+                    0.92,
+                    ConversationSlotSource.INFERRED
+                )),
+                0.92,
+                true,
+                ConversationStep.AWAITING_CONFIRMATION,
+                false,
+                null
+            ),
+            List.of(canonicalDecorInteriores())
+        );
+
+        assertThat(result.valid()).isTrue();
+    }
+
+    @Test
     void shouldRejectReplyWithMetaSpeech() {
         ResponseValidationResult result = validator.validate(
             stepContract(),
@@ -202,6 +228,20 @@ class ConversationResponseValidatorTest {
             "Apresentação Decor",
             new BigDecimal("490.00"),
             "https://pay.example/decor",
+            null,
+            true
+        );
+    }
+
+    private ServiceCatalogItem canonicalDecorInteriores() {
+        return new ServiceCatalogItem(
+            ServiceType.DECOR_INTERIORES,
+            "Decor Interiores",
+            "🛋️",
+            "Renovar espaço interno",
+            "Apresentação Decor Interiores",
+            new BigDecimal("490.00"),
+            "https://pay.example/decor-interiores",
             null,
             true
         );

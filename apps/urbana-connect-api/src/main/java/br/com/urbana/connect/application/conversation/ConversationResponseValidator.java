@@ -102,7 +102,8 @@ public class ConversationResponseValidator {
         Set<String> availableAliases = availableServices.stream()
             .flatMap(service -> Stream.of(
                 normalize(service.name()),
-                normalize(service.type().name().replace('_', ' '))
+                normalize(service.type().name().replace('_', ' ')),
+                normalize(legacyAliasFor(service.type()))
             ))
             .filter(alias -> !alias.isBlank())
             .collect(Collectors.toSet());
@@ -159,6 +160,10 @@ public class ConversationResponseValidator {
 
     private String normalize(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT).trim();
+    }
+
+    private String legacyAliasFor(ServiceType type) {
+        return ServiceType.canonicalize(type) == ServiceType.DECOR_INTERIORES ? "Decor" : "";
     }
 
     private List<String> extractCapitalizedPhrases(String replyText) {
