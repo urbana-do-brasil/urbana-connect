@@ -3,10 +3,45 @@ package br.com.urbana.connect.domain.servicecatalog.model;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ServiceCatalogItemTest {
+
+    @Test
+    void protectsCatalogInvariantsAndDistinguishesFixtureResources() {
+        ServiceCatalogItem legacy = new ServiceCatalogItem(
+                ServiceType.DECOR, "Decor", "🏠", "escopo", "apresentação",
+                new BigDecimal("10"), "https://example.test/payment", "https://example.test/briefing", true);
+
+        assertThat(legacy.paymentLink()).isEqualTo("https://example.test/payment");
+        assertThat(legacy.briefingLink()).isEqualTo("https://example.test/briefing");
+        assertThat(legacy.termsLink()).isNull();
+        assertThat(legacy.description()).isEqualTo("escopo");
+        assertThat(legacy.areaLimitSqm()).isNull();
+        assertThat(legacy.isFixtureResource()).isFalse();
+
+        ServiceCatalogItem immutable = new ServiceCatalogItem(
+                ServiceType.DECOR_PINTURA, "Pintura", "🎨", "escopo", "apresentação",
+                new BigDecimal("10"), "https://fixtures.urbana.local/terms/pintura",
+                "https://fixtures.urbana.local/payment/pintura", "https://fixtures.urbana.local/briefing/pintura",
+                AreaRule.UNLIMITED_BY_CATALOG, "escopo", List.of("entrega"), List.of("processo"),
+                List.of("responsabilidade"), List.of("exclusão"), "suporte", true);
+        assertThat(immutable.isFixtureResource()).isTrue();
+        assertThatThrownBy(() -> immutable.deliverables().add("outra"))
+                .isInstanceOf(UnsupportedOperationException.class);
+
+        assertThatThrownBy(() -> new ServiceCatalogItem(
+                ServiceType.DECOR, "", "🏠", "escopo", "apresentação", BigDecimal.ONE,
+                null, null, null, AreaRule.UNLIMITED_BY_CATALOG, "escopo", null, null, null, null,
+                "suporte", true)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ServiceCatalogItem(
+                ServiceType.DECOR, "Decor", "🏠", "escopo", "apresentação", new BigDecimal("-1"),
+                null, null, null, AreaRule.UNLIMITED_BY_CATALOG, "escopo", null, null, null, null,
+                "suporte", true)).isInstanceOf(IllegalArgumentException.class);
+    }
 
     @Test
     void canonicalCatalogContainsFourAvailableRichServicesAndNoLegacyAlias() {
