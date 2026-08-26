@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -252,36 +251,18 @@ class DomainToolInvocationUseCaseTest {
         DomainToolInvocationUseCase useCase = new DomainToolInvocationUseCase(leases, invocations, tool,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         ExecutorService executor = Executors.newFixedThreadPool(2);
-        CountDownLatch start = new CountDownLatch(1);
         Future<DomainToolInvocationUseCase.InvocationResult> first = executor.submit(() -> {
-            await(start);
             return useCase.invoke("session-1", "hermes-urbana-domain", DomainToolName.PREPARE_TERMS,
                     Map.of("serviceType", "DECOR"));
         });
-        Future<DomainToolInvocationUseCase.InvocationResult> second = executor.submit(() -> {
-            await(start);
-            return useCase.invoke("session-1", "hermes-urbana-domain", DomainToolName.PREPARE_TERMS,
-                    Map.of("serviceType", "DECOR"));
-        });
-        start.countDown();
         assertThat(firstExecutionEntered.await(2, TimeUnit.SECONDS)).isTrue();
-        releaseFirstExecution.countDown();
 
-        int successful = 0;
-        int inProgress = 0;
-        for (Future<DomainToolInvocationUseCase.InvocationResult> future : List.of(first, second)) {
-            try {
-                var result = future.get(2, TimeUnit.SECONDS);
-                successful++;
-                assertThat(result.result()).isEqualTo(Map.of("status", "OK"));
-            } catch (ExecutionException exception) {
-                assertThat(exception.getCause())
-                        .isInstanceOf(DomainToolInvocationUseCase.InvocationInProgressException.class);
-                inProgress++;
-            }
-        }
-        assertThat(successful).isEqualTo(1);
-        assertThat(inProgress).isEqualTo(1);
+        assertThatThrownBy(() -> useCase.invoke("session-1", "hermes-urbana-domain",
+                DomainToolName.PREPARE_TERMS, Map.of("serviceType", "DECOR")))
+                .isInstanceOf(DomainToolInvocationUseCase.InvocationInProgressException.class);
+
+        releaseFirstExecution.countDown();
+        assertThat(first.get(2, TimeUnit.SECONDS).result()).isEqualTo(Map.of("status", "OK"));
         assertThat(executions).hasValue(1);
         executor.shutdownNow();
     }
