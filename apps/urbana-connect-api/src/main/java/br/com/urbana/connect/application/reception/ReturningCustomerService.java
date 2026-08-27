@@ -72,7 +72,8 @@ public final class ReturningCustomerService {
 
         Map<String, CustomerFact> latestByType = new LinkedHashMap<>();
         for (CustomerFact fact : queried) {
-            if (fact == null || !contactId.equals(fact.contactId()) || !fact.isConfirmedCurrentAt(at)) {
+            if (fact == null || !contactId.equals(fact.contactId()) || fact.supersededBy() != null
+                    || fact.validFrom().isAfter(at)) {
                 continue;
             }
             CustomerFact previous = latestByType.get(fact.type());
@@ -80,7 +81,9 @@ public final class ReturningCustomerService {
                 latestByType.put(fact.type(), fact);
             }
         }
-        return List.copyOf(latestByType.values());
+        return latestByType.values().stream()
+                .filter(fact -> fact.isReusableAt(at))
+                .toList();
     }
 
     private static final Comparator<CustomerFact> CURRENT_FACT_ORDER = Comparator

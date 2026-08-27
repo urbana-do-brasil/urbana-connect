@@ -1,10 +1,32 @@
-# POC runtime image: the host build is explicit so Docker does not need to
-# resolve Gradle dependencies or execute a second build inside the daemon.
+# Build from the Docker context so the POC can never reuse a stale host JAR.
+# Java 21 is intentionally kept aligned with the application runtime.
+FROM eclipse-temurin:21-jdk-jammy AS build
+
+WORKDIR /workspace/app
+
+COPY gradlew .
+COPY gradle gradle
+COPY gradle.properties .
+COPY build.gradle .
+COPY settings.gradle .
+COPY src src
+
+RUN chmod +x ./gradlew \
+    && ./gradlew --no-daemon clean bootJar
+
 FROM eclipse-temurin:21-jre-jammy
+
+ARG APP_SOURCE_REVISION=workspace-source
+ARG APP_BUILD_CREATED=unknown
+
+LABEL org.opencontainers.image.revision="${APP_SOURCE_REVISION}" \
+      org.opencontainers.image.created="${APP_BUILD_CREATED}" \
+      org.opencontainers.image.source="urbana-connect-api/Dockerfile.poc.runtime-jar" \
+      br.com.urbana.connect.build="containerized-gradle-jdk21"
 
 WORKDIR /app
 
-COPY build/libs/urbana-connect-0.0.1-SNAPSHOT.jar app.jar
+COPY --from=build /workspace/app/build/libs/*.jar app.jar
 
 RUN useradd --system --create-home spring
 

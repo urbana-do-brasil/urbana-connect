@@ -30,6 +30,55 @@ spec:
             limits:
               cpu: 250m
               memory: 512Mi
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - >-
+                  mongosh --quiet --host 127.0.0.1:27017/admin
+                  --username "$MONGO_INITDB_ROOT_USERNAME"
+                  --password "$MONGO_INITDB_ROOT_PASSWORD"
+                  --authenticationDatabase admin --eval
+                  'try { quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 1); }
+                  catch (error) { quit(1); }'
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - >-
+                  mongosh --quiet --host 127.0.0.1:27017/admin
+                  --username "$MONGO_INITDB_ROOT_USERNAME"
+                  --password "$MONGO_INITDB_ROOT_PASSWORD"
+                  --authenticationDatabase admin --eval
+                  'try {
+                  const hello = db.adminCommand({hello: 1});
+                  quit(hello.ok === 1 && hello.setName === "rs0" &&
+                  hello.isWritablePrimary === true ? 0 : 1);
+                  } catch (error) { quit(1); }'
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -ec
+                - >-
+                  mongosh --quiet --host 127.0.0.1:27017/admin
+                  --username "$MONGO_INITDB_ROOT_USERNAME"
+                  --password "$MONGO_INITDB_ROOT_PASSWORD"
+                  --authenticationDatabase admin --eval
+                  'try { quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 1); }
+                  catch (error) { quit(1); }'
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           env:
             - name: MONGO_INITDB_ROOT_USERNAME
               valueFrom:
@@ -52,6 +101,67 @@ spec:
             - name: mongodb-config
               mountPath: /etc/mongod.conf
               subPath: mongod.conf
+        - name: mongodb-replica-set-init
+          image: mongo:6.0.5
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              until mongosh --quiet --host 127.0.0.1:27017/admin \
+                --username "$MONGO_INITDB_ROOT_USERNAME" \
+                --password "$MONGO_INITDB_ROOT_PASSWORD" \
+                --authenticationDatabase admin --eval '
+                try { quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 1); }
+                catch (error) { quit(1); }
+              '; do sleep 2; done
+
+              until mongosh --quiet --host 127.0.0.1:27017/admin \
+                --username "$MONGO_INITDB_ROOT_USERNAME" \
+                --password "$MONGO_INITDB_ROOT_PASSWORD" \
+                --authenticationDatabase admin --eval '
+                const hello = db.adminCommand({hello: 1});
+                if (hello.setName === "rs0" && hello.isWritablePrimary === true) {
+                  quit(0);
+                }
+                try {
+                  rs.initiate({
+                    _id: "rs0",
+                    members: [{_id: 0, host: process.env.MONGO_RS_MEMBER_HOST}]
+                  });
+                } catch (error) {}
+                quit(1);
+              '; do sleep 2; done
+
+              exec tail -f /dev/null
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: urbana-connect-mongodb
+                  key: username
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: urbana-connect-mongodb
+                  key: password
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: MONGO_RS_MEMBER_HOST
+              value: "$(POD_NAME).urbana-connect-mongodb.$(POD_NAMESPACE).svc.cluster.local:27017"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 50m
+              memory: 128Mi
       volumes:
         - name: mongodb-config
           configMap:

@@ -132,6 +132,47 @@ class ReceptionTurnReconciliationTest {
                 message.direction() == ReceptionMessageDirection.OUTBOUND).hasSize(1);
     }
 
+    @Test
+    void handoffAckWinsOverLateHermesTextDuringReconciliation() {
+        MemoryTurns turns = new MemoryTurns();
+        ReceptionTurn turn = ReceptionTurn.queued("turn-human", "corr-human", "poc:ana", "session-1",
+                        List.of("message-human"), NOW, "cursor-1|1")
+                .start(NOW)
+                .reconcile("HERMES_TIMEOUT_AFTER_DISPATCH", NOW.plusSeconds(1));
+        turns.save(turn);
+        MemoryConversation conversations = new MemoryConversation();
+        conversations.value = ReceptionConversation.start("conversation-human", "poc:ana", NOW)
+                .requestHumanHandoff("cliente pediu uma pessoa", NOW.plusSeconds(1));
+        MemoryTranscript transcript = new MemoryTranscript();
+        transcript.messages.add(new ReceptionMessage("message-human", "event-human", "corr-human",
+                "conversation-human", "poc:ana", ReceptionMessageDirection.INBOUND,
+                ReceptionMessageSender.CONTACT, ReceptionMessageType.TEXT, "quero uma pessoa", null, null, NOW));
+        HermesSessionsGateway sessions = new HermesSessionsGateway() {
+            @Override public String createSession(String contactId) { return "session-1"; }
+            @Override public HermesChatResult chat(String sessionId, HermesChatRequest request) {
+                throw new AssertionError("must not dispatch");
+            }
+            @Override public List<HermesHistoryMessage> history(String sessionId) { return List.of(); }
+            @Override public HermesHistorySnapshot historySnapshot(String sessionId) {
+                return new HermesHistorySnapshot("cursor-2", List.of(
+                        new HermesHistoryMessage("user", "quero uma pessoa"),
+                        new HermesHistoryMessage("assistant", "o sistema está indisponível; tente retry")));
+            }
+        };
+        ReceptionTurnReconciliationService service = new ReceptionTurnReconciliationService(
+                new HermesSessionService(sessions, new EmptyLinks()), conversations, transcript, turns,
+                Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC));
+
+        assertThat(service.reconcile("turn-human"))
+                .contains("Vou encaminhar sua conversa para a arquiteta, que continuará com você por aqui.");
+        assertThat(turns.value.status().name()).isEqualTo("BLOCKED_BY_HUMAN");
+        assertThat(transcript.messages).noneMatch(message -> message.text() != null
+                && message.text().contains("sistema está indisponível"));
+        assertThat(transcript.messages).filteredOn(message -> message.senderType() == ReceptionMessageSender.URBA)
+                .singleElement().extracting(ReceptionMessage::text)
+                .isEqualTo("Vou encaminhar sua conversa para a arquiteta, que continuará com você por aqui.");
+    }
+
     private static final class EmptyLinks implements AgentSessionLinkGateway {
         @Override public Optional<br.com.urbana.connect.domain.reception.model.AgentSessionLink> findActiveByContactId(String contactId) { return Optional.empty(); }
         @Override public Optional<br.com.urbana.connect.domain.reception.model.AgentSessionLink> findBySessionId(String sessionId) { return Optional.empty(); }

@@ -12,7 +12,7 @@ const readRepository = (relativePath: string) =>
   readFileSync(resolve(repositoryRoot, relativePath), "utf8");
 
 describe("poc-chat container contract", () => {
-  it("keeps the browser surface to the two chat routes and health", () => {
+  it("keeps the browser surface to chat, local operator controls and health", () => {
     const template = readApp("nginx/default.conf.template");
 
     expect(template).toMatch(
@@ -21,7 +21,9 @@ describe("poc-chat container contract", () => {
     expect(template).toMatch(/\/messages\$\s*"?\s*\{/);
     expect(template).toMatch(/location\s+~\*?\s+"?\^\/api\/poc\/conversations\/\(manual-[^\n]+\)\$"?\s*\{/);
     expect(template).toMatch(/location\s*=\s*\/health\s*\{/);
+    expect(template).toContain("human/messages|ownership/urba|payment-proof/approve");
     expect(template).toMatch(/location\s+\/api\/\s*\{\s*return\s+404;/s);
+    expect(template).toContain("# No other API route is proxied by default.");
     expect(template).toMatch(/try_files\s+\$uri\s*=404;/);
   });
 
@@ -61,5 +63,21 @@ describe("poc-chat container contract", () => {
     expect(dockerfile).toContain("/docker-entrypoint.d/10-poc-token.sh");
     expect(compose).toMatch(/\/etc\/nginx\/conf\.d/);
     expect(compose).toMatch(/tmpfs:/);
+  });
+
+  it("builds the backend image from the current source and preserves local compose wiring", () => {
+    const backendDockerfile = readRepository("apps/urbana-connect-api/Dockerfile.poc.runtime-jar");
+    const compose = readRepository("infra/local-poc/docker-compose.poc.yml");
+
+    expect(backendDockerfile).toMatch(/^FROM eclipse-temurin:21-jdk-jammy AS build/m);
+    expect(backendDockerfile).toContain("COPY gradle.properties .");
+    expect(backendDockerfile).toMatch(/\.\/gradlew --no-daemon clean bootJar/);
+    expect(backendDockerfile).toMatch(/COPY --from=build \/workspace\/app\/build\/libs\/\*\.jar app\.jar/);
+    expect(backendDockerfile).not.toMatch(/COPY build\/libs\/[^\n]+ app\.jar/);
+
+    expect(compose).toMatch(/urbana-connect:\s*\n\s+build:\s*\n\s+context: \.\.\/\.\.\/apps\/urbana-connect-api/);
+    expect(compose).toMatch(/dockerfile: Dockerfile\.poc\.runtime-jar/);
+    expect(compose).toMatch(/poc-chat:\s*\n\s+build:[\s\S]*?depends_on:\s*\n\s+urbana-connect:\s*\n\s+condition: service_healthy/);
+    expect(compose).toContain("HERMES_POC_API_TOKEN: ${HERMES_INTERNAL_TOOL_TOKEN");
   });
 });

@@ -18,6 +18,7 @@ public class MongoServiceCatalogGateway implements ServiceCatalogGateway {
     @Override
     public List<ServiceCatalogItem> findAll() {
         return repository.findAll().stream()
+            .filter(document -> document.getType() != ServiceType.DECOR)
             .map(this::toDomain)
             .toList();
     }
@@ -25,13 +26,14 @@ public class MongoServiceCatalogGateway implements ServiceCatalogGateway {
     @Override
     public List<ServiceCatalogItem> findAvailable() {
         return repository.findAllByAvailableTrueOrderByNameAsc().stream()
+            .filter(document -> document.getType() != ServiceType.DECOR)
             .map(this::toDomain)
             .toList();
     }
 
     @Override
     public Optional<ServiceCatalogItem> findByType(ServiceType type) {
-        return repository.findByType(type).map(this::toDomain);
+        return repository.findByType(ServiceType.canonicalize(type)).map(this::toDomain);
     }
 
     private ServiceCatalogItem toDomain(ServiceCatalogDocument document) {
@@ -42,8 +44,16 @@ public class MongoServiceCatalogGateway implements ServiceCatalogGateway {
             document.getScenarioText(),
             document.getPresentationText(),
             document.getPrice(),
-            document.getPaymentLink(),
-            document.getBriefingLink(),
+            document.getTermsResource(),
+            document.getPaymentResource(),
+            document.getBriefingResource(),
+            document.getAreaRule(),
+            document.getScope(),
+            document.getDeliverables(),
+            document.getProcess(),
+            document.getResponsibilities(),
+            document.getExclusions(),
+            document.getSupport(),
             document.isAvailable());
     }
 }

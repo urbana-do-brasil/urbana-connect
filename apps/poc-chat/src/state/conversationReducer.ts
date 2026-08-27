@@ -3,6 +3,10 @@ import {
   parseConversationProjection,
   type CanonicalMessage,
   type ConversationMode,
+  type ConversationOwnership,
+  type PocControlAvailability,
+  type ResumeStatus,
+  type ResumeSummary,
   type TurnStatus,
   type TurnSummary,
 } from '../api/contracts';
@@ -49,6 +53,12 @@ export interface ConversationUiState {
   lastSuccessfulSyncAt: string | null;
   lastError: string | null;
   mode: ConversationMode | null;
+  ownership: ConversationOwnership | null;
+  resume: ResumeSummary | null;
+  resumeStatus: ResumeStatus | null;
+  resumeId: string | null;
+  conversationVersion: number | null;
+  pocControls: PocControlAvailability | null;
 }
 
 export type ConversationState = Record<string, ConversationUiState>;
@@ -76,6 +86,12 @@ export function createConversationUiState(): ConversationUiState {
     lastSuccessfulSyncAt: null,
     lastError: null,
     mode: null,
+    ownership: null,
+    resume: null,
+    resumeStatus: null,
+    resumeId: null,
+    conversationVersion: null,
+    pocControls: null,
   };
 }
 
@@ -110,7 +126,7 @@ export function conversationReducer(
         optimisticMessages: current.optimisticMessages.some((item) => item.eventId === action.pending.eventId)
           ? current.optimisticMessages
           : [...current.optimisticMessages, action.pending],
-        processingState: current.mode === 'HUMAN' ? 'HUMAN' : 'WAITING',
+        processingState: isHumanOwned(current) ? 'HUMAN' : 'WAITING',
         lastError: null,
       });
     case 'RETRY_STARTED':
@@ -120,7 +136,7 @@ export function conversationReducer(
         optimisticMessages: current.optimisticMessages.map((item) => item.eventId === action.eventId
           ? { ...item, attempts: action.attempts, state: 'ACCEPTING', lastError: null }
           : item),
-        processingState: current.mode === 'HUMAN' ? 'HUMAN' : 'WAITING',
+        processingState: isHumanOwned(current) ? 'HUMAN' : 'WAITING',
         lastError: null,
       });
     case 'RECEIPT_RECEIVED':
@@ -133,7 +149,7 @@ export function conversationReducer(
             state: action.status === 'BLOCKED_BY_HUMAN' ? 'HUMAN' : 'WAITING',
           }
           : item),
-        processingState: action.status === 'BLOCKED_BY_HUMAN' ? 'HUMAN' : 'WAITING',
+        processingState: isHumanOwned(current) || action.status === 'BLOCKED_BY_HUMAN' ? 'HUMAN' : 'WAITING',
         lastError: null,
       });
     case 'SEND_FAILED':
@@ -145,7 +161,7 @@ export function conversationReducer(
         optimisticMessages: current.optimisticMessages.map((item) => item.eventId === action.eventId
           ? { ...item, state: activePendingState(item.state), lastError: action.error }
           : item),
-        processingState: current.mode === 'HUMAN' ? 'HUMAN' : activeProcessingState(current.processingState),
+        processingState: isHumanOwned(current) ? 'HUMAN' : activeProcessingState(current.processingState),
         lastError: action.error,
       });
     case 'SYNC_FAILED':
@@ -176,7 +192,18 @@ export function getVisibleMessages(state: ConversationUiState): CanonicalMessage
   const optimistic = state.optimisticMessages
     .filter((pending) => !canonicalEventIds.has(pending.eventId))
     .map(optimisticMessage);
+  const seenIds = new Set<string>();
+  const seenFallbacks = new Set<string>();
   return [...state.messages, ...optimistic]
+    .filter((message) => {
+      const fallback = `${message.eventId}|${message.direction}|${message.correlationId}`;
+      if (seenIds.has(message.id) || seenFallbacks.has(fallback)) {
+        return false;
+      }
+      seenIds.add(message.id);
+      seenFallbacks.add(fallback);
+      return true;
+    })
     .map((message, index) => ({ message, index }))
     .sort((left, right) => {
       const byTime = Date.parse(left.message.createdAt) - Date.parse(right.message.createdAt);
@@ -186,7 +213,11 @@ export function getVisibleMessages(state: ConversationUiState): CanonicalMessage
 }
 
 export function hasPendingWork(state: ConversationUiState | undefined): boolean {
-  if (!state || state.processingState === 'HUMAN') {
+  if (!state) {
+    return false;
+  }
+  const resumeStatus = state.resumeStatus;
+  if (state.processingState === 'HUMAN' && !isNonTerminalResume(resumeStatus)) {
     return false;
   }
   if (state.optimisticMessages.some(isActivePending)) {
@@ -199,6 +230,12 @@ export function hasPendingWork(state: ConversationUiState | undefined): boolean 
     // responsible for making a COMPLETED projection contain its output;
     // FAILED_* and human-blocked summaries must never be polled as retries.
     return isNonTerminalTurn(state.turn.status);
+  }
+  if (resumeStatus !== null) {
+    return isNonTerminalResume(resumeStatus);
+  }
+  if (state.resume !== null) {
+    return isNonTerminalResume(state.resume.status);
   }
   return state.optimisticMessages.some(isActivePending)
     || hasUnansweredTurn(state.messages);
@@ -236,7 +273,25 @@ function reconcileProjection(
       .filter((message) => message.direction === 'OUTBOUND')
       .map((message) => message.id));
     const hasNewOutbound = [...outboundIds].some((id) => !oldOutboundIds.has(id));
-    const mode = projection.conversation.mode === 'HUMAN' ? 'HUMAN' : 'AI';
+    const mode = projection.ownership === 'HUMAN'
+      || (projection.ownership === undefined && (projection.conversation.mode === 'HUMAN'
+        || projection.conversation.ownership === 'HUMAN'))
+      ? 'HUMAN'
+      : 'AI';
+    const ownership = projection.ownership
+      ?? projection.conversation.ownership
+      ?? (mode === 'HUMAN' ? 'HUMAN' : 'URBA');
+    const resume = projection.conversation.resume ?? null;
+    const resumeStatus = projection.resumeStatus
+      ?? projection.conversation.resumeStatus
+      ?? null;
+    const resumeId = projection.resumeId !== undefined
+      ? projection.resumeId
+      : projection.conversation.resumeId ?? null;
+    const pocControls = projection.controlAvailability
+      ?? projection.conversation.controlAvailability
+      ?? projection.conversation.pocControls
+      ?? null;
     const optimisticMessages = reconcilePendingMessages(
       current.optimisticMessages,
       messages,
@@ -250,6 +305,8 @@ function reconcileProjection(
       optimisticMessages,
       mode,
       projection.turn,
+      resume,
+      resumeStatus,
       current.processingState,
     );
     return withConversation(state, alias, {
@@ -263,6 +320,12 @@ function reconcileProjection(
       lastSuccessfulSyncAt: new Date().toISOString(),
       lastError: null,
       mode,
+      ownership,
+      resume,
+      resumeStatus,
+      resumeId,
+      conversationVersion: projection.conversationVersion ?? null,
+      pocControls,
     });
   } catch {
     return withConversation(state, alias, {
@@ -382,6 +445,8 @@ function deriveProcessingState(
   optimisticMessages: PendingSend[],
   mode: ConversationMode,
   turn: TurnSummary | null,
+  resume: ResumeSummary | null,
+  resumeStatus: ResumeStatus | null,
   previous: ProcessingState,
 ): ProcessingState {
   if (mode === 'HUMAN') {
@@ -403,6 +468,30 @@ function deriveProcessingState(
       case 'RUNNING':
         return previous === 'DELAYED' ? 'DELAYED' : 'WAITING';
       case 'COMPLETED':
+        break;
+      default:
+        break;
+    }
+  }
+  const effectiveResumeStatus = resumeStatus ?? resume?.status ?? null;
+  if (effectiveResumeStatus !== null) {
+    switch (effectiveResumeStatus) {
+      case 'PENDING':
+      case 'WAITING':
+        return previous === 'DELAYED' ? 'DELAYED' : 'WAITING';
+      case 'SYNCHRONIZING':
+      case 'DECIDING':
+      case 'RECONCILING':
+        return 'RECONCILING';
+      case 'FAILED_SAFE':
+      case 'FAILED_SAFE_TO_RETRY':
+        return (resume?.retryAllowed ?? true) ? 'FAILED_SAFE_TO_RETRY' : 'FAILED_TERMINAL';
+      case 'FAILED_TERMINAL':
+        return 'FAILED_TERMINAL';
+      case 'NONE':
+      case 'IDLE':
+      case 'COMPLETED':
+      case 'RETURNED_TO_HUMAN':
         break;
       default:
         break;
@@ -460,6 +549,18 @@ function isNonTerminalTurn(status: TurnStatus): boolean {
     || status === 'RUNNING'
     || status === 'DELAYED'
     || status === 'RECONCILING';
+}
+
+function isNonTerminalResume(status: ResumeStatus | null): boolean {
+  return status === 'PENDING'
+    || status === 'SYNCHRONIZING'
+    || status === 'DECIDING'
+    || status === 'WAITING'
+    || status === 'RECONCILING';
+}
+
+function isHumanOwned(state: ConversationUiState): boolean {
+  return state.mode === 'HUMAN' || state.ownership === 'HUMAN';
 }
 
 function isActivePending(pending: PendingSend): boolean {

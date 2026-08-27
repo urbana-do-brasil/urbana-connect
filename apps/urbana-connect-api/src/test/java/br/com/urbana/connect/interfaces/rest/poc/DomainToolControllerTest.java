@@ -65,7 +65,7 @@ class DomainToolControllerTest {
     }
 
     @Test
-    void delegatesOnlyAllowlistedToolWithSessionIdentityAndReturnsDerivedIdempotencyKey() {
+    void delegatesOnlyAllowlistedToolWithoutExposingTheInternalIdempotencyKey() {
         DomainToolInvocationUseCase useCase = mock(DomainToolInvocationUseCase.class);
         DomainToolController controller = new DomainToolController(useCase, TOKEN, PRINCIPAL);
         when(useCase.invoke(eq("session-1"), eq(PRINCIPAL), eq(DomainToolName.PREPARE_TERMS), any()))
@@ -76,13 +76,13 @@ class DomainToolControllerTest {
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         assertThat(response.getBody().ok()).isTrue();
-        assertThat(response.getBody().idempotencyKey()).isEqualTo("turn-1:prepare_terms:hash");
+        assertThat(response.getBody().idempotencyKey()).isNull();
         verify(useCase).invoke(eq("session-1"), eq(PRINCIPAL), eq(DomainToolName.PREPARE_TERMS),
                 eq(Map.of("serviceType", "DECOR")));
     }
 
     @Test
-    void redactsCredentialLikeDetailsFromDomainErrors() {
+    void replacesTechnicalFailureDetailsWithAStructuredSafeEnvelope() {
         DomainToolInvocationUseCase useCase = mock(DomainToolInvocationUseCase.class);
         DomainToolController controller = new DomainToolController(useCase, TOKEN, PRINCIPAL);
         when(useCase.invoke(any(), any(), eq(DomainToolName.GET_CUSTOMER_PROFILE), any()))
@@ -92,8 +92,30 @@ class DomainToolControllerTest {
                 new DomainToolController.ToolRequest("session-1", PRINCIPAL, Map.of()));
 
         assertThat(response.getStatusCode().value()).isEqualTo(409);
-        assertThat(response.getBody().error()).doesNotContain("super-secret-token", "OPENROUTER_API_KEY");
-        assertThat(response.getBody().error()).contains("REDACTED");
+        assertThat(response.getBody().error().code()).isEqualTo("BUSINESS_RULE_REJECTED");
+        assertThat(response.getBody().error().customerMessage())
+                .doesNotContain("super-secret-token", "OPENROUTER_API_KEY", "sistema", "ferramenta", "API",
+                        "banco", "HTTP", "exceção", "retry", "idempotência", "stack");
+    }
+
+    @Test
+    void returnsStableBusinessCodeNextActionAndCustomerSafeMessage() {
+        DomainToolInvocationUseCase useCase = mock(DomainToolInvocationUseCase.class);
+        DomainToolController controller = new DomainToolController(useCase, TOKEN, PRINCIPAL);
+        when(useCase.invoke(any(), any(), eq(DomainToolName.PREPARE_PAYMENT), any()))
+                .thenThrow(new DomainToolInvocationUseCase.DomainRejectionException(
+                        "TERMS_NOT_ACCEPTED", "ASK_FOR_CLEAR_ACCEPTANCE", java.util.List.of(),
+                        "Antes do pagamento, preciso do seu aceite claro dos termos."));
+
+        var response = controller.invoke("prepare_payment", "Bearer " + TOKEN,
+                new DomainToolController.ToolRequest("session-1", PRINCIPAL,
+                        Map.of("serviceType", "DECOR", "method", "PIX")));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThat(response.getBody().error().code()).isEqualTo("TERMS_NOT_ACCEPTED");
+        assertThat(response.getBody().error().nextAction()).isEqualTo("ASK_FOR_CLEAR_ACCEPTANCE");
+        assertThat(response.getBody().error().customerMessage())
+                .isEqualTo("Antes do pagamento, preciso do seu aceite claro dos termos.");
     }
 
     @Test

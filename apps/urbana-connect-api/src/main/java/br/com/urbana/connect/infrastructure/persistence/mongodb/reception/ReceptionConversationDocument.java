@@ -3,6 +3,7 @@ package br.com.urbana.connect.infrastructure.persistence.mongodb.reception;
 import br.com.urbana.connect.domain.reception.model.CommercialStage;
 import br.com.urbana.connect.domain.reception.model.PaymentStatus;
 import br.com.urbana.connect.domain.reception.model.ReceptionMode;
+import br.com.urbana.connect.domain.reception.model.ResumeStatus;
 import br.com.urbana.connect.domain.reception.model.TermsStatus;
 import lombok.Data;
 import org.springframework.data.annotation.Id;
@@ -27,4 +28,12 @@ public class ReceptionConversationDocument {
     private Instant createdAt;
     private Instant updatedAt;
     private long version;
+    private ResumeStatus resumeStatus;
+    private String resumeId;
+    private String resumeIdempotencyKey;
+    private String resumeChecksum;
+    private int resumeBoundarySequence;
+    private String resumeDecisionAction;
+    private String resumeDecisionMessage;
+    private String resumeFailureCode;
 }

@@ -12,6 +12,40 @@ except ImportError:  # direct local unittest import
 
 TOOLSET = "urbana-domain"
 
+TOOL_DESCRIPTIONS = {
+    "get_customer_profile": (
+        "Consulta o perfil e os fatos já confirmados do cliente para manter contexto. "
+        "Não use para inventar ou inferir dados ausentes."
+    ),
+    "update_customer_fact": (
+        "Registra um fato que o cliente acabou de informar, usando somente os tipos permitidos."
+    ),
+    "list_available_services": (
+        "Consulta o catálogo aprovado de serviços. Use quando o cliente perguntar como funciona, "
+        "o que recebe, etapas, escopo, limites, disponibilidade ou preço. O resultado contém o "
+        "catálogo rico; responda à dúvida sem iniciar termos, pagamento ou handoff por esse motivo. "
+        "Ao detalhar um serviço identificado, explicite que é uma consultoria online e mencione "
+        "processo, Manual em PDF, Tour Virtual, 3 opções e até 2 rodadas de ajustes."
+    ),
+    "prepare_terms": (
+        "Prepara os termos de um serviço já escolhido para uma intenção clara de contratação. "
+        "Use somente nesse momento; não use para dúvidas, explicações ou comparação de serviços."
+    ),
+    "prepare_payment": (
+        "Prepara o pagamento de um serviço somente depois de os termos terem sido apresentados "
+        "e aceitos de forma textual clara e de a pessoa escolher uma forma válida. "
+        "As formas aceitas são PIX ou CARD (cartão de crédito). Se a forma não tiver sido "
+        "informada, não use a ferramenta: pergunte se a pessoa prefere PIX ou cartão de crédito. "
+        "Nunca use `link` como método; o link é a instrução retornada após o preparo. "
+        "Não repita a chamada com os mesmos argumentos depois de uma rejeição: corrija a informação "
+        "ou faça a pergunta necessária ao cliente."
+    ),
+    "request_human_handoff": (
+        "Transfere para atendimento humano quando o cliente pedir uma pessoa explicitamente ou "
+        "quando houver incapacidade real de avançar com as informações disponíveis."
+    ),
+}
+
 
 def _schema(tool_name: str) -> dict:
     parameters = {"type": "object", "additionalProperties": False, "properties": {}}
@@ -31,7 +65,14 @@ def _schema(tool_name: str) -> dict:
         parameters["properties"] = {"serviceType": {"type": "string"}}
         parameters["required"] = ["serviceType"]
     elif tool_name == "prepare_payment":
-        parameters["properties"] = {"serviceType": {"type": "string"}, "method": {"type": "string"}}
+        parameters["properties"] = {
+            "serviceType": {"type": "string"},
+            "method": {
+                "type": "string",
+                "enum": ["PIX", "CARD"],
+                "description": "Forma válida: PIX ou cartão de crédito.",
+            },
+        }
         parameters["required"] = ["serviceType", "method"]
     elif tool_name == "request_human_handoff":
         parameters["properties"] = {"reason": {"type": "string"}}
@@ -42,7 +83,7 @@ def _schema(tool_name: str) -> dict:
 def _function_schema(tool_name: str, parameters: dict) -> dict:
     return {
         "name": tool_name,
-        "description": f"Urbana domain operation: {tool_name}",
+        "description": TOOL_DESCRIPTIONS[tool_name],
         "parameters": parameters,
     }
 
@@ -58,7 +99,7 @@ def register(ctx) -> None:
             toolset=TOOLSET,
             schema=_schema(name),
             handler=handler,
-            description=f"Urbana domain operation: {name}",
+            description=TOOL_DESCRIPTIONS[name],
         )
 
 

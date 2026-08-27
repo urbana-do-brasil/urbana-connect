@@ -9,6 +9,15 @@
 - `Branch`: `feature/PEE-2-urba`
 - `Data`: 2026-04-04
 
+> **Atualização de negócio — PEE-102 (2026-08-16):** esta spec registra a
+> baseline histórica da primeira versão do fluxo. Para catálogo, nomes e
+> escopo dos serviços, disponibilidade, preços, termos, pagamento, briefing,
+> prazo, responsabilidades e handoff humano, a fonte canônica passa a ser
+> [`pee-102-catalogo-e-contexto-operacional-urba.md`](pee-102-catalogo-e-contexto-operacional-urba.md).
+> Em caso de conflito, a PEE-102 prevalece. Em particular, não usar o antigo
+> serviço `Decor`, os links de pagamento históricos ou a regra que mantinha
+> Decor Reforma indisponível.
+
 ---
 
 ## 1. Contexto

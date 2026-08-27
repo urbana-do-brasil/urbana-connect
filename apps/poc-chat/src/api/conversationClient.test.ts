@@ -7,6 +7,8 @@ import {
 const ALIAS = 'manual-11111111-1111-4111-8111-111111111111';
 const EVENT_ID = 'ui-22222222-2222-4222-8222-222222222222';
 const OCCURRED_AT = '2026-08-06T12:00:00.000Z';
+const HUMAN_IDEMPOTENCY_KEY = 'human-message-key-1';
+const RESUME_IDEMPOTENCY_KEY = 'resume-key-1';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -118,6 +120,90 @@ describe('ConversationClient', () => {
     expect(JSON.stringify(result)).not.toContain('must-not-reach-ui');
   });
 
+  it('adapts the local-only payment approval route without sending a client message', async () => {
+    const fetchMock = vi.fn<FetchImplementation>().mockResolvedValue(jsonResponse({
+      eventId: 'approval:poc:manual-11111111-1111-4111-8111-111111111111:4',
+      correlationId: 'approval-correlation',
+      status: 'COMPLETED',
+      output: { message: 'Fixture local aprovada.' },
+      error: null,
+    }));
+    const client = new ConversationClient(fetchMock);
+
+    await expect(client.approvePaymentProof(ALIAS)).resolves.toMatchObject({
+      status: 'COMPLETED',
+      correlationId: 'approval-correlation',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/poc/conversations/${ALIAS}/payment-proof/approve`,
+      expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty('body');
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toMatch(/whatsapp|email|paymentUrl|secret/i);
+  });
+
+  it('records a human message through the operator route with idempotency', async () => {
+    const fetchMock = vi.fn<FetchImplementation>().mockResolvedValue(jsonResponse({
+      eventId: 'human-event-1',
+      status: 'RECORDED',
+      duplicate: false,
+      message: 'Mensagem humana registrada.',
+    }));
+    const client = new ConversationClient(fetchMock);
+
+    await expect(client.recordHumanMessage(ALIAS, HUMAN_IDEMPOTENCY_KEY, {
+      text: 'Vou acompanhar seu atendimento por aqui.',
+      occurredAt: OCCURRED_AT,
+    })).resolves.toMatchObject({ status: 'RECORDED', duplicate: false });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/poc/conversations/${ALIAS}/human/messages`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          text: 'Vou acompanhar seu atendimento por aqui.',
+          occurredAt: OCCURRED_AT,
+        }),
+      }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
+      'Content-Type': 'application/json',
+      'Idempotency-Key': HUMAN_IDEMPOTENCY_KEY,
+    });
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toMatch(/whatsapp|email|paymentUrl|secret/i);
+  });
+
+  it('returns ownership to Urba with the projection version and idempotency', async () => {
+    const fetchMock = vi.fn<FetchImplementation>().mockResolvedValue(jsonResponse({
+      resumeId: 'resume-123',
+      status: 'COMPLETED',
+      ownership: 'URBA',
+      message: 'A Urba retomou o atendimento.',
+      duplicate: false,
+      customerMessage: 'A Urba retomou o atendimento.',
+    }));
+    const client = new ConversationClient(fetchMock);
+
+    await expect(client.returnToUrba(ALIAS, RESUME_IDEMPOTENCY_KEY, 7)).resolves.toMatchObject({
+      resumeId: 'resume-123',
+      status: 'COMPLETED',
+      ownership: 'URBA',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/api/poc/conversations/${ALIAS}/ownership/urba`,
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ expectedVersion: 7 }),
+      }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
+      'Content-Type': 'application/json',
+      'Idempotency-Key': RESUME_IDEMPOTENCY_KEY,
+    });
+  });
+
   it.each([502, 504])('marks upstream %s failures as retryable transport errors', async (status) => {
     const fetchMock = vi.fn<FetchImplementation>().mockResolvedValue(jsonResponse({}, status));
     const client = new ConversationClient(fetchMock);
@@ -133,10 +219,11 @@ describe('ConversationClient', () => {
     expect(error).toMatchObject({ status, retryable: true });
   });
 
-  it('has no client operation for flush or technical endpoints', () => {
+  it('does not expose technical endpoints and exposes only the local operator operations', () => {
     const client = new ConversationClient(vi.fn<FetchImplementation>());
     expect(client).not.toHaveProperty('flush');
     expect(client).not.toHaveProperty('getMetrics');
-    expect(client).not.toHaveProperty('approvePaymentProof');
+    expect(client).toHaveProperty('recordHumanMessage');
+    expect(client).toHaveProperty('returnToUrba');
   });
 });

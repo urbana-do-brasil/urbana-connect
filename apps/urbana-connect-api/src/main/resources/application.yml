@@ -3,7 +3,7 @@ spring:
     name: urbana-connect
   data:
     mongodb:
-      uri: ${MONGODB_URI:mongodb://localhost:27017/urbana-connect}
+      uri: ${MONGODB_URI:mongodb://localhost:27017/urbana-connect?replicaSet=rs0&retryWrites=true&retryReads=true&w=majority}
   mail:
     host: ${MAIL_HOST:}
     port: ${MAIL_PORT:587}

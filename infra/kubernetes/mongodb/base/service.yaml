@@ -6,6 +6,9 @@ metadata:
     app.kubernetes.io/name: urbana-connect-mongodb
 spec:
   clusterIP: None
+  # Publish the stable StatefulSet DNS record before readiness. The Mongo
+  # readiness probe still gates application traffic until rs0 has a primary.
+  publishNotReadyAddresses: true
   ports:
     - name: mongodb
       port: 27017

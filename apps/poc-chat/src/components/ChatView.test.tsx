@@ -102,4 +102,59 @@ describe('ChatView', () => {
     expect(screen.getByRole('status')).toHaveTextContent(text);
     expect(screen.queryByText(/resposta da urba/i)).not.toBeInTheDocument();
   });
+
+  it('shows canonical handoff ack, complementary human ownership and local architect/test controls', async () => {
+    const user = userEvent.setup();
+    const onPocControl = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ChatView
+        contact={contact}
+        conversation={state({
+          mode: 'HUMAN',
+          ownership: 'HUMAN',
+          messages: [{
+            id: 'handoff-ack',
+            eventId: 'handoff-ack-event',
+            correlationId: 'corr-1',
+            contactId: `poc:${alias}`,
+            direction: 'OUTBOUND',
+            senderType: 'URBA',
+            type: 'TEXT',
+            text: 'Vou encaminhar sua conversa para a arquiteta, que continuará com você por aqui.',
+            createdAt: '2026-08-06T12:00:01.000Z',
+          }],
+          pocControls: {
+            approvePaymentProof: true,
+            recordHumanMessage: true,
+            returnToUrba: true,
+          },
+          resumeStatus: 'SYNCHRONIZING',
+          resumeId: 'resume-123',
+        })}
+        onSend={vi.fn()}
+        onRetry={vi.fn()}
+        onPocControl={onPocControl}
+      />,
+    );
+
+    expect(screen.getByText(/encaminhar sua conversa para a arquiteta/i)).toBeInTheDocument();
+    expect(screen.getByText(/aguardando atendimento/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /controles locais/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /ação da arquiteta\/teste/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /aprovar pagamento.*ação da arquiteta\/teste/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /registrar mensagem humana.*ação da arquiteta\/teste/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /devolver responsabilidade.*ação da arquiteta\/teste/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /mensagem humana.*ação da arquiteta\/teste/i })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: /^mensagem$/i })).toBeDisabled();
+    expect(screen.getByText(/retomada.*reconciliação/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /aprovar pagamento.*ação da arquiteta\/teste/i }));
+    expect(onPocControl).toHaveBeenCalledWith('APPROVE_PAYMENT_PROOF', undefined);
+    await user.type(screen.getByRole('textbox', { name: /mensagem humana.*ação da arquiteta\/teste/i }), 'Vou acompanhar por aqui.');
+    await user.click(screen.getByRole('button', { name: /registrar mensagem humana.*ação da arquiteta\/teste/i }));
+    expect(onPocControl).toHaveBeenCalledWith('RECORD_HUMAN_MESSAGE', 'Vou acompanhar por aqui.');
+    await user.click(screen.getByRole('button', { name: /devolver responsabilidade.*ação da arquiteta\/teste/i }));
+    expect(onPocControl).toHaveBeenCalledWith('RETURN_TO_URBA', undefined);
+    expect(screen.queryByText(/paymentUrl|hermes|correlationId|stack/i)).not.toBeInTheDocument();
+  });
 });

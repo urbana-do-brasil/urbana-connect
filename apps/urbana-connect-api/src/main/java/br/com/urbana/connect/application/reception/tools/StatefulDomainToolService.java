@@ -4,19 +4,32 @@ import br.com.urbana.connect.application.reception.CommercialPolicyService;
 import br.com.urbana.connect.domain.reception.model.CustomerFact;
 import br.com.urbana.connect.domain.reception.model.CustomerFactType;
 import br.com.urbana.connect.domain.reception.model.FactConfidence;
+import br.com.urbana.connect.domain.reception.model.HumanHandoffNotification;
+import br.com.urbana.connect.domain.reception.model.IcpObservationEvent;
+import br.com.urbana.connect.domain.reception.model.PaymentStatus;
 import br.com.urbana.connect.domain.reception.model.ReceptionConversation;
 import br.com.urbana.connect.domain.reception.model.DomainToolName;
+import br.com.urbana.connect.domain.reception.model.ReceptionEventIds;
+import br.com.urbana.connect.domain.reception.model.ReceptionMessage;
+import br.com.urbana.connect.domain.reception.model.ReceptionMessageDirection;
+import br.com.urbana.connect.domain.reception.model.ReceptionMessageSender;
+import br.com.urbana.connect.domain.reception.model.ReceptionMessageType;
 import br.com.urbana.connect.domain.reception.port.out.CustomerFactGateway;
+import br.com.urbana.connect.domain.reception.port.out.HumanHandoffNotificationGateway;
+import br.com.urbana.connect.domain.reception.port.out.IcpObservationEventGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionConversationGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTranscriptGateway;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.text.Normalizer;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * The six allowlisted tools mutate only authoritative Urbana state. Hermes
@@ -24,10 +37,15 @@ import java.util.Objects;
  * access.
  */
 public final class StatefulDomainToolService implements DomainToolService {
+    private static final String NOT_INFORMED = "NÃO INFORMADO";
+    public static final String HUMAN_HANDOFF_ACK =
+            "Vou encaminhar sua conversa para a arquiteta, que continuará com você por aqui.";
     private final CommercialPolicyService policy;
     private final ReceptionConversationGateway conversations;
     private final CustomerFactGateway facts;
     private final ReceptionTranscriptGateway transcript;
+    private IcpObservationEventGateway icpObservations;
+    private HumanHandoffNotificationGateway handoffNotifications;
 
     public StatefulDomainToolService(CommercialPolicyService policy,
                                      ReceptionConversationGateway conversations,
@@ -39,10 +57,39 @@ public final class StatefulDomainToolService implements DomainToolService {
                                      ReceptionConversationGateway conversations,
                                      CustomerFactGateway facts,
                                      ReceptionTranscriptGateway transcript) {
+        this(policy, conversations, facts, transcript, null, null);
+    }
+
+    public StatefulDomainToolService(CommercialPolicyService policy,
+                                     ReceptionConversationGateway conversations,
+                                     CustomerFactGateway facts,
+                                     ReceptionTranscriptGateway transcript,
+                                     IcpObservationEventGateway icpObservations) {
+        this(policy, conversations, facts, transcript, icpObservations, null);
+    }
+
+    public StatefulDomainToolService(CommercialPolicyService policy,
+                                     ReceptionConversationGateway conversations,
+                                     CustomerFactGateway facts,
+                                     ReceptionTranscriptGateway transcript,
+                                     IcpObservationEventGateway icpObservations,
+                                     HumanHandoffNotificationGateway handoffNotifications) {
         this.policy = Objects.requireNonNull(policy, "policy");
         this.conversations = Objects.requireNonNull(conversations, "conversations");
         this.facts = Objects.requireNonNull(facts, "facts");
         this.transcript = transcript;
+        this.icpObservations = icpObservations;
+        this.handoffNotifications = handoffNotifications;
+    }
+
+    @Autowired(required = false)
+    void setIcpObservationEventGateway(IcpObservationEventGateway icpObservations) {
+        this.icpObservations = icpObservations;
+    }
+
+    @Autowired(required = false)
+    void setHumanHandoffNotificationGateway(HumanHandoffNotificationGateway handoffNotifications) {
+        this.handoffNotifications = handoffNotifications;
     }
 
     @Override
@@ -60,18 +107,112 @@ public final class StatefulDomainToolService implements DomainToolService {
         // automatable. Handoff is authoritative and disables all late tool
         // calls, including calls arriving while a stale lease remains alive.
         ReceptionConversation currentConversation = conversation(contactId);
-        if (currentConversation.mode() == br.com.urbana.connect.domain.reception.model.ReceptionMode.HUMAN) {
-            throw new IllegalStateException("domain tools are disabled in HUMAN mode");
+        if (currentConversation.mode() == br.com.urbana.connect.domain.reception.model.ReceptionMode.HUMAN
+                && toolName != DomainToolName.REQUEST_HUMAN_HANDOFF) {
+            throw new DomainToolInvocationUseCase.DomainRejectionException(
+                    "HUMAN_OWNS_CONVERSATION", "WAIT_FOR_HUMAN", List.of(),
+                    "A arquiteta continuará este atendimento por aqui.");
         }
         Map<String, Object> args = arguments == null ? Map.of() : arguments;
+        try {
+            return switch (toolName) {
+                case GET_CUSTOMER_PROFILE -> profile(contactId, context.now());
+                case UPDATE_CUSTOMER_FACT -> updateFact(contactId, args, context);
+                case LIST_AVAILABLE_SERVICES -> listServices();
+                case PREPARE_TERMS -> prepareTerms(contactId, args, context);
+                case PREPARE_PAYMENT -> preparePayment(contactId, args, context);
+                case REQUEST_HUMAN_HANDOFF -> handoff(contactId, args, context);
+            };
+        } catch (DomainToolInvocationUseCase.DomainRejectionException rejection) {
+            throw rejection;
+        } catch (IllegalArgumentException | IllegalStateException rejection) {
+            throw safeRejection(toolName, args, currentConversation, rejection);
+        }
+    }
+
+    private static DomainToolInvocationUseCase.DomainRejectionException safeRejection(
+            DomainToolName toolName, Map<String, Object> args, ReceptionConversation conversation,
+            RuntimeException rejection) {
         return switch (toolName) {
-            case GET_CUSTOMER_PROFILE -> profile(contactId, context.now());
-            case UPDATE_CUSTOMER_FACT -> updateFact(contactId, args, context);
-            case LIST_AVAILABLE_SERVICES -> listServices();
-            case PREPARE_TERMS -> prepareTerms(contactId, args, context.now());
-            case PREPARE_PAYMENT -> preparePayment(contactId, args, context);
-            case REQUEST_HUMAN_HANDOFF -> handoff(contactId, args, context.now());
+            case PREPARE_PAYMENT -> {
+                if (isMissingPaymentMethod(args) || isPaymentMethodRejection(rejection)) {
+                    yield paymentMethodRejection(isMissingPaymentMethod(args) ? List.of("method") : List.of());
+                }
+                if (isServiceSelectionRejection(rejection)) {
+                    yield serviceSelectionRejection();
+                }
+                if (conversation.termsStatus() != br.com.urbana.connect.domain.reception.model.TermsStatus.ACCEPTED
+                        && isTermsRejection(rejection)) {
+                    yield termsRejection();
+                }
+                yield new DomainToolInvocationUseCase.DomainRejectionException(
+                        "BUSINESS_RULE_REJECTED", "ASK_FOR_CLARIFICATION", List.of(),
+                        "Preciso confirmar uma informação antes de continuar.");
+            }
+            case PREPARE_TERMS -> new DomainToolInvocationUseCase.DomainRejectionException(
+                    "SERVICE_NOT_CONFIRMED", "CONFIRM_SERVICE", List.of("serviceType"),
+                    "Preciso confirmar o serviço escolhido antes de apresentar os termos.");
+            case UPDATE_CUSTOMER_FACT -> new DomainToolInvocationUseCase.DomainRejectionException(
+                    "CUSTOMER_INFORMATION_INVALID", "ASK_FOR_CLARIFICATION", List.of(),
+                    "Preciso confirmar essa informação antes de continuar.");
+            case REQUEST_HUMAN_HANDOFF -> new DomainToolInvocationUseCase.DomainRejectionException(
+                    "HANDOFF_REASON_REQUIRED", "ASK_FOR_HANDOFF_REASON", List.of("reason"),
+                    "Posso chamar a arquiteta assim que você confirmar que deseja o atendimento humano.");
+            default -> new DomainToolInvocationUseCase.DomainRejectionException(
+                    "BUSINESS_RULE_REJECTED", "ASK_FOR_CLARIFICATION", List.of(),
+                    "Preciso confirmar uma informação antes de continuar.");
         };
+    }
+
+    private static DomainToolInvocationUseCase.DomainRejectionException paymentMethodRejection(
+            List<String> missingFields) {
+        return new DomainToolInvocationUseCase.DomainRejectionException(
+                "PAYMENT_METHOD_INVALID", "ASK_FOR_PAYMENT_METHOD", missingFields,
+                "Para continuar, você prefere realizar o pagamento via PIX ou cartão de crédito?");
+    }
+
+    private static DomainToolInvocationUseCase.DomainRejectionException termsRejection() {
+        return new DomainToolInvocationUseCase.DomainRejectionException(
+                "TERMS_NOT_ACCEPTED", "ASK_FOR_CLEAR_ACCEPTANCE", List.of(),
+                "Antes do pagamento, preciso do seu aceite claro dos termos.");
+    }
+
+    private static DomainToolInvocationUseCase.DomainRejectionException serviceSelectionRejection() {
+        return new DomainToolInvocationUseCase.DomainRejectionException(
+                "SERVICE_NOT_CONFIRMED", "CONFIRM_SERVICE", List.of("serviceType"),
+                "Preciso confirmar o serviço escolhido antes de continuar.");
+    }
+
+    private static boolean isMissingPaymentMethod(Map<String, Object> args) {
+        Object method = args.get("method");
+        return method == null || method.toString().isBlank();
+    }
+
+    private static boolean isPaymentMethodRejection(RuntimeException rejection) {
+        String message = rejection.getMessage();
+        return message != null && message.toLowerCase(Locale.ROOT).contains("payment method");
+    }
+
+    private static boolean isServiceSelectionRejection(RuntimeException rejection) {
+        String message = rejection.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("service does not match")
+                || normalized.contains("service is not present")
+                || normalized.contains("service must be selected")
+                || normalized.contains("catalog item")
+                || normalized.contains("servicetype");
+    }
+
+    private static boolean isTermsRejection(RuntimeException rejection) {
+        String message = rejection.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String normalized = message.toLowerCase(Locale.ROOT);
+        return normalized.contains("terms") || normalized.contains("acceptance");
     }
 
     private Map<String, Object> profile(String contactId, Instant now) {
@@ -92,16 +233,20 @@ public final class StatefulDomainToolService implements DomainToolService {
         FactConfidence confidence = requestedConfidence;
         Instant now = context.now();
         String sourceText = sourceText(context);
-        if (requestedConfidence == FactConfidence.CONFIRMED && !explicitlySupports(type, value, sourceText)) {
+        if (isNotInformedValue(value)) {
+            confidence = FactConfidence.CONFIRMED;
+        } else if (requestedConfidence == FactConfidence.CONFIRMED
+                && !explicitlySupports(type, value, sourceText)) {
             // A model cannot turn an unsupported claim into a confirmed fact.
             // Preserve the observation as tentative for a later confirmation.
             confidence = FactConfidence.TENTATIVE;
         }
         List<CustomerFact> current = facts.findCurrentByContactId(contactId, now);
+        CustomerFact newFact = new CustomerFact(contactId, type, value, confidence,
+                context.sourceMessageId(), now);
         current.stream().filter(f -> type.equalsIgnoreCase(f.type()) && f.supersededBy() == null)
-                .forEach(previous -> facts.save(previous.supersede(java.util.UUID.randomUUID().toString(), now)));
-        CustomerFact saved = facts.save(new CustomerFact(contactId, type, value, confidence,
-                context.sourceMessageId(), now));
+                .forEach(previous -> facts.save(previous.supersede(newFact.id(), now)));
+        CustomerFact saved = facts.save(newFact);
         if ("SELECTED_SERVICE".equals(type)) {
             ReceptionConversation conversation = conversation(contactId);
             conversations.save(policy.selectService(conversation, value, now));
@@ -111,18 +256,44 @@ public final class StatefulDomainToolService implements DomainToolService {
     }
 
     private Map<String, Object> listServices() {
-        return Map.of("services", policy.services().stream().map(service -> Map.of(
-                "serviceType", service.serviceType(), "name", service.name(), "description", service.description(),
-                "price", service.price().toPlainString())).toList());
+        List<Map<String, Object>> values = policy.services().stream().map(service -> {
+            Map<String, Object> value = new LinkedHashMap<>();
+            value.put("serviceType", service.serviceType());
+            value.put("name", service.name());
+            value.put("description", service.description());
+            value.put("price", service.price().toPlainString());
+            value.put("scope", service.scope());
+            value.put("areaRule", service.areaRule().description());
+            value.put("deliverables", service.deliverables());
+            value.put("process", service.process());
+            value.put("responsibilities", service.responsibilities());
+            value.put("exclusions", service.exclusions());
+            value.put("support", service.support());
+            value.put("resources", Map.of("terms", service.termsUrl(), "payment", service.paymentUrl(),
+                    "briefing", service.briefingUrl()));
+            return value;
+        }).toList();
+        return Map.of("services", values);
     }
 
-    private Map<String, Object> prepareTerms(String contactId, Map<String, Object> args, Instant now) {
+    private Map<String, Object> prepareTerms(String contactId, Map<String, Object> args,
+                                              ToolExecutionContext context) {
+        Instant now = context.now();
         ReceptionConversation conversation = conversation(contactId);
         String requested = stringArg(args, "serviceType");
+        String canonicalRequested = policy.service(requested).serviceType();
         if (conversation.selectedService() == null) {
-            conversation = conversations.save(policy.selectService(conversation, requested, now));
-        } else if (!conversation.selectedService().equalsIgnoreCase(requested)) {
+            conversation = conversations.save(policy.selectService(conversation, canonicalRequested, now));
+        } else if (!conversation.selectedService().equalsIgnoreCase(canonicalRequested)) {
             throw new IllegalStateException("service does not match the selected catalog item");
+        }
+        List<CustomerFact> currentFacts = facts.findCurrentByContactId(contactId, now);
+        boolean firstTermsPresentation = conversation.termsStatus()
+                == br.com.urbana.connect.domain.reception.model.TermsStatus.NOT_PRESENTED
+                || conversation.termsStatus()
+                == br.com.urbana.connect.domain.reception.model.TermsStatus.DECLINED;
+        if (firstTermsPresentation) {
+            recordIcpSkippedBeforeTerms(conversation, currentFacts, context);
         }
         ReceptionConversation presented = policy.presentTerms(conversation, facts.findByContactId(contactId), now);
         conversations.save(presented);
@@ -135,28 +306,123 @@ public final class StatefulDomainToolService implements DomainToolService {
         Instant now = context.now();
         ReceptionConversation conversation = conversation(contactId);
         String serviceType = stringArg(args, "serviceType");
-        if (conversation.selectedService() == null || !conversation.selectedService().equalsIgnoreCase(serviceType)) {
+        String canonicalServiceType = policy.service(serviceType).serviceType();
+        if (conversation.selectedService() == null
+                || !conversation.selectedService().equalsIgnoreCase(canonicalServiceType)) {
             throw new IllegalStateException("service does not match the selected catalog item");
         }
         if (conversation.termsStatus() == br.com.urbana.connect.domain.reception.model.TermsStatus.PRESENTED) {
             String source = sourceText(context);
-            if (!acceptsTerms(source)) {
+            if (!policy.isExplicitTermsAcceptance(source)) {
                 throw new IllegalStateException("payment requires explicit terms acceptance in the bound inbound message");
             }
             conversation = conversations.save(policy.acceptTerms(conversation, now));
         }
         ReceptionConversation prepared = policy.preparePayment(conversation, facts.findByContactId(contactId),
                 stringArg(args, "method"), now);
-        conversations.save(prepared);
-        return Map.of("status", "PREPARED", "serviceType", prepared.selectedService(),
-                "instruction", policy.paymentUrl(prepared.selectedService()));
+        if (prepared != conversation) {
+            conversations.save(prepared);
+        }
+        return paymentPreparationResult(prepared, conversation.paymentStatus());
     }
 
-    private Map<String, Object> handoff(String contactId, Map<String, Object> args, Instant now) {
+    private Map<String, Object> paymentPreparationResult(ReceptionConversation conversation,
+                                                         PaymentStatus previousStatus) {
+        if (previousStatus == PaymentStatus.NOT_STARTED || previousStatus == PaymentStatus.REJECTED) {
+            return Map.of("status", "PREPARED", "serviceType", conversation.selectedService(),
+                    "instruction", policy.paymentUrl(conversation.selectedService()),
+                    "nextAction", "AWAIT_PAYMENT_PROOF",
+                    "customerMessage", "Pagamento preparado. Realize o pagamento pelo link e envie o comprovante por aqui.");
+        }
+        return switch (conversation.paymentStatus()) {
+            case PREPARED -> Map.of("status", "ALREADY_PREPARED", "serviceType", conversation.selectedService(),
+                    "nextAction", "AWAIT_PAYMENT_PROOF",
+                    "customerMessage", "O pagamento já foi preparado. Aguardo o comprovante por aqui.");
+            case PROOF_RECEIVED -> Map.of("status", "PROOF_RECEIVED", "serviceType", conversation.selectedService(),
+                    "nextAction", "AWAIT_PAYMENT_APPROVAL",
+                    "customerMessage", "O comprovante já foi recebido e aguarda validação humana.");
+            case CONFIRMED -> Map.of("status", "CONFIRMED", "serviceType", conversation.selectedService(),
+                    "nextAction", "NONE",
+                    "customerMessage", "O pagamento já foi confirmado pela arquiteta.");
+            case NOT_STARTED, REJECTED -> Map.of("status", conversation.paymentStatus().name(),
+                    "serviceType", conversation.selectedService(), "nextAction", "NONE",
+                    "customerMessage", "Preciso confirmar essa etapa antes de continuar.");
+        };
+    }
+
+    private Map<String, Object> handoff(String contactId, Map<String, Object> args,
+                                        ToolExecutionContext context) {
         ReceptionConversation conversation = conversation(contactId);
-        ReceptionConversation human = conversation.requestHumanHandoff(stringArg(args, "reason"), now);
-        conversations.save(human);
-        return Map.of("status", "HUMAN_MODE", "reason", human.handoffReason());
+        ReceptionConversation human = conversation.requestHumanHandoff(stringArg(args, "reason"), context.now());
+        if (human != conversation) {
+            human = conversations.save(human);
+            persistHandoffNotification(human, context.lease().turnId(), context.now());
+        }
+        persistHandoffAck(human, context.lease().turnId(), context.now());
+        return Map.of("status", "TRANSFERRED", "ownership", "HUMAN",
+                "ackMessage", HUMAN_HANDOFF_ACK, "handoffId", handoffId(human));
+    }
+
+    private void recordIcpSkippedBeforeTerms(ReceptionConversation conversation,
+                                             List<CustomerFact> currentFacts,
+                                             ToolExecutionContext context) {
+        if (icpObservations == null) {
+            return;
+        }
+        List<String> missing = policy.missingIcpFields(currentFacts, context.now());
+        if (missing.isEmpty()) {
+            return;
+        }
+        String idempotencyKey = "icp-before-terms:" + conversation.id() + ":"
+                + context.lease().turnId() + ":" + conversation.selectedService();
+        IcpObservationEvent event = IcpObservationEvent.beforeTerms(conversation.id(),
+                context.lease().turnId(), conversation.selectedService(), missing, idempotencyKey,
+                context.now());
+        try {
+            icpObservations.appendIfAbsent(event);
+        } catch (RuntimeException ignored) {
+            // Observability must not turn a valid commercial continuation into
+            // a customer-visible failure. The durable tool ledger still records
+            // the successful terms transition.
+        }
+    }
+
+    private void persistHandoffNotification(ReceptionConversation human, String turnId, Instant now) {
+        if (handoffNotifications == null) {
+            return;
+        }
+        List<CustomerFact> currentFacts = facts.findCurrentByContactId(human.contactId(), now);
+        List<String> missing = policy.missingIcpFields(currentFacts, now);
+        List<String> present = policy.mandatoryIcpFields().stream()
+                .filter(field -> !missing.contains(field)).toList();
+        HumanHandoffNotification notification = HumanHandoffNotification.create(
+                handoffId(human), human.id(), turnId, human.handoffReason(), human.selectedService(),
+                human.commercialStage().name(), human.paymentStatus().name(), present, missing, now);
+        try {
+            handoffNotifications.notifyIfAbsent(notification);
+        } catch (RuntimeException ignored) {
+            // The visible acknowledgement and HUMAN ownership remain safe even
+            // when an optional notification sink is unavailable.
+        }
+    }
+
+    private void persistHandoffAck(ReceptionConversation human, String correlationId, Instant now) {
+        if (transcript == null) {
+            return;
+        }
+        transcript.appendIfAbsent(new ReceptionMessage(UUID.randomUUID().toString(), handoffAckEventId(human),
+                correlationId, human.id(), human.contactId(), ReceptionMessageDirection.OUTBOUND,
+                ReceptionMessageSender.URBA, ReceptionMessageType.TEXT, HUMAN_HANDOFF_ACK,
+                null, null, now));
+    }
+
+    public static String handoffId(ReceptionConversation human) {
+        String material = human.id() + ":" + human.version();
+        return UUID.nameUUIDFromBytes(material.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    public static String handoffAckEventId(ReceptionConversation human) {
+        return ReceptionEventIds.outbound("human-handoff:" + handoffId(human), human.id());
     }
 
     private ReceptionConversation conversation(String contactId) {
@@ -178,29 +444,41 @@ public final class StatefulDomainToolService implements DomainToolService {
     }
 
     private static boolean explicitlySupports(String type, String value, String source) {
+        if (isNotInformedValue(value)) {
+            return true;
+        }
         if (source == null || source.isBlank()) return false;
         String normalizedSource = normalizeEvidence(source);
         String normalizedValue = normalizeEvidence(value.replace('_', ' '));
-        if ("PRONOUN_PREFERENCE".equals(type) && normalizedValue.contains("prefer not to answer")) {
-            return normalizedSource.contains("prefiro nao responder")
-                    || normalizedSource.contains("prefiro nao informar");
-        }
-        if ("FIRST_TIME_HIRING".equals(type) && !"YES".equalsIgnoreCase(value)) {
-            return containsNegation(normalizedSource);
+        if ("FIRST_TIME_HIRING".equals(type)) {
+            if ("SIM".equals(value)) {
+                return !containsNegation(normalizedSource)
+                        && (normalizedSource.contains("primeira vez")
+                        || normalizedSource.matches(".*\\b(sim|yes|true)\\b.*"));
+            }
+            if ("NÃO".equals(value)) {
+                return containsNegation(normalizedSource)
+                        || normalizedSource.matches(".*\\b(no|false)\\b.*");
+            }
+            return false;
         }
         if ("SELECTED_SERVICE".equals(type)) {
             // A correction may negate the previous service in the same
             // sentence while positively naming the replacement service.
-            return normalizedSource.contains(normalizedValue);
+            if (normalizedSource.contains(normalizedValue)) {
+                return true;
+            }
+            // DECOR is retained only as an input alias for Decor Interiores.
+            // The persisted value is canonical, so evidence such as
+            // "Quero contratar Decor" must still support the canonical fact.
+            return "DECOR_INTERIORES".equals(value)
+                    && normalizedSource.matches(".*\\bdecor\\b.*");
         }
         if (containsNegation(normalizedSource)) {
             return false;
         }
         return switch (type) {
-            case "PRONOUN_PREFERENCE" -> normalizedSource.contains(normalizedValue.split(" ")[0]);
-            case "FIRST_TIME_HIRING" -> "YES".equalsIgnoreCase(value)
-                    && (normalizedSource.contains("primeira vez")
-                    || normalizedSource.matches(".*\\b(sim|yes)\\b.*"));
+            case "PRONOUN_PREFERENCE" -> normalizedSource.contains(normalizedValue);
             case "OCCUPATION", "NEED" -> normalizedSource.contains(normalizedValue);
             case "SELECTED_SERVICE" -> normalizedSource.contains(normalizedValue);
             default -> false;
@@ -219,42 +497,51 @@ public final class StatefulDomainToolService implements DomainToolService {
 
     private String canonicalFactValue(String type, String value) {
         return switch (type) {
-            case "PRONOUN_PREFERENCE" -> canonicalPronoun(value);
+            case "PRONOUN_PREFERENCE", "OCCUPATION" -> canonicalFreeText(value);
             case "FIRST_TIME_HIRING" -> canonicalFirstTimeHiring(value);
-            case "OCCUPATION" -> normalizeToken(value);
             case "SELECTED_SERVICE" -> canonicalService(value);
             case "NEED" -> value.trim();
             default -> value.trim();
         };
     }
 
-    private static String canonicalPronoun(String value) {
-        return switch (normalizeToken(value)) {
-            case "ELA", "ELA_DELA" -> "ELA_DELA";
-            case "ELE", "ELE_DELE" -> "ELE_DELE";
-            case "PREFIRO_NAO_RESPONDER", "PREFIRO_NAO_INFORMAR", "PREFER_NOT_TO_ANSWER" ->
-                    CommercialPolicyService.PREFER_NOT_TO_ANSWER;
-            default -> throw new IllegalArgumentException("pronoun preference is not supported: " + value);
-        };
+    private static String canonicalFreeText(String value) {
+        String trimmed = value.trim();
+        return isNotInformedValue(trimmed) ? NOT_INFORMED : trimmed;
     }
 
     private static String canonicalFirstTimeHiring(String value) {
         String normalized = normalizeToken(value);
+        if (isNotInformedValue(value)) {
+            return NOT_INFORMED;
+        }
         if (normalized.contains("NAO") || normalized.contains("NUNCA") || normalized.contains("JAMAIS")) {
-            return "NO";
+            return "NÃO";
         }
         if (normalized.contains("PRIMEIRA_VEZ")) {
-            return "YES";
+            return "SIM";
         }
         return switch (normalized) {
-            case "YES", "SIM", "TRUE", "1" -> "YES";
-            case "NO", "FALSE", "0" -> "NO";
+            case "YES", "SIM", "TRUE", "1" -> "SIM";
+            case "NO", "NAO", "NÃO", "FALSE", "0" -> "NÃO";
             default -> throw new IllegalArgumentException("first-time hiring value is not supported: " + value);
+        };
+    }
+
+    private static boolean isNotInformedValue(String value) {
+        return switch (normalizeToken(value)) {
+            case "NAO_INFORMADO", "PREFIRO_NAO_RESPONDER", "PREFIRO_NAO_INFORMAR",
+                    "PREFER_NOT_TO_ANSWER", "NAO_QUERO_INFORMAR", "NAO_QUERO_RESPONDER",
+                    "SEM_INFORMACAO" -> true;
+            default -> false;
         };
     }
 
     private String canonicalService(String value) {
         String normalized = normalizeToken(value);
+        if ("DECOR".equals(normalized)) {
+            return "DECOR_INTERIORES";
+        }
         return policy.services().stream()
                 .filter(service -> normalizeToken(service.serviceType()).equals(normalized)
                         || normalizeToken(service.name()).equals(normalized))
@@ -271,13 +558,6 @@ public final class StatefulDomainToolService implements DomainToolService {
                 .replaceAll("[^A-Z0-9]+", " ")
                 .trim()
                 .replaceAll("\\s+", "_");
-    }
-
-    private static boolean acceptsTerms(String text) {
-        if (text == null) return false;
-        String normalized = normalizeEvidence(text);
-        return !containsNegation(normalized)
-                && normalized.matches(".*\\b(aceito|aceitar|concordo)\\b.*");
     }
 
     private static String stringArg(Map<String, Object> args, String key) {

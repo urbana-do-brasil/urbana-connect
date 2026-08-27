@@ -47,8 +47,8 @@ start_environment() {
     echo "Aguardando MongoDB ficar pronto..."
     attempt=1
     max_attempts=10
-    until docker exec urbana-connect-mongodb mongosh --eval "db.adminCommand('ping')" &> /dev/null || [ $attempt -gt $max_attempts ]; do
-        echo "Tentativa $attempt de $max_attempts. Aguardando MongoDB iniciar..."
+    until docker exec urbana-connect-mongodb mongosh --quiet --eval "const hello = db.adminCommand({hello: 1}); quit(hello.ok === 1 && hello.setName === 'rs0' && hello.isWritablePrimary === true ? 0 : 1)" &> /dev/null || [ $attempt -gt $max_attempts ]; do
+        echo "Tentativa $attempt de $max_attempts. Aguardando MongoDB iniciar o replica set..."
         sleep 3
         ((attempt++))
     done
@@ -59,8 +59,8 @@ start_environment() {
     fi
 
     echo "===================================="
-    echo "  MongoDB está pronto para uso!"
-    echo "  URI de conexão: mongodb://localhost:27017/urbana-connect"
+    echo "  MongoDB replica set está pronto para uso!"
+    echo "  URI de conexão: mongodb://localhost:27017/urbana-connect?replicaSet=rs0&retryWrites=true&retryReads=true&w=majority"
     echo "===================================="
 
     # Verifica se existe o arquivo .env.dev e sugere carregá-lo
@@ -111,7 +111,7 @@ export WHATSAPP_ACCESS_TOKEN=""
 export WHATSAPP_VERIFY_TOKEN="urbana-connect-webhook-token"
 
 # MongoDB
-export MONGODB_URI="mongodb://localhost:27017/urbana-connect"
+export MONGODB_URI="mongodb://localhost:27017/urbana-connect?replicaSet=rs0&retryWrites=true&retryReads=true&w=majority"
 
 # Admin credentials
 export ADMIN_USER="admin"
@@ -181,4 +181,4 @@ case "$1" in
         show_help
         exit 1
         ;;
-esac 
+esac

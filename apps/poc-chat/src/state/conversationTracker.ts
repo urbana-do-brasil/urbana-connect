@@ -62,6 +62,9 @@ export class ConversationTracker {
     occurredAt: string = new Date().toISOString(),
     eventId: string = createEventId(),
   ): Promise<TurnReceipt | null> {
+    if (isHumanOwned(this.getConversationState(contactAlias))) {
+      return null;
+    }
     const payload: SyntheticTextPayload = { eventId, type: 'TEXT', text, occurredAt };
     const pending: PendingSend = {
       eventId,
@@ -79,6 +82,9 @@ export class ConversationTracker {
 
   async retry(contactAlias: string, eventId: string): Promise<TurnReceipt | null> {
     const state = this.getConversationState(contactAlias);
+    if (isHumanOwned(state)) {
+      return null;
+    }
     const pending = state?.optimisticMessages.find((candidate) => candidate.eventId === eventId);
     const turn = state?.turn;
     if (!pending
@@ -156,6 +162,9 @@ export class ConversationTracker {
     payload: SyntheticTextPayload,
     contactAlias: string,
   ): Promise<TurnReceipt | null> {
+    if (isHumanOwned(this.getConversationState(contactAlias))) {
+      return null;
+    }
     try {
       const receipt = await this.api.sendTextMessage(contactAlias, payload);
       this.dispatch({
@@ -296,4 +305,8 @@ function sanitizeError(error: unknown): string {
     return error.message;
   }
   return 'Não foi possível acompanhar a mensagem no serviço local.';
+}
+
+function isHumanOwned(state: ConversationUiState | undefined): boolean {
+  return state?.mode === 'HUMAN' || state?.ownership === 'HUMAN';
 }

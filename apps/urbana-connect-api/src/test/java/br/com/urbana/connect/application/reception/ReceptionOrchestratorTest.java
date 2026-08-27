@@ -12,6 +12,11 @@ import br.com.urbana.connect.domain.reception.model.ReceptionMessage;
 import br.com.urbana.connect.domain.reception.model.ReceptionTurn;
 import br.com.urbana.connect.domain.reception.model.ReceptionTurnStatus;
 import br.com.urbana.connect.domain.reception.model.PaymentStatus;
+import br.com.urbana.connect.domain.reception.model.ReceptionMessageSender;
+import br.com.urbana.connect.domain.reception.model.ReceptionMessageType;
+import br.com.urbana.connect.domain.reception.model.ReceptionMode;
+import br.com.urbana.connect.domain.reception.model.ResumeStatus;
+import br.com.urbana.connect.domain.reception.model.ReceptionEventIds;
 import br.com.urbana.connect.domain.reception.model.TermsStatus;
 import br.com.urbana.connect.domain.reception.model.CommercialStage;
 import br.com.urbana.connect.domain.reception.port.out.AgentSessionLinkGateway;
@@ -20,6 +25,7 @@ import br.com.urbana.connect.domain.reception.model.AgentSessionLink;
 import br.com.urbana.connect.domain.reception.port.out.CustomerFactGateway;
 import br.com.urbana.connect.domain.reception.port.out.DomainToolInvocationGateway;
 import br.com.urbana.connect.domain.reception.port.out.HermesSessionsGateway;
+import br.com.urbana.connect.domain.reception.port.out.HermesResumeGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionConversationGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTranscriptGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTurnGateway;
@@ -53,7 +59,7 @@ class ReceptionOrchestratorTest {
     private static final Instant NOW = Instant.parse("2026-08-05T12:00:00Z");
 
     @Test
-    void persistsInboundBeforeDispatchAndPublishesHermesTextVerbatim() {
+    void persistsInboundBeforeDispatchAndAddsIdentityOnlyToTheFirstHermesResponse() {
         MemoryConversation conversations = new MemoryConversation();
         MemoryTranscript transcript = new MemoryTranscript();
         MemoryTurns turns = new MemoryTurns();
@@ -72,13 +78,14 @@ class ReceptionOrchestratorTest {
                 "event-1", "poc:ana", br.com.urbana.connect.domain.reception.model.ReceptionMessageType.TEXT,
                 inboundText, NOW));
 
+        String expectedFirstResponse = "Olá! Sou a Urba, assistente virtual da Urbana do Brasil. " + hermesText;
         assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(receipt.output().message()).isEqualTo(hermesText);
+        assertThat(receipt.output().message()).isEqualTo(expectedFirstResponse);
         assertThat(transcript.messages).extracting(ReceptionMessage::direction)
                 .containsExactlyInAnyOrder(ReceptionMessageDirection.INBOUND, ReceptionMessageDirection.OUTBOUND);
         assertThat(transcript.messages).filteredOn(message ->
                 message.direction() == ReceptionMessageDirection.OUTBOUND)
-                .singleElement().extracting(ReceptionMessage::text).isEqualTo(hermesText);
+                .singleElement().extracting(ReceptionMessage::text).isEqualTo(expectedFirstResponse);
         assertThat(transcript.messages).filteredOn(message ->
                 message.direction() == ReceptionMessageDirection.INBOUND)
                 .singleElement().extracting(ReceptionMessage::text).isEqualTo(inboundText);
@@ -88,8 +95,46 @@ class ReceptionOrchestratorTest {
                 .projection("poc:ana").get("messages");
         assertThat(projectedMessages).filteredOn(message ->
                 message.direction() == ReceptionMessageDirection.OUTBOUND)
-                .singleElement().extracting(ReceptionMessage::text).isEqualTo(hermesText);
+                .singleElement().extracting(ReceptionMessage::text).isEqualTo(expectedFirstResponse);
         assertThat(sessions.chatCalls).isEqualTo(1);
+    }
+
+    @Test
+    void identifiesUrbaAndUrbanaDoBrasilInTheFirstOutboundWhenHermesOmitsTheIntroduction() {
+        MemoryConversation conversations = new MemoryConversation();
+        MemoryTranscript transcript = new MemoryTranscript();
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("Olá, Emanuel! Como posso ajudar?"), new MemoryLinks()),
+                conversations, new MemoryFacts(), transcript, new MemoryTurns(), new CommercialPolicyService(),
+                new ReceptionTurnCoordinator(), java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+
+        ReceptionOrchestrator.TurnReceipt receipt = orchestrator.process(new InboundConversationEvent(
+                "first-message", "poc:emanuel", ReceptionMessageType.TEXT, "Olá", NOW));
+
+        assertThat(receipt.output().message())
+                .contains("Urba")
+                .contains("Urbana do Brasil")
+                .endsWith("Olá, Emanuel! Como posso ajudar?");
+        assertThat(transcript.messages).filteredOn(message ->
+                message.direction() == ReceptionMessageDirection.OUTBOUND)
+                .singleElement().extracting(ReceptionMessage::text)
+                .isEqualTo(receipt.output().message());
+    }
+
+    @Test
+    void doesNotDuplicateTheFirstIntroductionWhenHermesAlreadyIdentifiesUrbaAndUrbanaDoBrasil() {
+        MemoryConversation conversations = new MemoryConversation();
+        MemoryTranscript transcript = new MemoryTranscript();
+        String hermesText = "Olá! Sou a Urba, assistente virtual da Urbana do Brasil. Como posso ajudar?";
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions(hermesText), new MemoryLinks()), conversations,
+                new MemoryFacts(), transcript, new MemoryTurns(), new CommercialPolicyService(),
+                new ReceptionTurnCoordinator(), java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+
+        ReceptionOrchestrator.TurnReceipt receipt = orchestrator.process(new InboundConversationEvent(
+                "first-message-already-identified", "poc:emanuel", ReceptionMessageType.TEXT, "Olá", NOW));
+
+        assertThat(receipt.output().message()).isEqualTo(hermesText);
     }
 
     @Test
@@ -115,9 +160,10 @@ class ReceptionOrchestratorTest {
         assertThat(transcript.messages).filteredOn(message ->
                 message.direction() == ReceptionMessageDirection.OUTBOUND)
                 .extracting(ReceptionMessage::text)
-                .containsExactly("Resposta textual do Hermes", "Resposta textual do Hermes", "Resposta textual do Hermes")
-                .allMatch(text -> !text.contains("Olá! Sou a Urba")
-                        && !text.contains("Não consigo confirmar"));
+                .containsExactly(
+                        "Olá! Sou a Urba, assistente virtual da Urbana do Brasil. Resposta textual do Hermes",
+                        "Resposta textual do Hermes",
+                        "Resposta textual do Hermes");
         assertThat(sessions.chatCalls).isEqualTo(3);
     }
 
@@ -147,7 +193,57 @@ class ReceptionOrchestratorTest {
     }
 
     @Test
-    void presentsTermsAfterACompleteIcpAndApprovedServiceArePersisted() {
+    void doesNotTreatBareAcceptanceAsAContractualTermsAcceptance() {
+        MemoryConversation conversations = new MemoryConversation();
+        conversations.value = new ReceptionConversation("conversation-1", "poc:ana",
+                br.com.urbana.connect.domain.reception.model.ReceptionMode.AI,
+                CommercialStage.TERMS, "DECOR", TermsStatus.PRESENTED,
+                PaymentStatus.NOT_STARTED, null, NOW, NOW, 1);
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("Ainda preciso do aceite claro"), new MemoryLinks()),
+                conversations, new MemoryFacts(), new MemoryTranscript(), new MemoryTurns(),
+                new CommercialPolicyService(), new ReceptionTurnCoordinator(),
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+
+        orchestrator.process(new InboundConversationEvent(
+                "terms-ambiguous", "poc:ana", br.com.urbana.connect.domain.reception.model.ReceptionMessageType.TEXT,
+                "Aceito", NOW));
+
+        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
+        assertThat(conversations.value.paymentStatus()).isEqualTo(PaymentStatus.NOT_STARTED);
+    }
+
+    @Test
+    void neverPublishesPaymentApprovalAfterARejectedClaimWhenNoProofWasReceived() {
+        MemoryConversation conversations = new MemoryConversation();
+        conversations.value = new ReceptionConversation("conversation-1", "poc:ana",
+                ReceptionMode.AI, CommercialStage.PAYMENT, "DECOR", TermsStatus.ACCEPTED,
+                PaymentStatus.NOT_STARTED, null, NOW, NOW, 1);
+        MemoryTranscript transcript = new MemoryTranscript();
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("Pagamento confirmado."), new MemoryLinks()),
+                conversations, new MemoryFacts(), transcript, new MemoryTurns(),
+                new CommercialPolicyService(), new ReceptionTurnCoordinator(),
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+
+        ReceptionOrchestrator.TurnReceipt receipt = orchestrator.process(new InboundConversationEvent(
+                "premature-payment", "poc:ana", ReceptionMessageType.TEXT,
+                "Quero continuar", NOW));
+
+        assertThat(receipt.output().nextAction())
+                .isNotEqualTo(br.com.urbana.connect.domain.reception.model.AgentNextAction.AWAIT_PAYMENT_APPROVAL)
+                .isEqualTo(br.com.urbana.connect.domain.reception.model.AgentNextAction.AWAIT_CUSTOMER);
+        assertThat(receipt.output().message()).doesNotContainIgnoringCase(
+                "aguardar a confirmação do pagamento", "sistema", "ferramenta", "loop", "código");
+        assertThat(conversations.value.paymentStatus()).isEqualTo(PaymentStatus.NOT_STARTED);
+        assertThat(transcript.messages).filteredOn(message ->
+                message.direction() == ReceptionMessageDirection.OUTBOUND)
+                .singleElement().extracting(ReceptionMessage::text)
+                .isEqualTo(receipt.output().message());
+    }
+
+    @Test
+    void keepsTermsNotPresentedAfterAnInformativeTurnEvenWithASelectedService() {
         MemoryConversation conversations = new MemoryConversation();
         conversations.value = new ReceptionConversation("conversation-1", "poc:ana",
                 br.com.urbana.connect.domain.reception.model.ReceptionMode.AI, CommercialStage.ICP,
@@ -170,7 +266,7 @@ class ReceptionOrchestratorTest {
                 "Decor", NOW));
 
         assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
+        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.NOT_PRESENTED);
     }
 
     @Test
@@ -189,8 +285,10 @@ class ReceptionOrchestratorTest {
                 "non-prospect-1", "poc:ana", br.com.urbana.connect.domain.reception.model.ReceptionMessageType.TEXT,
                 "Quem está respondendo por aqui?", NOW));
 
+        String expectedFirstResponse =
+                "Olá! Sou a Urba, assistente virtual da Urbana do Brasil. Hermes handled the identity question";
         assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(receipt.output().message()).isEqualTo("Hermes handled the identity question");
+        assertThat(receipt.output().message()).isEqualTo(expectedFirstResponse);
         assertThat(sessions.chatCalls).isEqualTo(1);
         assertThat(sessions.createdSessions).isEqualTo(1);
         assertThat(facts.saveCalls).isZero();
@@ -220,7 +318,8 @@ class ReceptionOrchestratorTest {
                 "non-prospect-3", "poc:ana", br.com.urbana.connect.domain.reception.model.ReceptionMessageType.TEXT,
                 "É uma parceria institucional.", NOW.plusSeconds(10)));
 
-        assertThat(identity.output().message()).isEqualTo("Hermes owns this conversation");
+        assertThat(identity.output().message())
+                .isEqualTo("Olá! Sou a Urba, assistente virtual da Urbana do Brasil. Hermes owns this conversation");
         assertThat(probe.output().message()).isEqualTo("Hermes owns this conversation");
         assertThat(handoff.output().message()).isEqualTo("Hermes owns this conversation");
         assertThat(sessions.chatCalls).isEqualTo(3);
@@ -246,11 +345,13 @@ class ReceptionOrchestratorTest {
                 "oi", NOW));
 
         assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(receipt.output().message()).isEqualTo("not-json");
+        assertThat(receipt.output().message())
+                .isEqualTo("Olá! Sou a Urba, assistente virtual da Urbana do Brasil. not-json");
         assertThat(conversations.value.mode()).isEqualTo(br.com.urbana.connect.domain.reception.model.ReceptionMode.AI);
         assertThat(transcript.messages).filteredOn(message ->
                 message.direction() == ReceptionMessageDirection.OUTBOUND)
-                .singleElement().extracting(ReceptionMessage::text).isEqualTo("not-json");
+                .singleElement().extracting(ReceptionMessage::text)
+                .isEqualTo("Olá! Sou a Urba, assistente virtual da Urbana do Brasil. not-json");
     }
 
     @Test
@@ -278,7 +379,7 @@ class ReceptionOrchestratorTest {
     }
 
     @Test
-    void proofWaitsForHumanApprovalAndOnlyThenReleasesTheSelectedServiceBriefing() {
+    void proofTransfersToHumanAndOnlyApprovalRecordsThePaymentDecision() {
         MemoryConversation conversations = new MemoryConversation();
         conversations.value = new ReceptionConversation("conversation-1", "poc:ana",
                 br.com.urbana.connect.domain.reception.model.ReceptionMode.AI, CommercialStage.PAYMENT,
@@ -293,14 +394,209 @@ class ReceptionOrchestratorTest {
         ReceptionOrchestrator.TurnReceipt proof = orchestrator.process(new InboundConversationEvent(
                 "proof-1", "poc:ana", br.com.urbana.connect.domain.reception.model.ReceptionMessageType.PAYMENT_PROOF,
                 null, null, "poc/payment-proof-fixture.png", null, NOW, null));
-        ReceptionOrchestrator.TurnReceipt approval = orchestrator.approvePaymentProof("poc:ana");
 
-        assertThat(proof.output().message()).isEqualTo("recovered");
-        assertThat(proof.output().nextAction()).isEqualTo(br.com.urbana.connect.domain.reception.model.AgentNextAction.NONE);
+        assertThat(proof.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.BLOCKED_BY_HUMAN);
+        assertThat(proof.output()).isNull();
+        assertThat(conversations.value.mode()).isEqualTo(br.com.urbana.connect.domain.reception.model.ReceptionMode.HUMAN);
+        assertThat(transcript.messages).filteredOn(message ->
+                message.direction() == ReceptionMessageDirection.OUTBOUND)
+                .singleElement()
+                .extracting(ReceptionMessage::text)
+                .asString()
+                .contains("Recebi o comprovante", "arquiteta")
+                .doesNotContainIgnoringCase("briefing")
+                .doesNotContainIgnoringCase("sistema")
+                .doesNotContainIgnoringCase("exception");
+
+        ReceptionOrchestrator.TurnReceipt approval = orchestrator.approvePaymentProof("poc:ana");
+        ReceptionOrchestrator.TurnReceipt replay = orchestrator.approvePaymentProof("poc:ana");
+
+        assertThat(approval.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.BLOCKED_BY_HUMAN);
+        assertThat(approval.output()).isNull();
         assertThat(conversations.value.paymentStatus()).isEqualTo(PaymentStatus.CONFIRMED);
-        assertThat(approval.output().message()).contains("DECOR");
-        assertThat(sessions.chatCalls).isEqualTo(1);
-        assertThat(sessions.lastInput).isEmpty();
+        assertThat(replay.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.BLOCKED_BY_HUMAN);
+        assertThat(replay.output()).isNull();
+        assertThat(sessions.chatCalls).isEqualTo(0);
+        assertThat(sessions.lastInput).isNull();
+        assertThat(transcript.messages).filteredOn(message ->
+                message.direction() == ReceptionMessageDirection.OUTBOUND)
+                .hasSize(2);
+        assertThat(transcript.messages).filteredOn(message ->
+                message.senderType() == ReceptionMessageSender.HUMAN)
+                .singleElement()
+                .extracting(ReceptionMessage::text)
+                .isEqualTo("Pagamento confirmado pela arquiteta.");
+    }
+
+    @Test
+    void recordsBackendControlledHumanMessagesExactlyOnceAndExposesSafeControls() {
+        MemoryConversation conversations = new MemoryConversation();
+        conversations.value = ReceptionConversation.start("conversation-1", "poc:ana", NOW)
+                .requestHumanHandoff("cliente pediu uma pessoa", NOW);
+        MemoryTranscript transcript = new MemoryTranscript();
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("unused"), new MemoryLinks()), conversations,
+                new MemoryFacts(), transcript, new MemoryTurns(), new CommercialPolicyService(),
+                new ReceptionTurnCoordinator(), Clock.fixed(NOW, ZoneOffset.UTC));
+
+        ReceptionOrchestrator.HumanMessageReceipt first = orchestrator.recordHumanMessage(
+                "poc:ana", "operator-message-1", "Decisão da arquiteta", NOW);
+        ReceptionOrchestrator.HumanMessageReceipt replay = orchestrator.recordHumanMessage(
+                "poc:ana", "operator-message-1", "texto diferente não substitui o original", NOW.plusSeconds(1));
+
+        assertThat(first.duplicate()).isFalse();
+        assertThat(replay.duplicate()).isTrue();
+        assertThat(transcript.messages).filteredOn(message -> message.senderType() == ReceptionMessageSender.HUMAN)
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.text()).isEqualTo("Decisão da arquiteta");
+                    assertThat(message.direction()).isEqualTo(ReceptionMessageDirection.OUTBOUND);
+                });
+        Map<String, Object> projection = orchestrator.projection("poc:ana");
+        assertThat(projection).containsEntry("ownership", "HUMAN")
+                .containsEntry("resumeStatus", ResumeStatus.NONE.name());
+        Map<?, ?> controls = (Map<?, ?>) projection.get("controlAvailability");
+        assertThat(controls.get("recordHumanMessage")).isEqualTo(true);
+        assertThat(controls.get("returnToUrba")).isEqualTo(true);
+    }
+
+    @Test
+    void synchronizesTheCompleteTypedBoundaryBeforeReturningToUrbaAndReplaysAsANoop() {
+        MemoryConversation conversations = new MemoryConversation();
+        ReceptionConversation human = ReceptionConversation.start("conversation-1", "poc:ana", NOW)
+                .requestHumanHandoff("cliente pediu uma pessoa", NOW);
+        conversations.value = human;
+        MemoryTranscript transcript = new MemoryTranscript();
+        transcript.messages.add(new ReceptionMessage("contact-message", "contact-event", "turn-1",
+                human.id(), human.contactId(), ReceptionMessageDirection.INBOUND,
+                ReceptionMessageSender.CONTACT, ReceptionMessageType.TEXT, "Olá", null, null, NOW));
+        transcript.messages.add(new ReceptionMessage("urba-message", ReceptionEventIds.outbound("urba-1", "turn-1"),
+                "turn-1", human.id(), human.contactId(), ReceptionMessageDirection.OUTBOUND,
+                ReceptionMessageSender.URBA, ReceptionMessageType.TEXT, "Como posso ajudar?", null, null,
+                NOW.plusSeconds(1)));
+        transcript.messages.add(new ReceptionMessage("human-message", ReceptionEventIds.outbound("human-1", "operator-1"),
+                "operator-1", human.id(), human.contactId(), ReceptionMessageDirection.OUTBOUND,
+                ReceptionMessageSender.HUMAN, ReceptionMessageType.TEXT, "A arquiteta decidiu aguardar.", null, null,
+                NOW.plusSeconds(2)));
+        transcript.messages.add(new ReceptionMessage("system-message", ReceptionEventIds.outbound("system-1", "turn-1"),
+                "turn-1", human.id(), human.contactId(), ReceptionMessageDirection.OUTBOUND,
+                ReceptionMessageSender.SYSTEM, ReceptionMessageType.TEXT, "Decisão registrada.", null, null,
+                NOW.plusSeconds(3)));
+        MemoryFacts facts = new MemoryFacts();
+        facts.values.add(CustomerFact.confirmed("poc:ana", "OCCUPATION", "DESIGNER",
+                "contact-event", NOW));
+        CapturingResumeGateway resume = new CapturingResumeGateway(HermesResumeGateway.Action.WAIT, null);
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("unused"), new MemoryLinks()), conversations,
+                facts, transcript, new MemoryTurns(), new CommercialPolicyService(),
+                new ReceptionTurnCoordinator(), Clock.fixed(NOW, ZoneOffset.UTC));
+
+        ReceptionOrchestrator.ResumeReceipt first = orchestrator.returnToUrba(
+                "poc:ana", "return-1", human.version(), resume);
+        ReceptionOrchestrator.ResumeReceipt replay = orchestrator.returnToUrba(
+                "poc:ana", "return-1", -1, resume);
+
+        assertThat(first.status()).isEqualTo(ResumeStatus.COMPLETED);
+        assertThat(first.ownership()).isEqualTo("URBA");
+        assertThat(replay.duplicate()).isTrue();
+        assertThat(replay.ownership()).isEqualTo("URBA");
+        assertThat(resume.syncCalls).isEqualTo(1);
+        assertThat(resume.decideCalls).isEqualTo(1);
+        assertThat(resume.context.messages()).extracting(HermesResumeGateway.ContextMessage::senderType)
+                .containsExactly("CONTACT", "URBA", "HUMAN", "SYSTEM");
+        assertThat(resume.context.messages()).extracting(HermesResumeGateway.ContextMessage::sourceMessageId)
+                .containsExactly("contact-event", transcript.messages.get(1).eventId(),
+                        transcript.messages.get(2).eventId(), transcript.messages.get(3).eventId());
+        assertThat(resume.context.facts()).singleElement().satisfies(fact -> {
+            assertThat(fact.type()).isEqualTo("OCCUPATION");
+            assertThat(fact.value()).isEqualTo("DESIGNER");
+            assertThat(fact.confidence()).isEqualTo("CONFIRMED");
+        });
+        assertThat(resume.context.checksum())
+                .isEqualTo("sha256:bd10553fa1a867f9461c8655037f8306e94845672e34a780c4696ae56d533416");
+        assertThat(conversations.value.mode()).isEqualTo(br.com.urbana.connect.domain.reception.model.ReceptionMode.AI);
+        assertThat(conversations.value.resumeStatus()).isEqualTo(ResumeStatus.COMPLETED);
+        assertThat(transcript.messages).hasSize(4);
+    }
+
+    @Test
+    void persistsResumeDecisionBeforeProactiveMessageAndFailsClosedOnGatewayError() {
+        MemoryConversation conversations = new MemoryConversation();
+        ReceptionConversation human = new ReceptionConversation("conversation-1", "poc:ana", ReceptionMode.HUMAN,
+                CommercialStage.BRIEFING, "DECOR_INTERIORES", TermsStatus.ACCEPTED,
+                PaymentStatus.CONFIRMED, "cliente pediu uma pessoa", NOW, NOW, 0);
+        conversations.value = human;
+        MemoryTranscript transcript = new MemoryTranscript();
+        transcript.messages.add(new ReceptionMessage("contact-message", "contact-event", "turn-1",
+                human.id(), human.contactId(), ReceptionMessageDirection.INBOUND,
+                ReceptionMessageSender.CONTACT, ReceptionMessageType.TEXT, "Olá", null, null, NOW));
+        transcript.beforeAppend = () -> assertThat(conversations.value.resumeStatus())
+                .isEqualTo(ResumeStatus.COMPLETED);
+        CapturingResumeGateway send = new CapturingResumeGateway(
+                HermesResumeGateway.Action.SEND_MESSAGE, "Retomamos o atendimento por aqui.");
+        send.nextStep = "BRIEFING";
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("unused"), new MemoryLinks()), conversations,
+                new MemoryFacts(), transcript, new MemoryTurns(), new CommercialPolicyService(),
+                new ReceptionTurnCoordinator(), Clock.fixed(NOW, ZoneOffset.UTC));
+
+        ReceptionOrchestrator.ResumeReceipt sent = orchestrator.returnToUrba(
+                "poc:ana", "return-send", human.version(), send);
+
+        assertThat(sent.ownership()).isEqualTo("URBA");
+        assertThat(transcript.messages).filteredOn(message -> message.direction() == ReceptionMessageDirection.OUTBOUND)
+                .singleElement().extracting(ReceptionMessage::text)
+                .isEqualTo("Retomamos o atendimento por aqui.");
+
+        MemoryConversation failedConversations = new MemoryConversation();
+        ReceptionConversation failedHuman = ReceptionConversation.start("conversation-2", "poc:bia", NOW)
+                .requestHumanHandoff("cliente pediu uma pessoa", NOW);
+        failedConversations.value = failedHuman;
+        MemoryTranscript failedTranscript = new MemoryTranscript();
+        failedTranscript.messages.add(new ReceptionMessage("contact-message-2", "contact-event-2", "turn-2",
+                failedHuman.id(), failedHuman.contactId(), ReceptionMessageDirection.INBOUND,
+                ReceptionMessageSender.CONTACT, ReceptionMessageType.TEXT, "Olá", null, null, NOW));
+        ReceptionOrchestrator failedOrchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("unused"), new MemoryLinks()), failedConversations,
+                new MemoryFacts(), failedTranscript, new MemoryTurns(), new CommercialPolicyService(),
+                new ReceptionTurnCoordinator(), Clock.fixed(NOW, ZoneOffset.UTC));
+        CapturingResumeGateway unavailable = new CapturingResumeGateway(HermesResumeGateway.Action.WAIT, null);
+        unavailable.failSync = true;
+
+        ReceptionOrchestrator.ResumeReceipt safe = failedOrchestrator.returnToUrba(
+                "poc:bia", "return-fail", failedHuman.version(), unavailable);
+
+        assertThat(safe.ownership()).isEqualTo("HUMAN");
+        assertThat(safe.status()).isEqualTo(ResumeStatus.FAILED_SAFE);
+        assertThat(failedConversations.value.mode()).isEqualTo(
+                br.com.urbana.connect.domain.reception.model.ReceptionMode.HUMAN);
+        assertThat(failedTranscript.messages).hasSize(1);
+    }
+
+    @Test
+    void keepsHumanOwnershipWhenHermesDoesNotAcknowledgeTheCompleteContext() {
+        MemoryConversation conversations = new MemoryConversation();
+        ReceptionConversation human = ReceptionConversation.start("conversation-incomplete", "poc:bia", NOW)
+                .requestHumanHandoff("cliente pediu uma pessoa", NOW);
+        conversations.value = human;
+        MemoryTranscript transcript = new MemoryTranscript();
+        transcript.messages.add(new ReceptionMessage("contact-message-incomplete", "contact-event-incomplete",
+                "turn-incomplete", human.id(), human.contactId(), ReceptionMessageDirection.INBOUND,
+                ReceptionMessageSender.CONTACT, ReceptionMessageType.TEXT, "Olá", null, null, NOW));
+        CapturingResumeGateway incomplete = new CapturingResumeGateway(HermesResumeGateway.Action.WAIT, null);
+        incomplete.incompleteReceipt = true;
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("unused"), new MemoryLinks()), conversations,
+                new MemoryFacts(), transcript, new MemoryTurns(), new CommercialPolicyService(),
+                new ReceptionTurnCoordinator(), Clock.fixed(NOW, ZoneOffset.UTC));
+
+        ReceptionOrchestrator.ResumeReceipt receipt = orchestrator.returnToUrba(
+                "poc:bia", "return-incomplete", human.version(), incomplete);
+
+        assertThat(receipt.ownership()).isEqualTo("HUMAN");
+        assertThat(receipt.status()).isEqualTo(ResumeStatus.FAILED_SAFE);
+        assertThat(incomplete.decideCalls).isZero();
+        assertThat(conversations.value.mode()).isEqualTo(ReceptionMode.HUMAN);
     }
 
     @Test
@@ -339,7 +635,7 @@ class ReceptionOrchestratorTest {
                 "Decor", null, null, "service.decor", NOW, null));
 
         verify(facts).save(argThat(fact -> fact.type().equals("SELECTED_SERVICE")
-                && fact.value().equals("DECOR")
+                && fact.value().equals("DECOR_INTERIORES")
                 && fact.confidence() == br.com.urbana.connect.domain.reception.model.FactConfidence.CONFIRMED
                 && fact.sourceMessageId().equals("service-choice")));
     }
@@ -367,7 +663,8 @@ class ReceptionOrchestratorTest {
         ReceptionOrchestrator.TurnReceipt duplicate = restarted.process(event);
 
         assertThat(duplicate.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.DUPLICATE);
-        assertThat(duplicate.output().message()).isEqualTo("ok");
+        assertThat(duplicate.output().message())
+                .isEqualTo("Olá! Sou a Urba, assistente virtual da Urbana do Brasil. ok");
     }
 
     @Test
@@ -415,7 +712,8 @@ class ReceptionOrchestratorTest {
                 "oi", NOW));
 
         assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(receipt.output().message()).isEqualTo("recovered");
+        assertThat(receipt.output().message())
+                .isEqualTo("Olá! Sou a Urba, assistente virtual da Urbana do Brasil. recovered");
         assertThat(sessions.chatCalls).isEqualTo(1);
         assertThat(transcript.messages).extracting(ReceptionMessage::direction)
                 .containsExactly(ReceptionMessageDirection.INBOUND, ReceptionMessageDirection.OUTBOUND);
@@ -425,7 +723,7 @@ class ReceptionOrchestratorTest {
     }
 
     @Test
-    void allowsOperatorPaymentApprovalAfterHumanHandoff() {
+    void allowsOperatorPaymentApprovalAfterHumanHandoffWithoutReactivatingAutomation() {
         MemoryConversation conversations = new MemoryConversation();
         conversations.value = new ReceptionConversation("conversation-human-payment", "poc:ana",
                 br.com.urbana.connect.domain.reception.model.ReceptionMode.HUMAN,
@@ -438,8 +736,8 @@ class ReceptionOrchestratorTest {
 
         ReceptionOrchestrator.TurnReceipt receipt = orchestrator.approvePaymentProof("poc:ana");
 
-        assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(receipt.output().message()).contains("DECOR");
+        assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.BLOCKED_BY_HUMAN);
+        assertThat(receipt.output()).isNull();
         assertThat(conversations.value.mode()).isEqualTo(
                 br.com.urbana.connect.domain.reception.model.ReceptionMode.HUMAN);
         assertThat(conversations.value.paymentStatus()).isEqualTo(PaymentStatus.CONFIRMED);
@@ -770,6 +1068,42 @@ class ReceptionOrchestratorTest {
         @Override public List<HermesHistoryMessage> history(String sessionId) { return List.of(); }
     }
 
+    private static final class CapturingResumeGateway implements HermesResumeGateway {
+        private final HermesResumeGateway.Action action;
+        private final String message;
+        int syncCalls;
+        int decideCalls;
+        boolean failSync;
+        boolean incompleteReceipt;
+        String nextStep = "NONE";
+        ResumeContext context;
+
+        private CapturingResumeGateway(HermesResumeGateway.Action action, String message) {
+            this.action = action;
+            this.message = message;
+        }
+
+        @Override
+        public ContextSyncReceipt synchronize(String sessionId, ResumeContext context) {
+            syncCalls++;
+            this.context = context;
+            if (failSync) {
+                throw new IllegalStateException("provider failure must not cross boundary");
+            }
+            return new ContextSyncReceipt(context.resumeId(), context.lineageId(), sessionId,
+                    context.checksum(), context.cursor(), incompleteReceipt
+                            ? Math.max(0, context.watermark() - 1) : context.watermark());
+        }
+
+        @Override
+        public ResumeDecision decide(String sessionId, ResumeCommand command) {
+            decideCalls++;
+            return new ResumeDecision(command.resumeId(), sessionId, action, nextStep, message,
+                    context.messages().stream().map(ContextMessage::sourceMessageId).toList(),
+                    action.name(), 1.0);
+        }
+    }
+
     private static final class CapturingSessions extends FakeSessions {
         String lastInput;
         CapturingSessions() {
@@ -824,14 +1158,24 @@ class ReceptionOrchestratorTest {
     private static final class MemoryFacts implements CustomerFactGateway {
         int findCalls;
         int saveCalls;
-        @Override public List<CustomerFact> findCurrentByContactId(String contactId, Instant at) { findCalls++; return List.of(); }
-        @Override public List<CustomerFact> findByContactId(String contactId) { findCalls++; return List.of(); }
+        final List<CustomerFact> values = new ArrayList<>();
+        @Override public List<CustomerFact> findCurrentByContactId(String contactId, Instant at) {
+            findCalls++;
+            return values.stream().filter(fact -> fact.contactId().equals(contactId)
+                    && fact.isCurrentAt(at)).toList();
+        }
+        @Override public List<CustomerFact> findByContactId(String contactId) {
+            findCalls++;
+            return values.stream().filter(fact -> fact.contactId().equals(contactId)).toList();
+        }
         @Override public CustomerFact save(CustomerFact fact) { saveCalls++; return fact; }
     }
     private static final class MemoryTranscript implements ReceptionTranscriptGateway {
         final List<ReceptionMessage> messages = new ArrayList<>();
+        Runnable beforeAppend = () -> { };
         @Override public boolean appendIfAbsent(ReceptionMessage message) {
             if (findByEventId(message.eventId()).isPresent()) return false;
+            beforeAppend.run();
             messages.add(message); return true;
         }
         @Override public Optional<ReceptionMessage> findByEventId(String eventId) { return messages.stream().filter(m -> m.eventId().equals(eventId)).findFirst(); }

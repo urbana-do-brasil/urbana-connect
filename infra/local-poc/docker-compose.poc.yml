@@ -4,25 +4,72 @@ services:
   mongodb:
     image: mongo:8.0
     restart: unless-stopped
+    hostname: mongodb
+    command:
+      - mongod
+      - --replSet=rs0
+      - --bind_ip_all
     networks:
       - data
     volumes:
       - mongodb_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet
+          'mongodb://127.0.0.1:27017/admin?directConnection=true&serverSelectionTimeoutMS=3000' --eval
+          'const hello = db.adminCommand({hello: 1}); quit(
+          hello.ok === 1 && hello.setName === "rs0" &&
+          hello.isWritablePrimary === true ? 0 : 1);'
       interval: 5s
       timeout: 5s
-      retries: 12
+      retries: 30
     security_opt:
       - no-new-privileges:true
 
+  mongodb-rs-init:
+    image: mongo:8.0
+    restart: "no"
+    depends_on:
+      mongodb:
+        condition: service_started
+    networks:
+      - data
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        until mongosh --quiet \
+          'mongodb://mongodb:27017/admin?directConnection=true&serverSelectionTimeoutMS=3000' --eval '
+          try { quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 1); }
+          catch (error) { quit(1); }
+        '; do sleep 1; done
+
+        until mongosh --quiet \
+          'mongodb://mongodb:27017/admin?directConnection=true&serverSelectionTimeoutMS=3000' --eval '
+          const hello = db.adminCommand({hello: 1});
+          if (hello.setName === "rs0" && hello.isWritablePrimary === true) {
+            quit(0);
+          }
+          try {
+            rs.initiate({
+              _id: "rs0",
+              members: [{_id: 0, host: "mongodb:27017"}]
+            });
+          } catch (error) {}
+          quit(1);
+        '; do sleep 1; done
+
   hermes-profile-init:
-    image: urbana-hermes-agent:0.20.0
+    image: ${HERMES_IMAGE:-urbana-hermes-agent:pee-103-2f5472a15}
     restart: "no"
     user: "0:0"
     volumes:
       - hermes_data:/opt/data
       - ../../integrations/hermes-agent/profile/config.yaml.example:/profile/config.yaml:ro
+      - ../../integrations/hermes-agent/profile/SOUL.md:/profile/SOUL.md:ro
+      - ../../integrations/hermes-agent/plugins/urbana-domain:/profile/urbana-domain:ro
     read_only: true
     tmpfs:
       - /run:rw,exec,nosuid,nodev,size=16m
@@ -35,7 +82,14 @@ services:
     security_opt:
       - no-new-privileges:true
     entrypoint: ["/bin/sh", "-c"]
-    command: ["cp /profile/config.yaml /opt/data/config.yaml"]
+    command:
+      - |
+        set -eu
+        cp /profile/config.yaml /opt/data/config.yaml
+        cp /profile/SOUL.md /opt/data/SOUL.md
+        mkdir -p /opt/data/plugins
+        rm -rf /opt/data/plugins/urbana-domain
+        cp -R /profile/urbana-domain /opt/data/plugins/urbana-domain
 
   urbana-connect:
     build:
@@ -45,6 +99,8 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      mongodb-rs-init:
+        condition: service_completed_successfully
     networks:
       - data
       - hermes_app
@@ -54,7 +110,7 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: poc
       SERVER_PORT: 8081
-      MONGODB_URI: mongodb://mongodb:27017/urbana-connect-poc
+      MONGODB_URI: "mongodb://mongodb:27017/urbana-connect-poc?replicaSet=rs0&retryWrites=true&retryReads=true&w=majority"
       HERMES_BASE_URL: http://hermes:8642
       HERMES_API_SERVER_KEY: ${HERMES_API_SERVER_KEY:?set HERMES_API_SERVER_KEY in .env.poc}
       HERMES_INTERNAL_TOOL_TOKEN: ${HERMES_INTERNAL_TOOL_TOKEN:?set HERMES_INTERNAL_TOOL_TOKEN in .env.poc}
@@ -78,7 +134,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 20s
+      # Spring Boot + Mongo bootstrap can exceed two minutes on a cold Docker
+      # Desktop VM. Keep failures during that window from being classified as
+      # an unhealthy application; readiness still requires the exact READY body.
+      start_period: 180s
 
   poc-chat:
     build:
@@ -115,7 +174,12 @@ services:
       start_period: 5s
 
   hermes:
-    image: urbana-hermes-agent:0.20.0
+    image: ${HERMES_IMAGE:-urbana-hermes-agent:pee-103-2f5472a15}
+    build:
+      context: ../../..
+      dockerfile: urbana-connect/infra/local-poc/hermes-pee-103.Dockerfile
+      args:
+        HERMES_GIT_SHA: 2f5472a15a026b6bd5847ad65058f1565d2b40ba
     restart: unless-stopped
     depends_on:
       urbana-connect:
@@ -144,8 +208,6 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - hermes_data:/opt/data
-      - ../../integrations/hermes-agent/profile/SOUL.md:/opt/data/SOUL.md:ro
-      - ../../integrations/hermes-agent/plugins/urbana-domain:/opt/data/plugins/urbana-domain:ro
     read_only: true
     tmpfs:
       - /run:rw,exec,nosuid,nodev,size=32m
