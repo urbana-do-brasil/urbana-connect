@@ -33,8 +33,21 @@ class ServiceCatalogItemTest {
         assertThatThrownBy(() -> immutable.deliverables().add("outra"))
                 .isInstanceOf(UnsupportedOperationException.class);
 
+        ServiceCatalogItem nullableCollections = new ServiceCatalogItem(
+                ServiceType.DECOR, "Decor", "🏠", "escopo", "apresentação", BigDecimal.ONE,
+                null, null, null, AreaRule.UNLIMITED_BY_CATALOG, "escopo", null, null, null, null,
+                "suporte", true);
+        assertThat(nullableCollections.deliverables()).isEmpty();
+        assertThat(nullableCollections.process()).isEmpty();
+        assertThat(nullableCollections.responsibilities()).isEmpty();
+        assertThat(nullableCollections.exclusions()).isEmpty();
+
         assertThatThrownBy(() -> new ServiceCatalogItem(
                 ServiceType.DECOR, "", "🏠", "escopo", "apresentação", BigDecimal.ONE,
+                null, null, null, AreaRule.UNLIMITED_BY_CATALOG, "escopo", null, null, null, null,
+                "suporte", true)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ServiceCatalogItem(
+                ServiceType.DECOR, null, "🏠", "escopo", "apresentação", BigDecimal.ONE,
                 null, null, null, AreaRule.UNLIMITED_BY_CATALOG, "escopo", null, null, null, null,
                 "suporte", true)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ServiceCatalogItem(

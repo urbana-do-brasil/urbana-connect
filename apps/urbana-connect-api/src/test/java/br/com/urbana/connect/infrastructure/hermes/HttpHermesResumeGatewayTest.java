@@ -148,5 +148,20 @@ class HttpHermesResumeGatewayTest {
                 .satisfies(error -> assertThat(((HttpHermesResumeGateway.ResumeGatewayException) error).status())
                         .isZero());
         secondServer.verify();
+
+        RestClient.Builder thirdBuilder = RestClient.builder();
+        MockRestServiceServer thirdServer = MockRestServiceServer.bindTo(thirdBuilder).build();
+        HttpHermesResumeGateway thirdGateway = new HttpHermesResumeGateway(thirdBuilder,
+                "http://hermes.test", "secret");
+        thirdServer.expect(requestTo("http://hermes.test/api/internal/v1/sessions/s/context-sync"))
+                .andRespond(withSuccess());
+
+        assertThatThrownBy(() -> thirdGateway.synchronize("s",
+                new HermesResumeGateway.ResumeContext(1, "r", "l", "i", "mode", 0, 0, "checksum",
+                        List.of())))
+                .isInstanceOf(HttpHermesResumeGateway.ResumeGatewayException.class)
+                .satisfies(error -> assertThat(((HttpHermesResumeGateway.ResumeGatewayException) error).status())
+                        .isZero());
+        thirdServer.verify();
     }
 }
