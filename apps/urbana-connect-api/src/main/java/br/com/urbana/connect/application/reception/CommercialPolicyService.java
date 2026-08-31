@@ -31,8 +31,17 @@ public final class CommercialPolicyService {
     public static final String PREFER_NOT_TO_ANSWER = "PREFER_NOT_TO_ANSWER";
     private static final String PAYMENT_PROOF_PENDING_MESSAGE =
             "Recebi o comprovante. Agora ele aguarda validação humana; aviso assim que o pagamento for confirmado.";
+    private static final String ACCEPTANCE_WORD = "aceito";
+    private static final String AGREEMENT_WORD = "concordo";
+    private static final List<String> ACCEPTANCE_WORDS = List.of(ACCEPTANCE_WORD, AGREEMENT_WORD);
     private static final List<String> TERMS_REVIEW_VERBS =
             List.of("ler", "analisar", "revisar", "avaliar", "verificar", "refletir", "pensar");
+    private static final List<String> REVIEW_PREPOSITIONS = List.of("em", "com", "para");
+    private static final List<String> DEFERRED_REVIEW_MODALS =
+            List.of("vou", "irei", "pretendo", "quero", "preciso");
+    private static final String IMMEDIATE_REVIEW_SEPARATORS = ",:;";
+    private static final String ACCEPTANCE_SEPARATORS = "!,. ";
+    private static final String IMMEDIATE_TARGET_SEPARATORS = ",;:.! ";
     private static final List<String> MANDATORY_ICP = CustomerFactType.icpFieldNames();
     private static final List<String> ALLOWED_PAYMENT_METHODS = List.of("PIX", "CARD");
 
@@ -158,43 +167,43 @@ public final class CommercialPolicyService {
     }
 
     private static boolean hasImmediateReviewRequest(String normalized) {
-        for (String acceptance : List.of("aceito", "concordo")) {
-            int start = indexOfWord(normalized, acceptance, 0);
-            while (start >= 0) {
-                int cursor = start + acceptance.length();
-                while (cursor < normalized.length() && Character.isWhitespace(normalized.charAt(cursor))) {
-                    cursor++;
-                }
-                if (cursor < normalized.length() && ",:;".indexOf(normalized.charAt(cursor)) >= 0) {
-                    cursor++;
-                    while (cursor < normalized.length() && Character.isWhitespace(normalized.charAt(cursor))) {
-                        cursor++;
-                    }
-                }
-                for (String preposition : List.of("em", "com", "para")) {
-                    int afterPreposition = wordEnd(normalized, cursor, preposition);
-                    if (afterPreposition >= 0 && hasWhitespaceAfter(normalized, afterPreposition)) {
-                        cursor = afterPreposition;
-                        while (cursor < normalized.length() && Character.isWhitespace(normalized.charAt(cursor))) {
-                            cursor++;
-                        }
-                        break;
-                    }
-                }
-                if (containsReviewVerbAt(normalized, cursor)) {
-                    return true;
-                }
-                start = indexOfWord(normalized, acceptance, start + acceptance.length());
+        return ACCEPTANCE_WORDS.stream()
+                .anyMatch(acceptance -> hasImmediateReviewRequest(normalized, acceptance));
+    }
+
+    private static boolean hasImmediateReviewRequest(String normalized, String acceptance) {
+        int start = indexOfWord(normalized, acceptance, 0);
+        while (start >= 0) {
+            int reviewStart = immediateReviewStart(normalized, start, acceptance);
+            if (containsReviewVerbAt(normalized, reviewStart)) {
+                return true;
             }
+            start = indexOfWord(normalized, acceptance, start + acceptance.length());
         }
         return false;
     }
 
+    private static int immediateReviewStart(String normalized, int acceptanceIndex, String acceptance) {
+        int cursor = skipWhitespace(normalized, acceptanceIndex + acceptance.length());
+        cursor = skipSingleSeparator(normalized, cursor, IMMEDIATE_REVIEW_SEPARATORS);
+        return skipReviewPreposition(normalized, cursor);
+    }
+
+    private static int skipReviewPreposition(String normalized, int start) {
+        for (String preposition : REVIEW_PREPOSITIONS) {
+            int afterPreposition = wordEnd(normalized, start, preposition);
+            if (afterPreposition >= 0 && hasWhitespaceAfter(normalized, afterPreposition)) {
+                return skipWhitespace(normalized, afterPreposition);
+            }
+        }
+        return start;
+    }
+
     private static boolean hasDeferredReviewRequest(String normalized) {
-        for (String acceptance : List.of("aceito", "concordo")) {
+        for (String acceptance : ACCEPTANCE_WORDS) {
             int acceptanceIndex = indexOfWord(normalized, acceptance, 0);
             while (acceptanceIndex >= 0) {
-                for (String modal : List.of("vou", "irei", "pretendo", "quero", "preciso")) {
+                for (String modal : DEFERRED_REVIEW_MODALS) {
                     int modalIndex = indexOfWord(normalized, modal, acceptanceIndex + acceptance.length());
                     if (modalIndex >= 0 && containsReviewVerbAfter(normalized, modalIndex + modal.length())) {
                         return true;
@@ -207,7 +216,7 @@ public final class CommercialPolicyService {
     }
 
     private static boolean hasUncertainAcceptance(String normalized) {
-        for (String acceptance : List.of("aceito", "concordo")) {
+        for (String acceptance : ACCEPTANCE_WORDS) {
             int acceptanceIndex = indexOfWord(normalized, acceptance, 0);
             if (acceptanceIndex >= 0
                     && indexOfWord(normalized, "talvez", acceptanceIndex + acceptance.length()) >= 0) {
@@ -218,43 +227,51 @@ public final class CommercialPolicyService {
     }
 
     private static boolean isBareAcceptance(String normalized) {
-        if (!normalized.startsWith("aceito")) {
+        if (!normalized.startsWith(ACCEPTANCE_WORD)) {
             return false;
         }
-        String suffix = normalized.substring("aceito".length());
-        return suffix.chars().allMatch(character -> "!,. ".indexOf(character) >= 0);
+        String suffix = normalized.substring(ACCEPTANCE_WORD.length());
+        return suffix.chars().allMatch(character -> ACCEPTANCE_SEPARATORS.indexOf(character) >= 0);
     }
 
     private static boolean isAcceptanceWithPaymentMethod(String normalized) {
-        if (!normalized.startsWith("aceito") || normalized.length() == "aceito".length()) {
+        if (!normalized.startsWith(ACCEPTANCE_WORD)
+                || normalized.length() == ACCEPTANCE_WORD.length()) {
             return false;
         }
-        char separator = normalized.charAt("aceito".length());
-        if ("!,. ".indexOf(separator) < 0) {
+        char separator = normalized.charAt(ACCEPTANCE_WORD.length());
+        if (ACCEPTANCE_SEPARATORS.indexOf(separator) < 0) {
             return false;
         }
-        return indexOfAnyWord(normalized, List.of("pix", "cartao", "credito"), "aceito".length()) >= 0;
+        return indexOfAnyWord(normalized, List.of("pix", "cartao", "credito"), ACCEPTANCE_WORD.length()) >= 0;
     }
 
     private static boolean hasAcceptanceFollowedBy(String normalized, String target, boolean immediate) {
-        for (String acceptance : List.of("aceito", "concordo")) {
-            int acceptanceIndex = indexOfWord(normalized, acceptance, 0);
-            while (acceptanceIndex >= 0) {
-                int from = acceptanceIndex + acceptance.length();
-                if (immediate) {
-                    while (from < normalized.length() && ",;:.! ".indexOf(normalized.charAt(from)) >= 0) {
-                        from++;
-                    }
-                    if (wordEnd(normalized, from, target) >= 0) {
-                        return true;
-                    }
-                } else if (indexOfWord(normalized, target, from) >= 0) {
-                    return true;
-                }
-                acceptanceIndex = indexOfWord(normalized, acceptance, from);
+        return ACCEPTANCE_WORDS.stream()
+                .anyMatch(acceptance -> hasAcceptanceFollowedBy(normalized, acceptance, target, immediate));
+    }
+
+    private static boolean hasAcceptanceFollowedBy(String normalized, String acceptance,
+                                                     String target, boolean immediate) {
+        int acceptanceIndex = indexOfWord(normalized, acceptance, 0);
+        while (acceptanceIndex >= 0) {
+            if (targetFollowsAcceptance(normalized, acceptanceIndex, acceptance, target, immediate)) {
+                return true;
             }
+            acceptanceIndex = indexOfWord(normalized, acceptance,
+                    acceptanceIndex + acceptance.length());
         }
         return false;
+    }
+
+    private static boolean targetFollowsAcceptance(String normalized, int acceptanceIndex,
+                                                    String acceptance, String target, boolean immediate) {
+        int from = acceptanceIndex + acceptance.length();
+        if (immediate) {
+            from = skipCharacters(normalized, from, IMMEDIATE_TARGET_SEPARATORS);
+            return wordEnd(normalized, from, target) >= 0;
+        }
+        return indexOfWord(normalized, target, from) >= 0;
     }
 
     private static boolean hasAcceptancePhraseFollowedBy(String normalized, String phrase, String target) {
@@ -318,6 +335,29 @@ public final class CommercialPolicyService {
 
     private static boolean hasWhitespaceAfter(String value, int start) {
         return start < value.length() && Character.isWhitespace(value.charAt(start));
+    }
+
+    private static int skipWhitespace(String value, int start) {
+        int cursor = start;
+        while (cursor < value.length() && Character.isWhitespace(value.charAt(cursor))) {
+            cursor++;
+        }
+        return cursor;
+    }
+
+    private static int skipSingleSeparator(String value, int start, String separators) {
+        if (start < value.length() && separators.indexOf(value.charAt(start)) >= 0) {
+            return skipWhitespace(value, start + 1);
+        }
+        return start;
+    }
+
+    private static int skipCharacters(String value, int start, String characters) {
+        int cursor = start;
+        while (cursor < value.length() && characters.indexOf(value.charAt(cursor)) >= 0) {
+            cursor++;
+        }
+        return cursor;
     }
 
     private static boolean hasWhitespaceBetween(String value, int start, int end) {
