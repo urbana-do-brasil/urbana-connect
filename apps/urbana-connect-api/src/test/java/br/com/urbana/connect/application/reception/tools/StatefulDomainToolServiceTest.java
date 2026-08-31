@@ -760,6 +760,168 @@ class StatefulDomainToolServiceTest {
                         .isEqualTo("ENVIRONMENT_NOT_CONFIRMED"));
     }
 
+    @Test
+    void requiresTheBackendExecutionContextAndValidContactForStatefulTools() {
+        StatefulDomainToolService tools = new StatefulDomainToolService(new CommercialPolicyService(),
+                new MemoryConversation(), new MemoryFacts());
+
+        assertThatThrownBy(() -> tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, "contact-1", Map.of()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("execution context");
+        assertThatThrownBy(() -> tools.execute(null, "contact-1", Map.of(), context("message")))
+                .isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, " ", Map.of(), context("message")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("contactId");
+        assertThatThrownBy(() -> tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, "contact-1", Map.of(), null))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void recordsProfilePreviousServicesAndUsesSafeRejectionsForInvalidFactsAndHandoffs() {
+        MemoryConversation conversations = new MemoryConversation();
+        MemoryFacts facts = new MemoryFacts();
+        MemoryTranscript transcript = new MemoryTranscript();
+        conversations.value = ReceptionConversation.start("conversation-1", "contact-1", NOW);
+        transcript.messages.put("message-service", message("message-service", "Quero Decor."));
+        StatefulDomainToolService tools = new StatefulDomainToolService(new CommercialPolicyService(),
+                conversations, facts, transcript);
+
+        tools.execute(DomainToolName.UPDATE_CUSTOMER_FACT, "contact-1",
+                Map.of("factType", "SERVICE", "value", "Decor", "confidence", "CONFIRMED"),
+                context("message-service"));
+        Map<String, Object> profile = tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, "contact-1",
+                Map.of(), context("message-service"));
+        @SuppressWarnings("unchecked")
+        List<String> previousServices = (List<String>) profile.get("previousServices");
+        assertThat(previousServices).containsExactly("DECOR_INTERIORES");
+
+        assertThatThrownBy(() -> tools.execute(DomainToolName.UPDATE_CUSTOMER_FACT, "contact-1",
+                Map.of("factType", "UNKNOWN", "value", "x"), context("message-service")))
+                .isInstanceOf(DomainToolInvocationUseCase.DomainRejectionException.class)
+                .satisfies(error -> assertThat(((DomainToolInvocationUseCase.DomainRejectionException) error).code())
+                        .isEqualTo("CUSTOMER_INFORMATION_INVALID"));
+        assertThatThrownBy(() -> tools.execute(DomainToolName.REQUEST_HUMAN_HANDOFF, "contact-1",
+                Map.of(), context("message-service")))
+                .isInstanceOf(DomainToolInvocationUseCase.DomainRejectionException.class)
+                .satisfies(error -> assertThat(((DomainToolInvocationUseCase.DomainRejectionException) error).code())
+                        .isEqualTo("HANDOFF_REASON_REQUIRED"));
+    }
+
+    @Test
+    void handlesMissingTranscriptAndEvidenceAliasesWithoutForgingConfirmedFacts() {
+        MemoryConversation conversations = new MemoryConversation();
+        MemoryFacts facts = new MemoryFacts();
+        conversations.value = ReceptionConversation.start("contact-1", NOW);
+        StatefulDomainToolService noTranscript = new StatefulDomainToolService(new CommercialPolicyService(),
+                conversations, facts);
+
+        Map<String, Object> unsupported = noTranscript.execute(DomainToolName.UPDATE_CUSTOMER_FACT, "contact-1",
+                Map.of("factType", "OCCUPATION", "value", "DESIGNER", "confidence", "CONFIRMED"),
+                context("message-missing"));
+        assertThat(unsupported).containsEntry("confidence", "TENTATIVE")
+                .containsEntry("value", "DESIGNER");
+        assertThat(facts.values).singleElement().extracting(CustomerFact::sourceMessageId)
+                .isEqualTo("message-missing");
+
+        MemoryTranscript transcript = new MemoryTranscript();
+        transcript.messages.put("message-service-alias", message("message-service-alias", "Quero contratar Decor."));
+        StatefulDomainToolService withTranscript = new StatefulDomainToolService(new CommercialPolicyService(),
+                conversations, facts, transcript);
+        Map<String, Object> service = withTranscript.execute(DomainToolName.UPDATE_CUSTOMER_FACT, "contact-1",
+                Map.of("factType", "SELECTED_SERVICE", "value", "Decor", "confidence", "CONFIRMED"),
+                context("message-service-alias"));
+        assertThat(service).containsEntry("value", "DECOR_INTERIORES")
+                .containsEntry("confidence", "CONFIRMED");
+    }
+
+    @Test
+    void preservesWordBoundariesWhenConfirmingEnvironmentEvidence() {
+        MemoryConversation conversations = new MemoryConversation();
+        MemoryFacts facts = new MemoryFacts();
+        MemoryTranscript transcript = new MemoryTranscript();
+        conversations.value = ReceptionConversation.start("contact-1", NOW);
+        transcript.messages.put("message-prefix", message("message-prefix", "Quero contratar para o salao."));
+        transcript.messages.put("message-exact", message("message-exact", "Quero contratar para a sala."));
+        StatefulDomainToolService tools = new StatefulDomainToolService(new CommercialPolicyService(),
+                conversations, facts, transcript);
+
+        Map<String, Object> prefix = tools.execute(DomainToolName.UPDATE_CUSTOMER_FACT, "contact-1",
+                Map.of("factType", "ENVIRONMENT", "value", "sala", "confidence", "CONFIRMED"),
+                context("message-prefix"));
+        Map<String, Object> exact = tools.execute(DomainToolName.UPDATE_CUSTOMER_FACT, "contact-1",
+                Map.of("factType", "ENVIRONMENT", "value", "sala", "confidence", "CONFIRMED"),
+                context("message-exact"));
+
+        assertThat(prefix).containsEntry("confidence", "TENTATIVE");
+        assertThat(exact).containsEntry("confidence", "CONFIRMED");
+        assertThat(conversations.value.environmentSourceMessageId()).isEqualTo("message-exact");
+    }
+
+    @Test
+    void returnsStablePaymentResultsForPreparedProofAndRejectedStates() {
+        CommercialPolicyService policy = new CommercialPolicyService();
+        for (PaymentStatus status : List.of(PaymentStatus.PREPARED, PaymentStatus.PROOF_RECEIVED,
+                PaymentStatus.REJECTED, PaymentStatus.CONFIRMED)) {
+            MemoryConversation conversations = new MemoryConversation();
+            MemoryFacts facts = new MemoryFacts();
+            MemoryTranscript transcript = new MemoryTranscript();
+            AuditedAcceptance audited = auditedAccepted(policy, conversations, "contact-1");
+            ReceptionConversation current = audited.conversation();
+            if (status == PaymentStatus.PREPARED) {
+                current = policy.preparePayment(current, List.of(), "PIX", NOW.plusSeconds(3));
+            } else if (status == PaymentStatus.PROOF_RECEIVED) {
+                current = policy.receivePaymentProof(
+                        policy.preparePayment(current, List.of(), "PIX", NOW.plusSeconds(3)), NOW.plusSeconds(4));
+            } else if (status == PaymentStatus.REJECTED) {
+                current = policy.receivePaymentProof(
+                                policy.preparePayment(current, List.of(), "PIX", NOW.plusSeconds(3)), NOW.plusSeconds(4))
+                        .rejectPayment(NOW.plusSeconds(5));
+            } else {
+                current = policy.approvePaymentProof(
+                        policy.receivePaymentProof(
+                                policy.preparePayment(current, List.of(), "PIX", NOW.plusSeconds(3)), NOW.plusSeconds(4)),
+                        NOW.plusSeconds(5));
+            }
+            conversations.value = current;
+            StatefulDomainToolService tools = new StatefulDomainToolService(policy, conversations, facts, transcript);
+            tools.setTermsAcceptanceUseCase(audited.useCase());
+
+            Map<String, Object> result = tools.execute(DomainToolName.PREPARE_PAYMENT, "contact-1",
+                    Map.of("serviceType", "DECOR", "method", "PIX"), context("message-payment"));
+            if (status == PaymentStatus.PREPARED) {
+                assertThat(result).containsEntry("status", "ALREADY_PREPARED");
+            } else if (status == PaymentStatus.PROOF_RECEIVED) {
+                assertThat(result).containsEntry("status", "PROOF_RECEIVED");
+            } else if (status == PaymentStatus.CONFIRMED) {
+                assertThat(result).containsEntry("status", "CONFIRMED");
+            } else {
+                assertThat(result).containsEntry("status", "PREPARED");
+            }
+        }
+    }
+
+    @Test
+    void keepsTermsTransitionSafeWhenDeclinedOrOptionalObservabilityFails() {
+        CommercialPolicyService policy = new CommercialPolicyService();
+        MemoryConversation conversations = new MemoryConversation();
+        MemoryFacts facts = new MemoryFacts();
+        MemoryTranscript transcript = new MemoryTranscript();
+        conversations.value = ReceptionConversation.start("contact-1", NOW)
+                .bindContractingUnit("unit-1", "sala", "message-environment", NOW)
+                .selectService("DECOR_INTERIORES", NOW)
+                .declineTerms(NOW.plusSeconds(1));
+        IcpObservationEventGateway throwingObservations = event -> {
+            throw new IllegalStateException("optional sink unavailable");
+        };
+        StatefulDomainToolService tools = new StatefulDomainToolService(policy, conversations, facts, transcript,
+                throwingObservations);
+
+        Map<String, Object> result = tools.execute(DomainToolName.PREPARE_TERMS, "contact-1",
+                Map.of("serviceType", "DECOR"), context("message-terms"));
+
+        assertThat(result).containsEntry("status", "PRESENTED");
+        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
+    }
+
     private static ToolExecutionContext context(String sourceMessageId) {
         return context(sourceMessageId, List.of(sourceMessageId));
     }
