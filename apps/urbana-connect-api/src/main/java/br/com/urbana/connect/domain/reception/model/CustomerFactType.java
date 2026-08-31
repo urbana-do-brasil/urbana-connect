@@ -8,7 +8,9 @@ public enum CustomerFactType {
     FIRST_TIME_HIRING,
     OCCUPATION,
     NEED,
-    SELECTED_SERVICE;
+    SELECTED_SERVICE,
+    /** Explicit environment binding; operational metadata, never an ICP field. */
+    ENVIRONMENT;
 
     private static final List<String> ICP_FIELD_NAMES = List.of(
             PRONOUN_PREFERENCE.name(), FIRST_TIME_HIRING.name(), OCCUPATION.name());

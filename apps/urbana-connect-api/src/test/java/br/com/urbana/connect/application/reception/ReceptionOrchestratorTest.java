@@ -18,6 +18,8 @@ import br.com.urbana.connect.domain.reception.model.ReceptionMode;
 import br.com.urbana.connect.domain.reception.model.ResumeStatus;
 import br.com.urbana.connect.domain.reception.model.ReceptionEventIds;
 import br.com.urbana.connect.domain.reception.model.TermsStatus;
+import br.com.urbana.connect.domain.reception.model.TermsConsentAudit;
+import br.com.urbana.connect.domain.reception.model.TermsConsentStatus;
 import br.com.urbana.connect.domain.reception.model.CommercialStage;
 import br.com.urbana.connect.domain.reception.port.out.AgentSessionLinkGateway;
 import br.com.urbana.connect.domain.reception.port.out.ActiveTurnLeaseGateway;
@@ -29,9 +31,11 @@ import br.com.urbana.connect.domain.reception.port.out.HermesResumeGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionConversationGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTranscriptGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTurnGateway;
+import br.com.urbana.connect.domain.reception.port.out.TermsConsentAuditGateway;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessageDirection;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -57,6 +61,17 @@ import static org.mockito.Mockito.when;
 
 class ReceptionOrchestratorTest {
     private static final Instant NOW = Instant.parse("2026-08-05T12:00:00Z");
+
+    @Test
+    void resumeChecksumUsesUtf8ForSupplementaryUnicodeInsteadOfEscapedSurrogates() throws Exception {
+        Method checksum = ReceptionOrchestrator.class.getDeclaredMethod("resumeChecksum", List.class);
+        checksum.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        String actual = (String) checksum.invoke(null, List.of(
+                new HermesResumeGateway.ContextMessage(1, "m-1", "CONTACT", "user", "🦕")));
+
+        assertThat(actual).isEqualTo("sha256:109629377e6112df724faa31ac7d0a57771f88fc18ef448ba8da4da6b610436d");
+    }
 
     @Test
     void persistsInboundBeforeDispatchAndAddsIdentityOnlyToTheFirstHermesResponse() {
@@ -168,7 +183,7 @@ class ReceptionOrchestratorTest {
     }
 
     @Test
-    void appliesAcceptanceAfterHermesPresentsTermsDuringTheSameTurn() {
+    void doesNotApplyAcceptanceWhenHermesPresentsTermsDuringTheSameTurn() {
         MemoryConversation conversations = new MemoryConversation();
         conversations.value = ReceptionConversation.start("conversation-1", "poc:ana", NOW);
         MemoryTranscript transcript = new MemoryTranscript();
@@ -189,7 +204,7 @@ class ReceptionOrchestratorTest {
                 "Aceito os termos", NOW));
 
         assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.ACCEPTED);
+        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
     }
 
     @Test
@@ -1036,6 +1051,150 @@ class ReceptionOrchestratorTest {
                 .extracting(ReceptionTurn::retryAllowed).isEqualTo(true);
     }
 
+    @Test
+    void acceptsAnExplicitInboundOnlyAfterDurableTermsPresentationEvidence() {
+        CommercialPolicyService policy = new CommercialPolicyService();
+        MemoryConversation conversations = new MemoryConversation();
+        ReceptionConversation presented = policy.presentTerms(
+                policy.selectService(ReceptionConversation.start("conversation-1", "poc:ana", NOW), "DECOR", NOW),
+                List.of(), NOW);
+        presented = presented.bindContractingUnit("unit-1", "sala", "environment-event", NOW);
+        presented = policy.presentTerms(policy.selectService(presented, "DECOR", NOW), List.of(), NOW);
+        presented = presented.activateTermsConsent("presentation-1", NOW);
+        conversations.value = presented;
+        MemoryAudits audits = new MemoryAudits();
+        audits.savePresentationIfAbsent(new TermsConsentAudit("presentation-1", presented.id(), presented.contactId(),
+                "turn-presentation", presented.contractingUnitId(), presented.environmentLabel(),
+                presented.environmentSourceMessageId(), presented.selectedService(), policy.termsUrl("DECOR"), "v1",
+                "invocation-1", "terms-outbound", NOW, null, null, null, null, NOW,
+                TermsConsentStatus.PRESENTED, presented.version(), null));
+        MemoryTranscript transcript = new MemoryTranscript();
+        MemoryTurns turns = new MemoryTurns();
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("Obrigada!"), new MemoryLinks()), conversations,
+                new MemoryFacts(), transcript, turns, policy, new ReceptionTurnCoordinator(),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        orchestrator.setTermsAcceptanceUseCase(new TermsAcceptanceUseCase(audits, conversations));
+
+        ReceptionOrchestrator.TurnReceipt receipt = orchestrator.process(new InboundConversationEvent(
+                "acceptance-event", "poc:ana", ReceptionMessageType.TEXT, "Aceito os termos", NOW.plusSeconds(1)));
+
+        assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
+        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.ACCEPTED);
+        assertThat(audits.findByPresentationId("presentation-1")).hasValueSatisfying(audit -> {
+            assertThat(audit.status()).isEqualTo(TermsConsentStatus.ACCEPTED);
+            assertThat(audit.acceptanceEventId()).isEqualTo("acceptance-event");
+            assertThat(audit.acceptanceTextExact()).isEqualTo("Aceito os termos");
+        });
+    }
+
+    @Test
+    void recordsTermsPresentationOnlyWhenSuccessfulInvocationResourceAppearsInPublishedText() {
+        CommercialPolicyService policy = new CommercialPolicyService();
+        MemoryAudits audits = new MemoryAudits();
+        MemoryInvocations invocations = new MemoryInvocations();
+        DomainToolInvocation invocation = new DomainToolInvocation("invocation-1", "key-1", "any-turn", "session-1",
+                "poc:ana", DomainToolName.PREPARE_TERMS, "hash", DomainToolInvocationStatus.SUCCEEDED, "OK",
+                Map.of("url", policy.termsUrl("DECOR")), NOW, NOW.plusSeconds(1));
+        invocations.values.add(invocation);
+        MemoryConversation conversations = new MemoryConversation();
+        ReceptionConversation presented = ReceptionConversation.start("conversation-1", "poc:ana", NOW)
+                .bindContractingUnit("unit-1", "sala", "environment-event", NOW)
+                .selectService("DECOR_INTERIORES", NOW)
+                .presentTerms(NOW.plusSeconds(1));
+        conversations.value = presented;
+        MemoryTranscript transcript = new MemoryTranscript();
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("Confira os termos: " + policy.termsUrl("DECOR")),
+                        new MemoryLinks()), conversations, new MemoryFacts(), transcript, new MemoryTurns(), policy,
+                new ReceptionTurnCoordinator(), null, invocations, Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC));
+        orchestrator.setTermsAcceptanceUseCase(new TermsAcceptanceUseCase(audits, conversations));
+
+        ReceptionOrchestrator.TurnReceipt receipt = orchestrator.process(new InboundConversationEvent(
+                "terms-event", "poc:ana", ReceptionMessageType.TEXT, "Quero ver os termos", NOW.plusSeconds(2)));
+
+        assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
+        assertThat(conversations.value.activeTermsConsentId()).isNotBlank();
+        assertThat(audits.findByPresentationId(conversations.value.activeTermsConsentId()))
+                .hasValueSatisfying(value -> assertThat(value.status()).isEqualTo(TermsConsentStatus.PRESENTED));
+    }
+
+    @Test
+    void keepsTermsUnactivatedWhenInvocationIsMissingOrResourceIsNotVisible() {
+        CommercialPolicyService policy = new CommercialPolicyService();
+        for (List<DomainToolInvocation> ledger : List.of(List.<DomainToolInvocation>of(), List.of(new DomainToolInvocation(
+                "invocation-failed", "key-failed", "any-turn", "session-1", "poc:ana",
+                DomainToolName.PREPARE_TERMS, "hash", DomainToolInvocationStatus.FAILED, "FAILED", Map.of(
+                        "url", policy.termsUrl("DECOR")), NOW, NOW.plusSeconds(1))), List.of(new DomainToolInvocation(
+                "invocation-no-url", "key-no-url", "any-turn", "session-1", "poc:ana",
+                DomainToolName.PREPARE_TERMS, "hash", DomainToolInvocationStatus.SUCCEEDED, "OK", Map.of(), NOW,
+                NOW.plusSeconds(1))))) {
+            MemoryConversation conversations = new MemoryConversation();
+            conversations.value = ReceptionConversation.start("conversation-1", "poc:ana", NOW)
+                    .bindContractingUnit("unit-1", "sala", "environment-event", NOW)
+                    .selectService("DECOR_INTERIORES", NOW)
+                    .presentTerms(NOW.plusSeconds(1));
+            MemoryAudits audits = new MemoryAudits();
+            MemoryInvocations invocations = new MemoryInvocations();
+            invocations.values.addAll(ledger);
+            String response = "Confira os termos, mas sem o endereço";
+            MemoryTranscript transcript = new MemoryTranscript();
+            ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                    new HermesSessionService(new FakeSessions(response), new MemoryLinks()), conversations,
+                    new MemoryFacts(), transcript, new MemoryTurns(), policy, new ReceptionTurnCoordinator(), null,
+                    invocations, Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC));
+            orchestrator.setTermsAcceptanceUseCase(new TermsAcceptanceUseCase(audits, conversations));
+
+            orchestrator.process(new InboundConversationEvent("terms-noop-" + ledger.size(), "poc:ana",
+                    ReceptionMessageType.TEXT, "termos", NOW.plusSeconds(2)));
+
+            assertThat(conversations.value.activeTermsConsentId()).isNull();
+            assertThat(audits.values).isEmpty();
+        }
+    }
+
+    @Test
+    void fencesAnObsoleteInboundWhenANewerMessageArrivesBeforePublication() {
+        MemoryConversation conversations = new MemoryConversation();
+        MemoryTranscript transcript = new MemoryTranscript();
+        MemoryTurns turns = new MemoryTurns();
+        FakeSessions sessions = new FakeSessions("Resposta tardia");
+        sessions.beforeResponse = () -> transcript.messages.add(new ReceptionMessage("newer-message", "newer-event",
+                "newer-correlation", "conversation-1", "poc:ana", ReceptionMessageDirection.INBOUND,
+                ReceptionMessageSender.CONTACT, ReceptionMessageType.TEXT, "mensagem nova", null, null,
+                NOW.plusSeconds(2)));
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(sessions, new MemoryLinks()), conversations, new MemoryFacts(), transcript,
+                turns, new CommercialPolicyService(), new ReceptionTurnCoordinator(), Clock.fixed(NOW, ZoneOffset.UTC));
+
+        ReceptionOrchestrator.TurnReceipt receipt = orchestrator.process(new InboundConversationEvent(
+                "old-event", "poc:ana", ReceptionMessageType.TEXT, "oi", NOW));
+
+        assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.FAILED_SAFE_TO_RETRY);
+        assertThat(receipt.error()).isEqualTo("STALE_INBOUND_BEFORE_PUBLICATION");
+        assertThat(transcript.messages).filteredOn(message -> message.direction() == ReceptionMessageDirection.OUTBOUND)
+                .isEmpty();
+        assertThat(turns.values.values()).singleElement().extracting(ReceptionTurn::failureCode)
+                .isEqualTo("STALE_INBOUND_BEFORE_PUBLICATION");
+    }
+
+    @Test
+    void validatesBatchPresenceAndContactOwnershipBeforePersistingAnything() {
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("unused"), new MemoryLinks()), new MemoryConversation(),
+                new MemoryFacts(), new MemoryTranscript(), new MemoryTurns(), new CommercialPolicyService(),
+                new ReceptionTurnCoordinator(), Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThatThrownBy(() -> orchestrator.processBatch(null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> orchestrator.processBatch(List.of())).isInstanceOf(IllegalArgumentException.class);
+        InboundConversationEvent first = new InboundConversationEvent("batch-a", "poc:ana", ReceptionMessageType.TEXT,
+                "oi", NOW);
+        InboundConversationEvent second = new InboundConversationEvent("batch-b", "poc:bia", ReceptionMessageType.TEXT,
+                "oi", NOW);
+        List<InboundConversationEvent> differentContacts = List.of(first, second);
+        assertThatThrownBy(() -> orchestrator.processBatch(differentContacts))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("multiple contacts");
+    }
+
     private static boolean awaitStatus(MemoryTurns turns, ReceptionTurnStatus expected, long timeoutMillis)
             throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
@@ -1170,6 +1329,51 @@ class ReceptionOrchestratorTest {
         }
         @Override public CustomerFact save(CustomerFact fact) { saveCalls++; return fact; }
     }
+
+    private static final class MemoryAudits implements TermsConsentAuditGateway {
+        final Map<String, TermsConsentAudit> values = new HashMap<>();
+
+        @Override public Optional<TermsConsentAudit> findByPresentationId(String presentationId) {
+            return Optional.ofNullable(values.get(presentationId));
+        }
+
+        @Override public Optional<TermsConsentAudit> findPresented(String conversationId, String unitId) {
+            return values.values().stream().filter(value -> value.conversationId().equals(conversationId)
+                    && value.contractingUnitId().equals(unitId)
+                    && value.status() == TermsConsentStatus.PRESENTED).findFirst();
+        }
+
+        @Override public TermsConsentAudit savePresentationIfAbsent(TermsConsentAudit audit) {
+            return values.computeIfAbsent(audit.presentationId(), ignored -> audit);
+        }
+
+        @Override public TermsConsentAudit acceptIfPresented(String presentationId, String eventId,
+                                                              String messageId, String text, long version, Instant at) {
+            TermsConsentAudit current = values.get(presentationId);
+            if (current == null) throw new IllegalStateException("missing presentation");
+            TermsConsentAudit accepted = current.accept(messageId, eventId, text, at, version);
+            values.put(presentationId, accepted);
+            return accepted;
+        }
+    }
+
+    private static final class MemoryInvocations implements DomainToolInvocationGateway {
+        final List<DomainToolInvocation> values = new ArrayList<>();
+
+        @Override public Optional<DomainToolInvocation> findByIdempotencyKey(String key) {
+            return values.stream().filter(value -> value.idempotencyKey().equals(key)).findFirst();
+        }
+
+        @Override public DomainToolInvocation save(DomainToolInvocation invocation) {
+            values.add(invocation);
+            return invocation;
+        }
+
+        @Override public List<DomainToolInvocation> findByTurnId(String turnId) {
+            return List.copyOf(values);
+        }
+    }
+
     private static final class MemoryTranscript implements ReceptionTranscriptGateway {
         final List<ReceptionMessage> messages = new ArrayList<>();
         Runnable beforeAppend = () -> { };

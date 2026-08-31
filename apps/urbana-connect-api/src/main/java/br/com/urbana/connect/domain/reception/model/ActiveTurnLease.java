@@ -1,6 +1,7 @@
 package br.com.urbana.connect.domain.reception.model;
 
 import java.time.Instant;
+import java.util.List;
 
 public record ActiveTurnLease(
         String hermesSessionId,
@@ -12,12 +13,21 @@ public record ActiveTurnLease(
         Instant expiresAt,
         Instant revokedAt,
         long version,
-        String claimToken) {
+        String claimToken,
+        List<String> sourceMessageIds) {
     public ActiveTurnLease(String hermesSessionId, String turnId, String contactId, String sourceMessageId,
                            ActiveTurnLeaseStatus status, Instant acquiredAt, Instant expiresAt,
                            Instant revokedAt, long version) {
         this(hermesSessionId, turnId, contactId, sourceMessageId, status, acquiredAt, expiresAt,
-                revokedAt, version, turnId + ":" + version);
+                revokedAt, version, turnId + ":" + version, List.of(sourceMessageId));
+    }
+
+    /** Compatibility constructor for persisted leases created before batched provenance. */
+    public ActiveTurnLease(String hermesSessionId, String turnId, String contactId, String sourceMessageId,
+                           ActiveTurnLeaseStatus status, Instant acquiredAt, Instant expiresAt,
+                           Instant revokedAt, long version, String claimToken) {
+        this(hermesSessionId, turnId, contactId, sourceMessageId, status, acquiredAt, expiresAt,
+                revokedAt, version, claimToken, List.of(sourceMessageId));
     }
 
     public ActiveTurnLease {
@@ -36,6 +46,11 @@ public record ActiveTurnLease(
         }
         claimToken = claimToken == null || claimToken.isBlank()
                 ? turnId + ":" + version : claimToken;
+        if (sourceMessageIds == null || sourceMessageIds.isEmpty()
+                || sourceMessageIds.stream().anyMatch(value -> value == null || value.isBlank())) {
+            throw new IllegalArgumentException("sourceMessageIds must contain at least one non-blank event id");
+        }
+        sourceMessageIds = List.copyOf(sourceMessageIds);
     }
 
     public boolean isActiveAt(Instant now) {
@@ -52,7 +67,8 @@ public record ActiveTurnLease(
             return this;
         }
         return new ActiveTurnLease(hermesSessionId, turnId, contactId, sourceMessageId,
-                ActiveTurnLeaseStatus.REVOKED, acquiredAt, expiresAt, now, version + 1, claimToken);
+                ActiveTurnLeaseStatus.REVOKED, acquiredAt, expiresAt, now, version + 1, claimToken,
+                sourceMessageIds);
     }
 
     public ActiveTurnLease expire(Instant now) {
@@ -60,7 +76,8 @@ public record ActiveTurnLease(
             return this;
         }
         return new ActiveTurnLease(hermesSessionId, turnId, contactId, sourceMessageId,
-                ActiveTurnLeaseStatus.EXPIRED, acquiredAt, expiresAt, null, version + 1, claimToken);
+                ActiveTurnLeaseStatus.EXPIRED, acquiredAt, expiresAt, null, version + 1, claimToken,
+                sourceMessageIds);
     }
 
     public ActiveTurnLease reconcile(Instant now) {
@@ -68,7 +85,8 @@ public record ActiveTurnLease(
             return this;
         }
         return new ActiveTurnLease(hermesSessionId, turnId, contactId, sourceMessageId,
-                ActiveTurnLeaseStatus.RECONCILING, acquiredAt, expiresAt, null, version + 1, claimToken);
+                ActiveTurnLeaseStatus.RECONCILING, acquiredAt, expiresAt, null, version + 1, claimToken,
+                sourceMessageIds);
     }
 
     public ActiveTurnLease heartbeat(Instant now, java.time.Duration ttl) {
@@ -79,7 +97,8 @@ public record ActiveTurnLease(
             return this;
         }
         return new ActiveTurnLease(hermesSessionId, turnId, contactId, sourceMessageId,
-                status, acquiredAt, now.plus(ttl), revokedAt, version + 1, claimToken);
+                status, acquiredAt, now.plus(ttl), revokedAt, version + 1, claimToken,
+                sourceMessageIds);
     }
 
     private static void require(String value, String name) {

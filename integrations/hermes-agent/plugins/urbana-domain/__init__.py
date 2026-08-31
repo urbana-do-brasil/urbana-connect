@@ -25,7 +25,7 @@ TOOL_DESCRIPTIONS = {
         "o que recebe, etapas, escopo, limites, disponibilidade ou preço. O resultado contém o "
         "catálogo rico; responda à dúvida sem iniciar termos, pagamento ou handoff por esse motivo. "
         "Ao detalhar um serviço identificado, explicite que é uma consultoria online e mencione "
-        "processo, Manual em PDF, Tour Virtual, 3 opções e até 2 rodadas de ajustes."
+        "processo, Manual do Espaço em PDF, Tour Virtual, 3 opções, até 2 rodadas de ajustes e suporte."
     ),
     "prepare_terms": (
         "Prepara os termos de um serviço já escolhido para uma intenção clara de contratação. "
@@ -37,6 +37,8 @@ TOOL_DESCRIPTIONS = {
         "As formas aceitas são PIX ou CARD (cartão de crédito). Se a forma não tiver sido "
         "informada, não use a ferramenta: pergunte se a pessoa prefere PIX ou cartão de crédito. "
         "Nunca use `link` como método; o link é a instrução retornada após o preparo. "
+        "Depois do preparo, oriente 1 serviço por ambiente e peça o comprovante; a POC usa uma simulação "
+        "e não confirma que o player real permite escolher quantidade. "
         "Não repita a chamada com os mesmos argumentos depois de uma rejeição: corrija a informação "
         "ou faça a pergunta necessária ao cliente."
     ),
@@ -54,7 +56,7 @@ def _schema(tool_name: str) -> dict:
     if tool_name == "update_customer_fact":
         parameters["properties"] = {
             "factType": {"type": "string", "enum": [
-                "PRONOUN_PREFERENCE", "FIRST_TIME_HIRING", "OCCUPATION", "NEED", "SELECTED_SERVICE"
+                "PRONOUN_PREFERENCE", "FIRST_TIME_HIRING", "OCCUPATION", "NEED", "SELECTED_SERVICE", "ENVIRONMENT"
             ]},
             "value": {},
             "evidence": {"type": "string"},

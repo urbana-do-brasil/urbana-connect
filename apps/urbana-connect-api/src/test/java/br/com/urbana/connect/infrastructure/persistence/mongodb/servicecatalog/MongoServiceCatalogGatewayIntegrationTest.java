@@ -58,7 +58,7 @@ class MongoServiceCatalogGatewayIntegrationTest {
             assertThat(item.areaRule()).isNotNull();
             assertThat(item.scope()).isNotBlank();
             assertThat(item.deliverables()).contains(
-                "Manual PDF", "Tour Virtual", "3 opções de solução", "2 rodadas consolidadas");
+                "Manual do Espaço em PDF", "Tour Virtual", "3 opções de solução", "2 rodadas de alterações ou ajustes");
             assertThat(item.process()).anyMatch(value -> value.contains("briefing"));
             assertThat(item.process()).anyMatch(value -> value.contains("Google Meet"));
             assertThat(item.process()).anyMatch(value -> value.contains("7 dias úteis"));

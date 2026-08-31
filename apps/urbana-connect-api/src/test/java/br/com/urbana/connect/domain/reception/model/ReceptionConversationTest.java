@@ -7,6 +7,7 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ReceptionConversationTest {
 
@@ -112,5 +113,84 @@ class ReceptionConversationTest {
         assertThat(changed.termsStatus()).isEqualTo(TermsStatus.NOT_PRESENTED);
         assertThat(changed.paymentStatus()).isEqualTo(PaymentStatus.NOT_STARTED);
         assertThat(changed.commercialStage()).isEqualTo(CommercialStage.ICP);
+    }
+
+    @Test
+    void bindsAnEnvironmentOnceAndRejectsIncompleteIdentityFields() {
+        ReceptionConversation conversation = ReceptionConversation.start("contact-1", now);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> conversation.bindContractingUnit(
+                "", "sala", "message", now));
+        assertThatIllegalArgumentException().isThrownBy(() -> conversation.bindContractingUnit(
+                "unit-1", "", "message", now));
+        assertThatIllegalArgumentException().isThrownBy(() -> conversation.bindContractingUnit(
+                "unit-1", "sala", "", now));
+
+        ReceptionConversation bound = conversation.bindContractingUnit("unit-1", "sala", "message", now);
+        assertThat(bound.contractingUnitId()).isEqualTo("unit-1");
+        assertThat(bound.selectedService()).isNull();
+        assertThat(bound).isSameAs(bound.bindContractingUnit("unit-1", "different", "other", now.plusSeconds(1)));
+        assertThatIllegalArgumentException().isThrownBy(() -> bound.activateTermsConsent(" ", now));
+    }
+
+    @Test
+    void reopensLegacyAcceptedTermsForAnAuditablePresentation() {
+        ReceptionConversation legacy = ReceptionConversation.start("contact-1", now)
+                .selectService("DECOR_INTERIORES", now)
+                .presentTerms(now.plusSeconds(1))
+                .acceptTerms(now.plusSeconds(2));
+
+        ReceptionConversation reopened = legacy.reopenTermsForAudit(now.plusSeconds(3));
+
+        assertThat(reopened.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
+        assertThat(reopened.paymentStatus()).isEqualTo(PaymentStatus.NOT_STARTED);
+        assertThat(reopened.commercialStage()).isEqualTo(CommercialStage.TERMS);
+        assertThat(reopened.activeTermsConsentId()).isNull();
+        assertThatIllegalStateException().isThrownBy(() -> reopened.reopenTermsForAudit(now.plusSeconds(4)));
+        ReceptionConversation auditedLegacy = legacy.activateTermsConsent("consent-1", now.plusSeconds(4));
+        assertThatIllegalStateException().isThrownBy(() -> auditedLegacy.reopenTermsForAudit(now.plusSeconds(5)));
+        assertThatThrownBy(() -> legacy.reopenTermsForAudit(null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void paymentEvidenceTransitionsAreIdempotentAndFailClosedOutOfOrder() {
+        ReceptionConversation selected = ReceptionConversation.start("contact-1", now)
+                .selectService("DECOR_INTERIORES", now)
+                .presentTerms(now.plusSeconds(1))
+                .acceptTerms(now.plusSeconds(2));
+
+        assertThatIllegalStateException().isThrownBy(() -> selected.receivePaymentProof(now));
+        ReceptionConversation prepared = selected.preparePayment(false, "PIX", now.plusSeconds(3));
+        assertThat(prepared.preparePayment(false, "CARD", now.plusSeconds(4)).paymentStatus())
+                .isEqualTo(PaymentStatus.PREPARED);
+        ReceptionConversation proof = prepared.receivePaymentProof(now.plusSeconds(5));
+        assertThatIllegalStateException().isThrownBy(() -> proof.receivePaymentProof(now.plusSeconds(6)));
+        ReceptionConversation confirmed = proof.confirmPayment(now.plusSeconds(7));
+        assertThatIllegalStateException().isThrownBy(() -> confirmed.confirmPayment(now.plusSeconds(8)));
+        assertThatIllegalStateException().isThrownBy(() -> selected.confirmPayment(now));
+        assertThatIllegalStateException().isThrownBy(() -> selected.rejectPayment(now));
+
+        ReceptionConversation rejected = proof.rejectPayment(now.plusSeconds(8));
+        assertThat(rejected.paymentStatus()).isEqualTo(PaymentStatus.REJECTED);
+        assertThatIllegalStateException().isThrownBy(() -> rejected.rejectPayment(now.plusSeconds(9)));
+    }
+
+    @Test
+    void rejectsInvalidResumeTransitionsAndSupportsReturnToHuman() {
+        ReceptionConversation ai = ReceptionConversation.start("contact-1", now);
+        assertThatIllegalArgumentException().isThrownBy(() -> ai.beginResume("", "key", "checksum", 0, now));
+        assertThatIllegalArgumentException().isThrownBy(() -> ai.beginResume("id", "", "checksum", 0, now));
+        assertThatIllegalArgumentException().isThrownBy(() -> ai.beginResume("id", "key", "", 0, now));
+        assertThatIllegalStateException().isThrownBy(() -> ai.beginResume("id", "key", "checksum", 0, now));
+
+        ReceptionConversation human = ai.requestHumanHandoff("cliente pediu uma pessoa", now.plusSeconds(1));
+        assertThatIllegalStateException().isThrownBy(() -> human.markResumeDeciding(now));
+        ReceptionConversation syncing = human.beginResume("resume-1", "key-1", "checksum", 0, now.plusSeconds(2));
+        ReceptionConversation deciding = syncing.markResumeDeciding(now.plusSeconds(3));
+        assertThat(deciding.resumeStatus()).isEqualTo(ResumeStatus.DECIDING);
+        ReceptionConversation returned = deciding.returnResumeToHuman("arquiteta continuará", now.plusSeconds(4));
+        assertThat(returned.resumeStatus()).isEqualTo(ResumeStatus.RETURNED_TO_HUMAN);
+        assertThat(returned.mode()).isEqualTo(ReceptionMode.HUMAN);
+        assertThatIllegalStateException().isThrownBy(() -> returned.completeResume("WAIT", null, now));
     }
 }

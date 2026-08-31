@@ -1,6 +1,7 @@
 package br.com.urbana.connect.application.reception.tools;
 
 import br.com.urbana.connect.application.reception.CommercialPolicyService;
+import br.com.urbana.connect.application.reception.TermsAcceptanceUseCase;
 import br.com.urbana.connect.domain.reception.model.CustomerFact;
 import br.com.urbana.connect.domain.reception.model.CustomerFactType;
 import br.com.urbana.connect.domain.reception.model.FactConfidence;
@@ -23,6 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.text.Normalizer;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -30,6 +33,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * The six allowlisted tools mutate only authoritative Urbana state. Hermes
@@ -38,6 +42,8 @@ import java.util.UUID;
  */
 public final class StatefulDomainToolService implements DomainToolService {
     private static final String NOT_INFORMED = "NÃO INFORMADO";
+    private static final String ENVIRONMENT = "ENVIRONMENT";
+    private static final String CUSTOMER_MESSAGE = "customerMessage";
     public static final String HUMAN_HANDOFF_ACK =
             "Vou encaminhar sua conversa para a arquiteta, que continuará com você por aqui.";
     private final CommercialPolicyService policy;
@@ -46,6 +52,7 @@ public final class StatefulDomainToolService implements DomainToolService {
     private final ReceptionTranscriptGateway transcript;
     private IcpObservationEventGateway icpObservations;
     private HumanHandoffNotificationGateway handoffNotifications;
+    private TermsAcceptanceUseCase termsAcceptance;
 
     public StatefulDomainToolService(CommercialPolicyService policy,
                                      ReceptionConversationGateway conversations,
@@ -90,6 +97,11 @@ public final class StatefulDomainToolService implements DomainToolService {
     @Autowired(required = false)
     void setHumanHandoffNotificationGateway(HumanHandoffNotificationGateway handoffNotifications) {
         this.handoffNotifications = handoffNotifications;
+    }
+
+    @Autowired(required = false)
+    public void setTermsAcceptanceUseCase(TermsAcceptanceUseCase termsAcceptance) {
+        this.termsAcceptance = termsAcceptance;
     }
 
     @Override
@@ -141,17 +153,26 @@ public final class StatefulDomainToolService implements DomainToolService {
                 if (isServiceSelectionRejection(rejection)) {
                     yield serviceSelectionRejection();
                 }
-                if (conversation.termsStatus() != br.com.urbana.connect.domain.reception.model.TermsStatus.ACCEPTED
-                        && isTermsRejection(rejection)) {
+                if (isTermsRejection(rejection) && (conversation.termsStatus()
+                        != br.com.urbana.connect.domain.reception.model.TermsStatus.ACCEPTED
+                        || conversation.activeTermsConsentId() == null
+                        || rejection.getMessage().toLowerCase(Locale.ROOT).contains("durable terms"))) {
                     yield termsRejection();
                 }
                 yield new DomainToolInvocationUseCase.DomainRejectionException(
                         "BUSINESS_RULE_REJECTED", "ASK_FOR_CLARIFICATION", List.of(),
                         "Preciso confirmar uma informação antes de continuar.");
             }
-            case PREPARE_TERMS -> new DomainToolInvocationUseCase.DomainRejectionException(
-                    "SERVICE_NOT_CONFIRMED", "CONFIRM_SERVICE", List.of("serviceType"),
-                    "Preciso confirmar o serviço escolhido antes de apresentar os termos.");
+            case PREPARE_TERMS -> {
+                if (rejection.getMessage() != null && rejection.getMessage().contains("environment")) {
+                    yield new DomainToolInvocationUseCase.DomainRejectionException(
+                            "ENVIRONMENT_NOT_CONFIRMED", "ASK_FOR_ENVIRONMENT", List.of("environment"),
+                            "Para preparar os termos, preciso confirmar qual ambiente você deseja contratar.");
+                }
+                yield new DomainToolInvocationUseCase.DomainRejectionException(
+                        "SERVICE_NOT_CONFIRMED", "CONFIRM_SERVICE", List.of("serviceType"),
+                        "Preciso confirmar o serviço escolhido antes de apresentar os termos.");
+            }
             case UPDATE_CUSTOMER_FACT -> new DomainToolInvocationUseCase.DomainRejectionException(
                     "CUSTOMER_INFORMATION_INVALID", "ASK_FOR_CLARIFICATION", List.of(),
                     "Preciso confirmar essa informação antes de continuar.");
@@ -232,9 +253,16 @@ public final class StatefulDomainToolService implements DomainToolService {
         FactConfidence requestedConfidence = confidence(args);
         FactConfidence confidence = requestedConfidence;
         Instant now = context.now();
-        String sourceText = sourceText(context);
+        String sourceMessageId = sourceMessageIdFor(type, value, context);
+        String sourceText = sourceText(sourceMessageId);
         if (isNotInformedValue(value)) {
-            confidence = FactConfidence.CONFIRMED;
+            // A refusal is a valid terminal answer for optional ICP fields,
+            // but it is not a real contracting environment. Keeping it
+            // tentative prevents the sentinel from creating a commercial
+            // unit or unlocking terms.
+            confidence = ENVIRONMENT.equals(type)
+                    ? FactConfidence.TENTATIVE
+                    : FactConfidence.CONFIRMED;
         } else if (requestedConfidence == FactConfidence.CONFIRMED
                 && !explicitlySupports(type, value, sourceText)) {
             // A model cannot turn an unsupported claim into a confirmed fact.
@@ -243,13 +271,19 @@ public final class StatefulDomainToolService implements DomainToolService {
         }
         List<CustomerFact> current = facts.findCurrentByContactId(contactId, now);
         CustomerFact newFact = new CustomerFact(contactId, type, value, confidence,
-                context.sourceMessageId(), now);
+                sourceMessageId, now);
         current.stream().filter(f -> type.equalsIgnoreCase(f.type()) && f.supersededBy() == null)
                 .forEach(previous -> facts.save(previous.supersede(newFact.id(), now)));
         CustomerFact saved = facts.save(newFact);
         if ("SELECTED_SERVICE".equals(type)) {
             ReceptionConversation conversation = conversation(contactId);
             conversations.save(policy.selectService(conversation, value, now));
+        }
+        if (ENVIRONMENT.equals(type) && saved.confidence() == FactConfidence.CONFIRMED
+                && !isNotInformedValue(saved.value())) {
+            ReceptionConversation conversation = conversation(contactId);
+            String unitId = contractingUnitId(conversation.id(), sourceMessageId, value);
+            conversations.save(conversation.bindContractingUnit(unitId, value, sourceMessageId, now));
         }
         return Map.of("status", "RECORDED", "factType", saved.type(), "value", saved.value(),
                 "confidence", saved.confidence().name());
@@ -280,6 +314,10 @@ public final class StatefulDomainToolService implements DomainToolService {
                                               ToolExecutionContext context) {
         Instant now = context.now();
         ReceptionConversation conversation = conversation(contactId);
+        if (conversation.contractingUnitId() == null || conversation.environmentLabel() == null
+                || conversation.environmentSourceMessageId() == null) {
+            throw new IllegalStateException("environment must be explicitly bound before terms");
+        }
         String requested = stringArg(args, "serviceType");
         String canonicalRequested = policy.service(requested).serviceType();
         if (conversation.selectedService() == null) {
@@ -311,13 +349,14 @@ public final class StatefulDomainToolService implements DomainToolService {
                 || !conversation.selectedService().equalsIgnoreCase(canonicalServiceType)) {
             throw new IllegalStateException("service does not match the selected catalog item");
         }
-        if (conversation.termsStatus() == br.com.urbana.connect.domain.reception.model.TermsStatus.PRESENTED) {
-            String source = sourceText(context);
-            if (!policy.isExplicitTermsAcceptance(source)) {
-                throw new IllegalStateException("payment requires explicit terms acceptance in the bound inbound message");
-            }
-            conversation = conversations.save(policy.acceptTerms(conversation, now));
+        if (conversation.termsStatus() != br.com.urbana.connect.domain.reception.model.TermsStatus.ACCEPTED
+                || conversation.activeTermsConsentId() == null) {
+            throw new IllegalStateException("payment requires accepted terms with durable consent evidence");
         }
+        if (termsAcceptance == null) {
+            throw new IllegalStateException("durable terms acceptance evidence is unavailable");
+        }
+        termsAcceptance.requireAcceptedEvidence(conversation);
         ReceptionConversation prepared = policy.preparePayment(conversation, facts.findByContactId(contactId),
                 stringArg(args, "method"), now);
         if (prepared != conversation) {
@@ -332,21 +371,21 @@ public final class StatefulDomainToolService implements DomainToolService {
             return Map.of("status", "PREPARED", "serviceType", conversation.selectedService(),
                     "instruction", policy.paymentUrl(conversation.selectedService()),
                     "nextAction", "AWAIT_PAYMENT_PROOF",
-                    "customerMessage", "Pagamento preparado. Realize o pagamento pelo link e envie o comprovante por aqui.");
+                    CUSTOMER_MESSAGE, "Pagamento preparado. No link da POC, que é uma simulação, considere 1 serviço para cada ambiente contratado. Depois do pagamento, envie o comprovante por aqui.");
         }
         return switch (conversation.paymentStatus()) {
             case PREPARED -> Map.of("status", "ALREADY_PREPARED", "serviceType", conversation.selectedService(),
                     "nextAction", "AWAIT_PAYMENT_PROOF",
-                    "customerMessage", "O pagamento já foi preparado. Aguardo o comprovante por aqui.");
+                    CUSTOMER_MESSAGE, "O pagamento já foi preparado. Aguardo o comprovante por aqui.");
             case PROOF_RECEIVED -> Map.of("status", "PROOF_RECEIVED", "serviceType", conversation.selectedService(),
                     "nextAction", "AWAIT_PAYMENT_APPROVAL",
-                    "customerMessage", "O comprovante já foi recebido e aguarda validação humana.");
+                    CUSTOMER_MESSAGE, "O comprovante já foi recebido e aguarda validação humana.");
             case CONFIRMED -> Map.of("status", "CONFIRMED", "serviceType", conversation.selectedService(),
                     "nextAction", "NONE",
-                    "customerMessage", "O pagamento já foi confirmado pela arquiteta.");
+                    CUSTOMER_MESSAGE, "O pagamento já foi confirmado pela arquiteta.");
             case NOT_STARTED, REJECTED -> Map.of("status", conversation.paymentStatus().name(),
                     "serviceType", conversation.selectedService(), "nextAction", "NONE",
-                    "customerMessage", "Preciso confirmar essa etapa antes de continuar.");
+                    CUSTOMER_MESSAGE, "Preciso confirmar essa etapa antes de continuar.");
         };
     }
 
@@ -435,17 +474,28 @@ public final class StatefulDomainToolService implements DomainToolService {
         return value == null ? FactConfidence.CONFIRMED : FactConfidence.valueOf(value.toString().toUpperCase(Locale.ROOT));
     }
 
-    private String sourceText(ToolExecutionContext context) {
+    private String sourceMessageIdFor(String type, String value, ToolExecutionContext context) {
+        if (transcript == null) {
+            return context.sourceMessageId();
+        }
+        String supported = context.sourceMessageIds().stream()
+                .filter(eventId -> explicitlySupports(type, value, sourceText(eventId)))
+                .reduce((first, last) -> last)
+                .orElse(null);
+        return supported == null ? context.sourceMessageId() : supported;
+    }
+
+    private String sourceText(String eventId) {
         if (transcript == null) {
             return "";
         }
-        return transcript.findByEventId(context.sourceMessageId()).map(message ->
+        return transcript.findByEventId(eventId).map(message ->
                 message.text() == null ? "" : message.text()).orElse("");
     }
 
     private static boolean explicitlySupports(String type, String value, String source) {
         if (isNotInformedValue(value)) {
-            return true;
+            return !ENVIRONMENT.equals(type);
         }
         if (source == null || source.isBlank()) return false;
         String normalizedSource = normalizeEvidence(source);
@@ -480,9 +530,26 @@ public final class StatefulDomainToolService implements DomainToolService {
         return switch (type) {
             case "PRONOUN_PREFERENCE" -> normalizedSource.contains(normalizedValue);
             case "OCCUPATION", "NEED" -> normalizedSource.contains(normalizedValue);
+            case ENVIRONMENT -> containsWholePhrase(normalizedSource, normalizedValue);
             case "SELECTED_SERVICE" -> normalizedSource.contains(normalizedValue);
             default -> false;
         };
+    }
+
+    private static boolean containsWholePhrase(String normalizedSource, String normalizedValue) {
+        if (normalizedValue == null || normalizedValue.isBlank()) {
+            return false;
+        }
+        String sourceWords = normalizedSource.replaceAll("[^\\p{L}\\p{N}]+", " ").trim()
+                .replaceAll("\\s+", " ");
+        String valueWords = normalizedValue.replaceAll("[^\\p{L}\\p{N}]+", " ").trim()
+                .replaceAll("\\s+", " ");
+        if (valueWords.isBlank()) {
+            return false;
+        }
+        Pattern phrase = Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(valueWords)
+                + "(?![\\p{L}\\p{N}])");
+        return phrase.matcher(sourceWords).find();
     }
 
     private static boolean containsNegation(String normalizedSource) {
@@ -501,6 +568,7 @@ public final class StatefulDomainToolService implements DomainToolService {
             case "FIRST_TIME_HIRING" -> canonicalFirstTimeHiring(value);
             case "SELECTED_SERVICE" -> canonicalService(value);
             case "NEED" -> value.trim();
+            case ENVIRONMENT -> isNotInformedValue(value) ? NOT_INFORMED : value.trim();
             default -> value.trim();
         };
     }
@@ -560,6 +628,17 @@ public final class StatefulDomainToolService implements DomainToolService {
                 .replaceAll("\\s+", "_");
     }
 
+    private static String contractingUnitId(String conversationId, String sourceMessageId, String label) {
+        try {
+            String canonicalLabel = normalizeEvidence(label);
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(
+                    (conversationId + ":" + sourceMessageId + ":" + canonicalLabel).getBytes(StandardCharsets.UTF_8));
+            return "unit_" + HexFormat.of().formatHex(hash, 0, 16);
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
     private static String stringArg(Map<String, Object> args, String key) {
         Object value = args.get(key);
         if (value == null || value.toString().isBlank()) {
@@ -589,6 +668,7 @@ public final class StatefulDomainToolService implements DomainToolService {
             case "SELECTED SERVICE", "SERVICE", "SERVICO", "SELECTED SERVICO" ->
                     "SELECTED_SERVICE";
             case "NEED", "NECESSIDADE", "PROJECT NEED" -> "NEED";
+            case ENVIRONMENT, "AMBIENTE" -> ENVIRONMENT;
             default -> normalized.replace(' ', '_');
         };
     }

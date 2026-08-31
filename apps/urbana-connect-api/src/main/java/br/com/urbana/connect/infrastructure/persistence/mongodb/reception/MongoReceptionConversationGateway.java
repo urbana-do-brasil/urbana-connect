@@ -65,7 +65,11 @@ public class MongoReceptionConversationGateway implements ReceptionConversationG
                 .set("resumeBoundarySequence", conversation.resumeBoundarySequence())
                 .set("resumeDecisionAction", conversation.resumeDecisionAction())
                 .set("resumeDecisionMessage", conversation.resumeDecisionMessage())
-                .set("resumeFailureCode", conversation.resumeFailureCode());
+                .set("resumeFailureCode", conversation.resumeFailureCode())
+                .set("contractingUnitId", conversation.contractingUnitId())
+                .set("environmentLabel", conversation.environmentLabel())
+                .set("environmentSourceMessageId", conversation.environmentSourceMessageId())
+                .set("activeTermsConsentId", conversation.activeTermsConsentId());
         ReceptionConversationDocument updated = template.findAndModify(query, update,
                 FindAndModifyOptions.options().returnNew(true), ReceptionConversationDocument.class);
         if (updated == null) {
@@ -87,6 +91,8 @@ public class MongoReceptionConversationGateway implements ReceptionConversationG
         d.setResumeDecisionAction(value.resumeDecisionAction());
         d.setResumeDecisionMessage(value.resumeDecisionMessage());
         d.setResumeFailureCode(value.resumeFailureCode());
+        d.setContractingUnitId(value.contractingUnitId()); d.setEnvironmentLabel(value.environmentLabel());
+        d.setEnvironmentSourceMessageId(value.environmentSourceMessageId()); d.setActiveTermsConsentId(value.activeTermsConsentId());
         return d;
     }
 
@@ -96,6 +102,7 @@ public class MongoReceptionConversationGateway implements ReceptionConversationG
                 d.getCreatedAt(), d.getUpdatedAt(), d.getVersion(),
                 d.getResumeStatus(), d.getResumeId(), d.getResumeIdempotencyKey(), d.getResumeChecksum(),
                 d.getResumeBoundarySequence(), d.getResumeDecisionAction(), d.getResumeDecisionMessage(),
-                d.getResumeFailureCode());
+                d.getResumeFailureCode(), d.getContractingUnitId(), d.getEnvironmentLabel(),
+                d.getEnvironmentSourceMessageId(), d.getActiveTermsConsentId());
     }
 }

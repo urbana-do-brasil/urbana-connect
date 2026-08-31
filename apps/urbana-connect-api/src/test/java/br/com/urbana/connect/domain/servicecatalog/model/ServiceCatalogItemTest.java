@@ -74,7 +74,7 @@ class ServiceCatalogItemTest {
             assertThat(item.paymentResource()).startsWith("https://fixtures.urbana.local/");
             assertThat(item.briefingResource()).startsWith("https://fixtures.urbana.local/");
             assertThat(item.deliverables()).containsExactly(
-                    "Manual PDF", "Tour Virtual", "3 opções de solução", "2 rodadas consolidadas");
+                    "Manual do Espaço em PDF", "Tour Virtual", "3 opções de solução", "2 rodadas de alterações ou ajustes");
             assertThat(item.process()).anyMatch(value -> value.equals("briefing"));
             assertThat(item.process()).anyMatch(value -> value.equals("medidas, fotos e vídeos"));
             assertThat(item.process()).anyMatch(value -> value.contains("Google Meet"));
@@ -120,5 +120,22 @@ class ServiceCatalogItemTest {
                 .containsIgnoringCase("fachada")
                 .contains("externa")
                 .doesNotContain("20 m²");
+        assertThat(byType.get(ServiceType.DECOR_REFORMA).scope())
+                .containsIgnoringCase("reforma")
+                .containsIgnoringCase("ambiente interno")
+                .containsIgnoringCase("arquiteta")
+                .contains("20 m²");
+        assertThat(byType.get(ServiceType.DECOR_REFORMA).deliverables())
+                .contains("Manual do Espaço em PDF", "Tour Virtual", "3 opções de solução",
+                        "2 rodadas de alterações ou ajustes");
+        assertThat(byType.get(ServiceType.DECOR_REFORMA).support())
+                .contains("3 meses", "WhatsApp", "Manual", "cores")
+                .containsIgnoringCase("sem visita")
+                .containsIgnoringCase("sem gestão de obra");
+        String reformExclusions = String.join(" ", byType.get(ServiceType.DECOR_REFORMA).exclusions());
+        assertThat(reformExclusions)
+                .containsIgnoringCase("não executa a obra")
+                .containsIgnoringCase("não compra materiais")
+                .containsIgnoringCase("nem contrata profissionais");
     }
 }

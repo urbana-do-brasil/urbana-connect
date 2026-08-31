@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
@@ -48,6 +49,19 @@ class ActiveTurnLeaseServiceTest {
                 .isEqualTo(ActiveTurnLeaseStatus.RUNNING);
         assertThatThrownBy(() -> service.requireActive("session-1", "other", "contact-1", "message-1"))
                 .isInstanceOf(ActiveTurnLeaseService.LeaseRejectedException.class);
+    }
+
+    @Test
+    void preservesAllInboundEventIdsForBatchedToolProvenance() {
+        FakeLeaseGateway gateway = new FakeLeaseGateway();
+        ActiveTurnLeaseService service = new ActiveTurnLeaseService(gateway,
+                Clock.fixed(now, ZoneOffset.UTC), Duration.ofSeconds(30));
+
+        ActiveTurnLease lease = service.acquire("session-1", "turn-1", "contact-1", "event-2",
+                List.of("event-1", "event-2"));
+
+        assertThat(lease.sourceMessageId()).isEqualTo("event-2");
+        assertThat(lease.sourceMessageIds()).containsExactly("event-1", "event-2");
     }
 
     @Test

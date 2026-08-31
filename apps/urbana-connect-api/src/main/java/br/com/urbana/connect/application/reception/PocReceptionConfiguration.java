@@ -13,6 +13,7 @@ import br.com.urbana.connect.domain.reception.port.out.CustomerFactGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionConversationGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTranscriptGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTurnGateway;
+import br.com.urbana.connect.domain.reception.port.out.TermsConsentAuditGateway;
 import br.com.urbana.connect.infrastructure.hermes.HttpHermesSessionsGateway;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoActiveTurnLeaseGateway;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoAgentSessionLinkGateway;
@@ -29,6 +30,8 @@ import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.Spring
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataReceptionConversationRepository;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataReceptionMessageRepository;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataReceptionTurnRepository;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataTermsConsentAuditRepository;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoTermsConsentAuditGateway;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataPocPendingEventRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
@@ -70,8 +73,11 @@ public class PocReceptionConfiguration {
     public DomainToolService statefulDomainToolService(CommercialPolicyService policy,
                                                        ReceptionConversationGateway conversations,
                                                        CustomerFactGateway facts,
-                                                       ReceptionTranscriptGateway transcript) {
-        return new StatefulDomainToolService(policy, conversations, facts, transcript);
+                                                       ReceptionTranscriptGateway transcript,
+                                                       TermsAcceptanceUseCase termsAcceptance) {
+        StatefulDomainToolService tools = new StatefulDomainToolService(policy, conversations, facts, transcript);
+        tools.setTermsAcceptanceUseCase(termsAcceptance);
+        return tools;
     }
 
     @Bean
@@ -91,6 +97,18 @@ public class PocReceptionConfiguration {
     public ReceptionConversationGateway receptionConversationGateway(
             SpringDataReceptionConversationRepository repository, MongoTemplate template) {
         return new MongoReceptionConversationGateway(repository, template);
+    }
+
+    @Bean
+    public TermsConsentAuditGateway termsConsentAuditGateway(
+            SpringDataTermsConsentAuditRepository repository, MongoTemplate template) {
+        return new MongoTermsConsentAuditGateway(repository, template);
+    }
+
+    @Bean
+    public TermsAcceptanceUseCase termsAcceptanceUseCase(TermsConsentAuditGateway audits,
+                                                         ReceptionConversationGateway conversations) {
+        return new TermsAcceptanceUseCase(audits, conversations);
     }
 
     @Bean
@@ -173,9 +191,11 @@ public class PocReceptionConfiguration {
     public ReceptionTurnReconciliationService receptionTurnReconciliationService(
             HermesSessionService hermes, ReceptionConversationGateway conversations,
             ReceptionTranscriptGateway transcript, ReceptionTurnGateway turns,
-            ActiveTurnLeaseService leases) {
+            ActiveTurnLeaseService leases, CommercialPolicyService policy,
+            TermsAcceptanceUseCase termsAcceptance, DomainToolInvocationGateway invocations) {
         return new ReceptionTurnReconciliationService(hermes, conversations, transcript, turns,
-                Clock.systemUTC(), leases);
+                Clock.systemUTC(), new ReceptionTurnReconciliationService.Dependencies(
+                        leases, policy, termsAcceptance, invocations));
     }
 
     @Bean
@@ -186,10 +206,13 @@ public class PocReceptionConfiguration {
             ReceptionTurnCoordinator coordinator, ActiveTurnLeaseService leases,
             DomainToolInvocationGateway invocations, ReceptionMetrics metrics,
             ReturningCustomerService returningCustomers, NonProspectPolicy nonProspectPolicy,
+            TermsAcceptanceUseCase termsAcceptance,
             @Value("${hermes.poc.delay-threshold:5s}") String delayThreshold) {
-        return new ReceptionOrchestrator(hermes, conversations, facts, transcript, turns,
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(hermes, conversations, facts, transcript, turns,
                 policy, coordinator, leases, invocations, Clock.systemUTC(), metrics, returningCustomers,
                 nonProspectPolicy, DurationStyle.detectAndParse(delayThreshold));
+        orchestrator.setTermsAcceptanceUseCase(termsAcceptance);
+        return orchestrator;
     }
 
     @Bean

@@ -40,6 +40,7 @@ class PluginToolsTest(unittest.TestCase):
                              if item["name"] == "update_customer_fact")
         self.assertEqual(update_schema["parameters"]["required"],
                          ["factType", "value", "evidence", "confidence"])
+        self.assertIn("ENVIRONMENT", update_schema["parameters"]["properties"]["factType"]["enum"])
 
     def test_surface_contains_only_six_domain_tools(self):
         self.assertEqual(len(TOOL_NAMES), 6)
@@ -63,6 +64,8 @@ class PluginToolsTest(unittest.TestCase):
         self.assertIn("intenção clara", descriptions["prepare_terms"].lower())
         self.assertIn("não use para dúvidas", descriptions["prepare_terms"].lower())
         self.assertIn("aceitos", descriptions["prepare_payment"].lower())
+        self.assertIn("1 serviço por ambiente", descriptions["prepare_payment"].lower())
+        self.assertIn("simulação", descriptions["prepare_payment"].lower())
 
     def test_prepare_payment_schema_enumerates_canonical_methods_with_natural_labels(self):
         registered = []
@@ -83,12 +86,17 @@ class PluginToolsTest(unittest.TestCase):
     def test_soul_requires_progressive_replies_and_safe_payment_method_question(self):
         soul = (Path(__file__).resolve().parents[2] / "profile" / "SOUL.md").read_text()
         normalized = soul.lower()
+        collapsed = " ".join(normalized.split())
 
         self.assertIn("responda somente à nova dúvida ou decisão", normalized)
         self.assertIn("não repita a lista completa", normalized)
         self.assertIn("pix ou cartão de crédito", normalized)
         self.assertIn("não chame `prepare_payment`", normalized)
         self.assertIn("não exponha ao cliente", normalized)
+        self.assertIn("manual do espaço", collapsed)
+        self.assertIn("tour virtual", collapsed)
+        self.assertIn("suporte", collapsed)
+        self.assertIn("uma pergunta de perfil por vez", collapsed)
         self.assertNotIn("await_payment_approval", normalized)
         self.assertNotIn("terms_not_accepted", normalized)
 

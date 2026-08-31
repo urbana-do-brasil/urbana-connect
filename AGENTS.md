@@ -282,6 +282,8 @@ leitura e as classes negadas são proibidas; qualquer escrita exige o gate
 separado da Fase 3.
 
 ## Active Technologies
+- Java 21 LTS; Python 3 do runtime Hermes para testes do plugin; Markdown para o perfil + Spring Boot 3.4.x, Gradle 8.x, JUnit 5, pytest/unittest do plugin, runtime Hermes existente (010-refine-urba-sales-dialogue)
+- MongoDB e transcript/invocações existentes; coleção aditiva de auditoria de aceite (010-refine-urba-sales-dialogue)
 
 - Java 21 LTS na Urbana Connect; Python fornecido pelo runtime oficial do Hermes apenas para o plugin de extensão + Spring Boot 3.4.13, Gradle 8.x, Hermes Agent Sessions API, OpenRouter (001-hermes-conversational-core)
 - MongoDB para transcript, fatos, mapeamento de sessões e execuções do corpus; SQLite interno do Hermes para sessões (001-hermes-conversational-core)

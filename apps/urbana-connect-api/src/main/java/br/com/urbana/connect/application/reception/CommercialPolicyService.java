@@ -31,6 +31,17 @@ public final class CommercialPolicyService {
     public static final String PREFER_NOT_TO_ANSWER = "PREFER_NOT_TO_ANSWER";
     private static final String PAYMENT_PROOF_PENDING_MESSAGE =
             "Recebi o comprovante. Agora ele aguarda validação humana; aviso assim que o pagamento for confirmado.";
+    private static final String ACCEPTANCE_WORD = "aceito";
+    private static final String AGREEMENT_WORD = "concordo";
+    private static final List<String> ACCEPTANCE_WORDS = List.of(ACCEPTANCE_WORD, AGREEMENT_WORD);
+    private static final List<String> TERMS_REVIEW_VERBS =
+            List.of("ler", "analisar", "revisar", "avaliar", "verificar", "refletir", "pensar");
+    private static final List<String> REVIEW_PREPOSITIONS = List.of("em", "com", "para");
+    private static final List<String> DEFERRED_REVIEW_MODALS =
+            List.of("vou", "irei", "pretendo", "quero", "preciso");
+    private static final String IMMEDIATE_REVIEW_SEPARATORS = ",:;";
+    private static final String ACCEPTANCE_SEPARATORS = "!,. ";
+    private static final String IMMEDIATE_TARGET_SEPARATORS = ",;:.! ";
     private static final List<String> MANDATORY_ICP = CustomerFactType.icpFieldNames();
     private static final List<String> ALLOWED_PAYMENT_METHODS = List.of("PIX", "CARD");
 
@@ -107,6 +118,10 @@ public final class CommercialPolicyService {
             throw new IllegalStateException("service must be selected before terms");
         }
         service(conversation.selectedService());
+        if (conversation.termsStatus() == br.com.urbana.connect.domain.reception.model.TermsStatus.ACCEPTED
+                && conversation.activeTermsConsentId() == null) {
+            return conversation.reopenTermsForAudit(Objects.requireNonNull(now, "now"));
+        }
         if (conversation.termsStatus() != br.com.urbana.connect.domain.reception.model.TermsStatus.NOT_PRESENTED
                 && conversation.termsStatus() != br.com.urbana.connect.domain.reception.model.TermsStatus.DECLINED) {
             return conversation;
@@ -139,8 +154,218 @@ public final class CommercialPolicyService {
         if (normalized.contains("nao") || normalized.contains("recuso") || normalized.contains("discordo")) {
             return false;
         }
-        return normalized.matches(".*(?:\\b(aceito|concordo)\\b.*\\btermos\\b|"
-                + "\\bestou\\s+de\\s+acordo\\b.*\\btermos\\b).*" );
+        if (hasImmediateReviewRequest(normalized)
+                || hasDeferredReviewRequest(normalized)
+                || hasUncertainAcceptance(normalized)
+                || hasAcceptanceFollowedBy(normalized, "depois", true)) {
+            return false;
+        }
+        return isBareAcceptance(normalized)
+                || isAcceptanceWithPaymentMethod(normalized)
+                || hasAcceptanceFollowedBy(normalized, "termos", false)
+                || hasAcceptancePhraseFollowedBy(normalized, "estou de acordo", "termos");
+    }
+
+    private static boolean hasImmediateReviewRequest(String normalized) {
+        return ACCEPTANCE_WORDS.stream()
+                .anyMatch(acceptance -> hasImmediateReviewRequest(normalized, acceptance));
+    }
+
+    private static boolean hasImmediateReviewRequest(String normalized, String acceptance) {
+        int start = indexOfWord(normalized, acceptance, 0);
+        while (start >= 0) {
+            int reviewStart = immediateReviewStart(normalized, start, acceptance);
+            if (containsReviewVerbAt(normalized, reviewStart)) {
+                return true;
+            }
+            start = indexOfWord(normalized, acceptance, start + acceptance.length());
+        }
+        return false;
+    }
+
+    private static int immediateReviewStart(String normalized, int acceptanceIndex, String acceptance) {
+        int cursor = skipWhitespace(normalized, acceptanceIndex + acceptance.length());
+        cursor = skipSingleSeparator(normalized, cursor, IMMEDIATE_REVIEW_SEPARATORS);
+        return skipReviewPreposition(normalized, cursor);
+    }
+
+    private static int skipReviewPreposition(String normalized, int start) {
+        for (String preposition : REVIEW_PREPOSITIONS) {
+            int afterPreposition = wordEnd(normalized, start, preposition);
+            if (afterPreposition >= 0 && hasWhitespaceAfter(normalized, afterPreposition)) {
+                return skipWhitespace(normalized, afterPreposition);
+            }
+        }
+        return start;
+    }
+
+    private static boolean hasDeferredReviewRequest(String normalized) {
+        for (String acceptance : ACCEPTANCE_WORDS) {
+            int acceptanceIndex = indexOfWord(normalized, acceptance, 0);
+            while (acceptanceIndex >= 0) {
+                for (String modal : DEFERRED_REVIEW_MODALS) {
+                    int modalIndex = indexOfWord(normalized, modal, acceptanceIndex + acceptance.length());
+                    if (modalIndex >= 0 && containsReviewVerbAfter(normalized, modalIndex + modal.length())) {
+                        return true;
+                    }
+                }
+                acceptanceIndex = indexOfWord(normalized, acceptance, acceptanceIndex + acceptance.length());
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasUncertainAcceptance(String normalized) {
+        for (String acceptance : ACCEPTANCE_WORDS) {
+            int acceptanceIndex = indexOfWord(normalized, acceptance, 0);
+            if (acceptanceIndex >= 0
+                    && indexOfWord(normalized, "talvez", acceptanceIndex + acceptance.length()) >= 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isBareAcceptance(String normalized) {
+        if (!normalized.startsWith(ACCEPTANCE_WORD)) {
+            return false;
+        }
+        String suffix = normalized.substring(ACCEPTANCE_WORD.length());
+        return suffix.chars().allMatch(character -> ACCEPTANCE_SEPARATORS.indexOf(character) >= 0);
+    }
+
+    private static boolean isAcceptanceWithPaymentMethod(String normalized) {
+        if (!normalized.startsWith(ACCEPTANCE_WORD)
+                || normalized.length() == ACCEPTANCE_WORD.length()) {
+            return false;
+        }
+        char separator = normalized.charAt(ACCEPTANCE_WORD.length());
+        if (ACCEPTANCE_SEPARATORS.indexOf(separator) < 0) {
+            return false;
+        }
+        return indexOfAnyWord(normalized, List.of("pix", "cartao", "credito"), ACCEPTANCE_WORD.length()) >= 0;
+    }
+
+    private static boolean hasAcceptanceFollowedBy(String normalized, String target, boolean immediate) {
+        return ACCEPTANCE_WORDS.stream()
+                .anyMatch(acceptance -> hasAcceptanceFollowedBy(normalized, acceptance, target, immediate));
+    }
+
+    private static boolean hasAcceptanceFollowedBy(String normalized, String acceptance,
+                                                     String target, boolean immediate) {
+        int acceptanceIndex = indexOfWord(normalized, acceptance, 0);
+        while (acceptanceIndex >= 0) {
+            if (targetFollowsAcceptance(normalized, acceptanceIndex, acceptance, target, immediate)) {
+                return true;
+            }
+            acceptanceIndex = indexOfWord(normalized, acceptance,
+                    acceptanceIndex + acceptance.length());
+        }
+        return false;
+    }
+
+    private static boolean targetFollowsAcceptance(String normalized, int acceptanceIndex,
+                                                    String acceptance, String target, boolean immediate) {
+        int from = acceptanceIndex + acceptance.length();
+        if (immediate) {
+            from = skipCharacters(normalized, from, IMMEDIATE_TARGET_SEPARATORS);
+            return wordEnd(normalized, from, target) >= 0;
+        }
+        return indexOfWord(normalized, target, from) >= 0;
+    }
+
+    private static boolean hasAcceptancePhraseFollowedBy(String normalized, String phrase, String target) {
+        int phraseIndex = indexOfPhrase(normalized, phrase, 0);
+        return phraseIndex >= 0 && indexOfWord(normalized, target, phraseIndex + phrase.length()) >= 0;
+    }
+
+    private static boolean containsReviewVerbAt(String normalized, int start) {
+        for (String verb : TERMS_REVIEW_VERBS) {
+            if (wordEnd(normalized, start, verb) >= 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsReviewVerbAfter(String normalized, int start) {
+        for (String verb : TERMS_REVIEW_VERBS) {
+            int index = indexOfWord(normalized, verb, start);
+            if (index >= 0 && hasWhitespaceBetween(normalized, start, index)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int indexOfAnyWord(String normalized, List<String> values, int fromIndex) {
+        return values.stream()
+                .mapToInt(value -> indexOfWord(normalized, value, fromIndex))
+                .filter(index -> index >= 0)
+                .min()
+                .orElse(-1);
+    }
+
+    private static int indexOfWord(String value, String word, int fromIndex) {
+        int index = value.indexOf(word, fromIndex);
+        while (index >= 0) {
+            if (isWordBoundary(value, index - 1) && isWordBoundary(value, index + word.length())) {
+                return index;
+            }
+            index = value.indexOf(word, index + word.length());
+        }
+        return -1;
+    }
+
+    private static int indexOfPhrase(String value, String phrase, int fromIndex) {
+        int index = value.indexOf(phrase, fromIndex);
+        while (index >= 0) {
+            if (isWordBoundary(value, index - 1)
+                    && isWordBoundary(value, index + phrase.length())) {
+                return index;
+            }
+            index = value.indexOf(phrase, index + phrase.length());
+        }
+        return -1;
+    }
+
+    private static int wordEnd(String value, int start, String word) {
+        return indexOfWord(value, word, start) == start ? start + word.length() : -1;
+    }
+
+    private static boolean hasWhitespaceAfter(String value, int start) {
+        return start < value.length() && Character.isWhitespace(value.charAt(start));
+    }
+
+    private static int skipWhitespace(String value, int start) {
+        int cursor = start;
+        while (cursor < value.length() && Character.isWhitespace(value.charAt(cursor))) {
+            cursor++;
+        }
+        return cursor;
+    }
+
+    private static int skipSingleSeparator(String value, int start, String separators) {
+        if (start < value.length() && separators.indexOf(value.charAt(start)) >= 0) {
+            return skipWhitespace(value, start + 1);
+        }
+        return start;
+    }
+
+    private static int skipCharacters(String value, int start, String characters) {
+        int cursor = start;
+        while (cursor < value.length() && characters.indexOf(value.charAt(cursor)) >= 0) {
+            cursor++;
+        }
+        return cursor;
+    }
+
+    private static boolean hasWhitespaceBetween(String value, int start, int end) {
+        return start < end && value.substring(start, end).chars().allMatch(Character::isWhitespace);
+    }
+
+    private static boolean isWordBoundary(String value, int index) {
+        return index < 0 || index >= value.length() || !Character.isLetterOrDigit(value.charAt(index));
     }
 
     public ReceptionConversation preparePayment(ReceptionConversation conversation,
@@ -222,6 +447,10 @@ public final class CommercialPolicyService {
             return new AgentOutput(PAYMENT_PROOF_PENDING_MESSAGE, AgentNextAction.AWAIT_PAYMENT_APPROVAL);
         }
         String normalized = normalizeText(candidate.message());
+        if (conversation.paymentStatus() == PaymentStatus.PREPARED
+                && (!normalized.contains("1 servico para cada ambiente") || !normalized.contains("comprovante"))) {
+            throw new IllegalArgumentException("prepared payment output must include quantity per environment and proof guidance");
+        }
         if (conversation.paymentStatus() != PaymentStatus.CONFIRMED) {
             boolean briefingReleaseClaim = claimsBriefingRelease(normalized)
                     && !briefingIsExplicitlyDeferred(normalized);

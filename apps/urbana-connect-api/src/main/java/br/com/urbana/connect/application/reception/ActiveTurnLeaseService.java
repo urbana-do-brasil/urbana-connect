@@ -8,6 +8,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -36,10 +37,15 @@ public class ActiveTurnLeaseService {
     }
 
     public ActiveTurnLease acquire(String hermesSessionId, String turnId, String contactId, String sourceMessageId) {
+        return acquire(hermesSessionId, turnId, contactId, sourceMessageId, List.of(sourceMessageId));
+    }
+
+    public ActiveTurnLease acquire(String hermesSessionId, String turnId, String contactId, String sourceMessageId,
+                                   List<String> sourceMessageIds) {
         Instant acquired = clock.instant();
         ActiveTurnLease requested = new ActiveTurnLease(hermesSessionId, turnId, contactId, sourceMessageId,
                 br.com.urbana.connect.domain.reception.model.ActiveTurnLeaseStatus.RUNNING,
-                acquired, acquired.plus(ttl), null, 0, UUID.randomUUID().toString());
+                acquired, acquired.plus(ttl), null, 0, UUID.randomUUID().toString(), sourceMessageIds);
         return gateway.acquire(requested).orElseThrow(() -> new LeaseUnavailableException(
                 "another running turn already owns session " + hermesSessionId));
     }
@@ -111,7 +117,12 @@ public class ActiveTurnLeaseService {
 
     public <T> T withLease(String sessionId, String turnId, String contactId, String sourceMessageId,
                            Supplier<T> action) {
-        ActiveTurnLease lease = acquire(sessionId, turnId, contactId, sourceMessageId);
+        return withLease(sessionId, turnId, contactId, sourceMessageId, List.of(sourceMessageId), action);
+    }
+
+    public <T> T withLease(String sessionId, String turnId, String contactId, String sourceMessageId,
+                           List<String> sourceMessageIds, Supplier<T> action) {
+        ActiveTurnLease lease = acquire(sessionId, turnId, contactId, sourceMessageId, sourceMessageIds);
         AtomicReference<ActiveTurnLease> currentLease = new AtomicReference<>(lease);
         ScheduledExecutorService heartbeatExecutor = newHeartbeatExecutor();
         ScheduledFuture<?> heartbeatTask = scheduleHeartbeat(heartbeatExecutor, currentLease);
@@ -209,6 +220,14 @@ public class ActiveTurnLeaseService {
     public void withLease(String sessionId, String turnId, String contactId, String sourceMessageId,
                           Runnable action) {
         withLease(sessionId, turnId, contactId, sourceMessageId, () -> {
+            action.run();
+            return null;
+        });
+    }
+
+    public void withLease(String sessionId, String turnId, String contactId, String sourceMessageId,
+                          List<String> sourceMessageIds, Runnable action) {
+        withLease(sessionId, turnId, contactId, sourceMessageId, sourceMessageIds, () -> {
             action.run();
             return null;
         });
