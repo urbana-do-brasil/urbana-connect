@@ -24,13 +24,13 @@
 - [x] Suítes focadas verdes.
 - [x] Suíte Gradle completa e JaCoCo verdes.
 - [x] Cálculo contra `origin/hml` registrado: `595/699 = 85,12%` (linhas `363/387`, condições `232/312`).
-- [ ] Check Sonar do PR ≥ 80%.
+- [x] Check Sonar do PR ≥ 80% (passou no PR #63 após o commit `e57b00c`).
 - [x] Plugin, contratos, isolamento e lint do frontend sem regressão observada.
 - [x] `git diff --check` verde.
 
 Nota: o teste/build completo do frontend não foi executado localmente porque o
-ambiente não possui o binding nativo opcional do `rolldown`; o lint passou e a
-validação equivalente do CI deverá fechar esse item.
+ambiente não possui o binding nativo opcional do `rolldown`; o lint local passou
+e os checks `Testes do poc-chat` e `Build, Teste e Análise` do PR #63 passaram.
 
 ## Handoff
 
