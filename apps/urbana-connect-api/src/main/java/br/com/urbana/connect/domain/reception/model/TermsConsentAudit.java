@@ -23,9 +23,9 @@ public record TermsConsentAudit(
         require(environmentSourceMessageId, "environmentSourceMessageId"); require(serviceType, "serviceType");
         require(termsResource, "termsResource"); require(prepareTermsInvocationId, "prepareTermsInvocationId");
         require(termsOutboundMessageId, "termsOutboundMessageId");
-        presentedAt = Objects.requireNonNull(presentedAt, "presentedAt");
-        recordedAt = Objects.requireNonNull(recordedAt, "recordedAt");
-        status = Objects.requireNonNull(status, "status");
+        Objects.requireNonNull(presentedAt, "presentedAt");
+        Objects.requireNonNull(recordedAt, "recordedAt");
+        Objects.requireNonNull(status, "status");
         if (conversationVersionAtPresentation < 0) throw new IllegalArgumentException("presentation version must be non-negative");
         if (status == TermsConsentStatus.PRESENTED && (acceptanceMessageId != null || acceptanceEventId != null
                 || acceptanceTextExact != null || acceptedAt != null || conversationVersionAtAcceptance != null)) {
@@ -34,7 +34,7 @@ public record TermsConsentAudit(
         if (status == TermsConsentStatus.ACCEPTED) {
             require(acceptanceMessageId, "acceptanceMessageId"); require(acceptanceEventId, "acceptanceEventId");
             require(acceptanceTextExact, "acceptanceTextExact");
-            acceptedAt = Objects.requireNonNull(acceptedAt, "acceptedAt");
+            Objects.requireNonNull(acceptedAt, "acceptedAt");
             if (conversationVersionAtAcceptance == null || conversationVersionAtAcceptance < 0) {
                 throw new IllegalArgumentException("acceptance version must be non-negative");
             }

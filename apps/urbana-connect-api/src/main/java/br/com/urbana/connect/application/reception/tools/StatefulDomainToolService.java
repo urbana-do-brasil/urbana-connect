@@ -42,6 +42,8 @@ import java.util.regex.Pattern;
  */
 public final class StatefulDomainToolService implements DomainToolService {
     private static final String NOT_INFORMED = "NÃO INFORMADO";
+    private static final String ENVIRONMENT = "ENVIRONMENT";
+    private static final String CUSTOMER_MESSAGE = "customerMessage";
     public static final String HUMAN_HANDOFF_ACK =
             "Vou encaminhar sua conversa para a arquiteta, que continuará com você por aqui.";
     private final CommercialPolicyService policy;
@@ -258,7 +260,7 @@ public final class StatefulDomainToolService implements DomainToolService {
             // but it is not a real contracting environment. Keeping it
             // tentative prevents the sentinel from creating a commercial
             // unit or unlocking terms.
-            confidence = "ENVIRONMENT".equals(type)
+            confidence = ENVIRONMENT.equals(type)
                     ? FactConfidence.TENTATIVE
                     : FactConfidence.CONFIRMED;
         } else if (requestedConfidence == FactConfidence.CONFIRMED
@@ -277,7 +279,7 @@ public final class StatefulDomainToolService implements DomainToolService {
             ReceptionConversation conversation = conversation(contactId);
             conversations.save(policy.selectService(conversation, value, now));
         }
-        if ("ENVIRONMENT".equals(type) && saved.confidence() == FactConfidence.CONFIRMED
+        if (ENVIRONMENT.equals(type) && saved.confidence() == FactConfidence.CONFIRMED
                 && !isNotInformedValue(saved.value())) {
             ReceptionConversation conversation = conversation(contactId);
             String unitId = contractingUnitId(conversation.id(), sourceMessageId, value);
@@ -369,21 +371,21 @@ public final class StatefulDomainToolService implements DomainToolService {
             return Map.of("status", "PREPARED", "serviceType", conversation.selectedService(),
                     "instruction", policy.paymentUrl(conversation.selectedService()),
                     "nextAction", "AWAIT_PAYMENT_PROOF",
-                    "customerMessage", "Pagamento preparado. No link da POC, que é uma simulação, considere 1 serviço para cada ambiente contratado. Depois do pagamento, envie o comprovante por aqui.");
+                    CUSTOMER_MESSAGE, "Pagamento preparado. No link da POC, que é uma simulação, considere 1 serviço para cada ambiente contratado. Depois do pagamento, envie o comprovante por aqui.");
         }
         return switch (conversation.paymentStatus()) {
             case PREPARED -> Map.of("status", "ALREADY_PREPARED", "serviceType", conversation.selectedService(),
                     "nextAction", "AWAIT_PAYMENT_PROOF",
-                    "customerMessage", "O pagamento já foi preparado. Aguardo o comprovante por aqui.");
+                    CUSTOMER_MESSAGE, "O pagamento já foi preparado. Aguardo o comprovante por aqui.");
             case PROOF_RECEIVED -> Map.of("status", "PROOF_RECEIVED", "serviceType", conversation.selectedService(),
                     "nextAction", "AWAIT_PAYMENT_APPROVAL",
-                    "customerMessage", "O comprovante já foi recebido e aguarda validação humana.");
+                    CUSTOMER_MESSAGE, "O comprovante já foi recebido e aguarda validação humana.");
             case CONFIRMED -> Map.of("status", "CONFIRMED", "serviceType", conversation.selectedService(),
                     "nextAction", "NONE",
-                    "customerMessage", "O pagamento já foi confirmado pela arquiteta.");
+                    CUSTOMER_MESSAGE, "O pagamento já foi confirmado pela arquiteta.");
             case NOT_STARTED, REJECTED -> Map.of("status", conversation.paymentStatus().name(),
                     "serviceType", conversation.selectedService(), "nextAction", "NONE",
-                    "customerMessage", "Preciso confirmar essa etapa antes de continuar.");
+                    CUSTOMER_MESSAGE, "Preciso confirmar essa etapa antes de continuar.");
         };
     }
 
@@ -483,10 +485,6 @@ public final class StatefulDomainToolService implements DomainToolService {
         return supported == null ? context.sourceMessageId() : supported;
     }
 
-    private String sourceText(ToolExecutionContext context) {
-        return sourceText(context.sourceMessageId());
-    }
-
     private String sourceText(String eventId) {
         if (transcript == null) {
             return "";
@@ -497,7 +495,7 @@ public final class StatefulDomainToolService implements DomainToolService {
 
     private static boolean explicitlySupports(String type, String value, String source) {
         if (isNotInformedValue(value)) {
-            return !"ENVIRONMENT".equals(type);
+            return !ENVIRONMENT.equals(type);
         }
         if (source == null || source.isBlank()) return false;
         String normalizedSource = normalizeEvidence(source);
@@ -532,7 +530,7 @@ public final class StatefulDomainToolService implements DomainToolService {
         return switch (type) {
             case "PRONOUN_PREFERENCE" -> normalizedSource.contains(normalizedValue);
             case "OCCUPATION", "NEED" -> normalizedSource.contains(normalizedValue);
-            case "ENVIRONMENT" -> containsWholePhrase(normalizedSource, normalizedValue);
+            case ENVIRONMENT -> containsWholePhrase(normalizedSource, normalizedValue);
             case "SELECTED_SERVICE" -> normalizedSource.contains(normalizedValue);
             default -> false;
         };
@@ -570,7 +568,7 @@ public final class StatefulDomainToolService implements DomainToolService {
             case "FIRST_TIME_HIRING" -> canonicalFirstTimeHiring(value);
             case "SELECTED_SERVICE" -> canonicalService(value);
             case "NEED" -> value.trim();
-            case "ENVIRONMENT" -> isNotInformedValue(value) ? NOT_INFORMED : value.trim();
+            case ENVIRONMENT -> isNotInformedValue(value) ? NOT_INFORMED : value.trim();
             default -> value.trim();
         };
     }
@@ -670,7 +668,7 @@ public final class StatefulDomainToolService implements DomainToolService {
             case "SELECTED SERVICE", "SERVICE", "SERVICO", "SELECTED SERVICO" ->
                     "SELECTED_SERVICE";
             case "NEED", "NECESSIDADE", "PROJECT NEED" -> "NEED";
-            case "ENVIRONMENT", "AMBIENTE" -> "ENVIRONMENT";
+            case ENVIRONMENT, "AMBIENTE" -> ENVIRONMENT;
             default -> normalized.replace(' ', '_');
         };
     }

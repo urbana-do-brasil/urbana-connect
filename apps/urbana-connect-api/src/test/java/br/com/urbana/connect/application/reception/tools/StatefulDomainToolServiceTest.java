@@ -753,8 +753,10 @@ class StatefulDomainToolServiceTest {
 
         assertThat(recorded).containsEntry("confidence", "TENTATIVE");
         assertThat(conversations.value.contractingUnitId()).isNull();
+        ToolExecutionContext termsContext = context("message-without-environment");
+        Map<String, Object> decorArguments = Map.of("serviceType", "DECOR");
         assertThatThrownBy(() -> tools.execute(DomainToolName.PREPARE_TERMS, "contact-1",
-                Map.of("serviceType", "DECOR"), context("message-without-environment")))
+                decorArguments, termsContext))
                 .isInstanceOf(DomainToolInvocationUseCase.DomainRejectionException.class)
                 .satisfies(error -> assertThat(((DomainToolInvocationUseCase.DomainRejectionException) error).code())
                         .isEqualTo("ENVIRONMENT_NOT_CONFIRMED"));
@@ -764,14 +766,16 @@ class StatefulDomainToolServiceTest {
     void requiresTheBackendExecutionContextAndValidContactForStatefulTools() {
         StatefulDomainToolService tools = new StatefulDomainToolService(new CommercialPolicyService(),
                 new MemoryConversation(), new MemoryFacts());
+        ToolExecutionContext context = context("message");
+        Map<String, Object> noArguments = Map.of();
 
-        assertThatThrownBy(() -> tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, "contact-1", Map.of()))
+        assertThatThrownBy(() -> tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, "contact-1", noArguments))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("execution context");
-        assertThatThrownBy(() -> tools.execute(null, "contact-1", Map.of(), context("message")))
+        assertThatThrownBy(() -> tools.execute(null, "contact-1", noArguments, context))
                 .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, " ", Map.of(), context("message")))
+        assertThatThrownBy(() -> tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, " ", noArguments, context))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("contactId");
-        assertThatThrownBy(() -> tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, "contact-1", Map.of(), null))
+        assertThatThrownBy(() -> tools.execute(DomainToolName.GET_CUSTOMER_PROFILE, "contact-1", noArguments, null))
                 .isInstanceOf(NullPointerException.class);
     }
 

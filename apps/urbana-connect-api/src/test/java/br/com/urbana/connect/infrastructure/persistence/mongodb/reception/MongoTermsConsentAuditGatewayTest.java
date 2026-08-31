@@ -75,8 +75,7 @@ class MongoTermsConsentAuditGatewayTest {
         TermsConsentAudit byId = gateway.findByPresentationId("presentation-1").orElseThrow();
         TermsConsentAudit presented = gateway.findPresented("conversation-1", "unit-1").orElseThrow();
 
-        assertThat(byId).isEqualTo(presented);
-        assertThat(byId).satisfies(value -> {
+        assertThat(byId).isEqualTo(presented).satisfies(value -> {
             assertThat(value.presentationId()).isEqualTo("presentation-1");
             assertThat(value.conversationId()).isEqualTo("conversation-1");
             assertThat(value.contactId()).isEqualTo("contact-1");
@@ -125,7 +124,8 @@ class MongoTermsConsentAuditGatewayTest {
         DuplicateKeyException duplicate = new DuplicateKeyException("duplicate presentation");
         when(repository.insert(any(TermsConsentAuditDocument.class))).thenThrow(duplicate);
 
-        TermsConsentAudit recovered = gateway().savePresentationIfAbsent(presented());
+        MongoTermsConsentAuditGateway auditGateway = gateway();
+        TermsConsentAudit recovered = auditGateway.savePresentationIfAbsent(presented());
         assertThat(recovered.status()).isEqualTo(TermsConsentStatus.ACCEPTED);
         assertThat(recovered.acceptanceTextExact()).isEqualTo("Aceito");
 
@@ -136,7 +136,7 @@ class MongoTermsConsentAuditGatewayTest {
                 null, null, null, null, PRESENTED_AT, TermsConsentStatus.PRESENTED, 3, null);
         when(repository.insert(any(TermsConsentAuditDocument.class))).thenThrow(duplicate);
 
-        assertThatThrownBy(() -> gateway().savePresentationIfAbsent(second))
+        assertThatThrownBy(() -> auditGateway.savePresentationIfAbsent(second))
                 .isSameAs(duplicate);
     }
 
@@ -144,22 +144,23 @@ class MongoTermsConsentAuditGatewayTest {
     void rejectsInvalidPresentationPayloadsAndAcceptanceBoundaryArguments() {
         TermsConsentAudit accepted = presented().accept("message-accept", "event-accept", "Aceito",
                 PRESENTED_AT.plusSeconds(1), 4);
-        assertThatThrownBy(() -> gateway().savePresentationIfAbsent(null))
+        MongoTermsConsentAuditGateway auditGateway = gateway();
+        assertThatThrownBy(() -> auditGateway.savePresentationIfAbsent(null))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> gateway().savePresentationIfAbsent(accepted))
+        assertThatThrownBy(() -> auditGateway.savePresentationIfAbsent(accepted))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        assertThatThrownBy(() -> gateway().acceptIfPresented(null, "event", "message", "Aceito", 0, PRESENTED_AT))
+        assertThatThrownBy(() -> auditGateway.acceptIfPresented(null, "event", "message", "Aceito", 0, PRESENTED_AT))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("presentationId");
-        assertThatThrownBy(() -> gateway().acceptIfPresented("id", "", "message", "Aceito", 0, PRESENTED_AT))
+        assertThatThrownBy(() -> auditGateway.acceptIfPresented("id", "", "message", "Aceito", 0, PRESENTED_AT))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("acceptanceEventId");
-        assertThatThrownBy(() -> gateway().acceptIfPresented("id", "event", " ", "Aceito", 0, PRESENTED_AT))
+        assertThatThrownBy(() -> auditGateway.acceptIfPresented("id", "event", " ", "Aceito", 0, PRESENTED_AT))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("acceptanceMessageId");
-        assertThatThrownBy(() -> gateway().acceptIfPresented("id", "event", "message", "", 0, PRESENTED_AT))
+        assertThatThrownBy(() -> auditGateway.acceptIfPresented("id", "event", "message", "", 0, PRESENTED_AT))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("acceptanceTextExact");
-        assertThatThrownBy(() -> gateway().acceptIfPresented("id", "event", "message", "Aceito", -1, PRESENTED_AT))
+        assertThatThrownBy(() -> auditGateway.acceptIfPresented("id", "event", "message", "Aceito", -1, PRESENTED_AT))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("non-negative");
-        assertThatThrownBy(() -> gateway().acceptIfPresented("id", "event", "message", "Aceito", 0, null))
+        assertThatThrownBy(() -> auditGateway.acceptIfPresented("id", "event", "message", "Aceito", 0, null))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("acceptedAt");
     }
 
@@ -183,13 +184,14 @@ class MongoTermsConsentAuditGatewayTest {
         when(template.findAndModify(any(Query.class), any(), any(FindAndModifyOptions.class),
                 eq(TermsConsentAuditDocument.class))).thenReturn(null);
         when(repository.findById("missing")).thenReturn(Optional.empty());
-        assertThatThrownBy(() -> gateway().acceptIfPresented("missing", "event", "message", "Aceito", 1,
+        MongoTermsConsentAuditGateway auditGateway = gateway();
+        assertThatThrownBy(() -> auditGateway.acceptIfPresented("missing", "event", "message", "Aceito", 1,
                 PRESENTED_AT)).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("evidence is missing");
 
         TermsConsentAuditDocument stillPresented = document(TermsConsentStatus.PRESENTED);
         when(repository.findById("presentation-1")).thenReturn(Optional.of(stillPresented));
-        assertThatThrownBy(() -> gateway().acceptIfPresented("presentation-1", "event", "message", "Aceito", 1,
+        assertThatThrownBy(() -> auditGateway.acceptIfPresented("presentation-1", "event", "message", "Aceito", 1,
                 PRESENTED_AT)).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("was not recorded");
     }

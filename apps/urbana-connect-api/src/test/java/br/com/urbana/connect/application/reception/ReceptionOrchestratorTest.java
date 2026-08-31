@@ -1190,7 +1190,8 @@ class ReceptionOrchestratorTest {
                 "oi", NOW);
         InboundConversationEvent second = new InboundConversationEvent("batch-b", "poc:bia", ReceptionMessageType.TEXT,
                 "oi", NOW);
-        assertThatThrownBy(() -> orchestrator.processBatch(List.of(first, second)))
+        List<InboundConversationEvent> differentContacts = List.of(first, second);
+        assertThatThrownBy(() -> orchestrator.processBatch(differentContacts))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("multiple contacts");
     }
 

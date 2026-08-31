@@ -28,23 +28,26 @@ class ActiveTurnLeaseTest {
 
     @Test
     void rejectsIncompleteOrInconsistentLeaseState() {
+        List<String> sourceMessageIds = List.of("message");
+        List<String> emptySourceMessageIds = List.of();
+        List<String> blankSourceMessageIds = List.of(" ");
         assertThatThrownBy(() -> new ActiveTurnLease(null, "turn", "contact", "message",
-                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, EXPIRES, null, 0, "claim", List.of("message")))
+                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, EXPIRES, null, 0, "claim", sourceMessageIds))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ActiveTurnLease("session", "turn", "contact", "message", null,
-                ACQUIRED, EXPIRES, null, 0, "claim", List.of("message")))
+                ACQUIRED, EXPIRES, null, 0, "claim", sourceMessageIds))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("status");
         assertThatThrownBy(() -> new ActiveTurnLease("session", "turn", "contact", "message",
-                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, ACQUIRED, null, 0, "claim", List.of("message")))
+                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, ACQUIRED, null, 0, "claim", sourceMessageIds))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("expiresAt");
         assertThatThrownBy(() -> new ActiveTurnLease("session", "turn", "contact", "message",
-                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, EXPIRES, null, -1, "claim", List.of("message")))
+                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, EXPIRES, null, -1, "claim", sourceMessageIds))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("version");
         assertThatThrownBy(() -> new ActiveTurnLease("session", "turn", "contact", "message",
-                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, EXPIRES, null, 0, "claim", List.of()))
+                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, EXPIRES, null, 0, "claim", emptySourceMessageIds))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sourceMessageIds");
         assertThatThrownBy(() -> new ActiveTurnLease("session", "turn", "contact", "message",
-                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, EXPIRES, null, 0, "claim", List.of(" ")))
+                ActiveTurnLeaseStatus.RUNNING, ACQUIRED, EXPIRES, null, 0, "claim", blankSourceMessageIds))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sourceMessageIds");
     }
 
@@ -100,7 +103,8 @@ class ActiveTurnLeaseTest {
 
         assertThatThrownBy(() -> running.heartbeat(ACQUIRED, null)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> running.heartbeat(ACQUIRED, Duration.ZERO)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> running.heartbeat(ACQUIRED, Duration.ofSeconds(-1))).isInstanceOf(IllegalArgumentException.class);
+        Duration negativeTtl = Duration.ofSeconds(-1);
+        assertThatThrownBy(() -> running.heartbeat(ACQUIRED, negativeTtl)).isInstanceOf(IllegalArgumentException.class);
 
         ActiveTurnLease extended = running.heartbeat(ACQUIRED.plusSeconds(5), Duration.ofMinutes(1));
         assertThat(extended.status()).isEqualTo(ActiveTurnLeaseStatus.RUNNING);

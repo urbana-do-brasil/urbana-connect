@@ -52,7 +52,7 @@ public final class ReceptionTurnReconciliationService {
                                               ReceptionTranscriptGateway transcript,
                                               ReceptionTurnGateway turns,
                                               Clock clock) {
-        this(hermes, conversations, transcript, turns, clock, null, null, null, null);
+        this(hermes, conversations, transcript, turns, clock, new Dependencies(null, null, null, null));
     }
 
     public ReceptionTurnReconciliationService(HermesSessionService hermes,
@@ -61,7 +61,7 @@ public final class ReceptionTurnReconciliationService {
                                               ReceptionTurnGateway turns,
                                               Clock clock,
                                               ActiveTurnLeaseService leases) {
-        this(hermes, conversations, transcript, turns, clock, leases, null, null, null);
+        this(hermes, conversations, transcript, turns, clock, new Dependencies(leases, null, null, null));
     }
 
     public ReceptionTurnReconciliationService(HermesSessionService hermes,
@@ -69,19 +69,23 @@ public final class ReceptionTurnReconciliationService {
                                               ReceptionTranscriptGateway transcript,
                                               ReceptionTurnGateway turns,
                                               Clock clock,
-                                              ActiveTurnLeaseService leases,
-                                              CommercialPolicyService policy,
-                                              TermsAcceptanceUseCase termsAcceptance,
-                                              DomainToolInvocationGateway invocations) {
+                                              Dependencies dependencies) {
         this.hermes = Objects.requireNonNull(hermes, "hermes");
         this.conversations = Objects.requireNonNull(conversations, "conversations");
         this.transcript = Objects.requireNonNull(transcript, "transcript");
         this.turns = Objects.requireNonNull(turns, "turns");
         this.clock = clock == null ? Clock.systemUTC() : clock;
-        this.leases = leases;
-        this.policy = policy;
-        this.termsAcceptance = termsAcceptance;
-        this.invocations = invocations;
+        Dependencies configured = Objects.requireNonNull(dependencies, "dependencies");
+        this.leases = configured.leases();
+        this.policy = configured.policy();
+        this.termsAcceptance = configured.termsAcceptance();
+        this.invocations = configured.invocations();
+    }
+
+    public record Dependencies(ActiveTurnLeaseService leases,
+                               CommercialPolicyService policy,
+                               TermsAcceptanceUseCase termsAcceptance,
+                               DomainToolInvocationGateway invocations) {
     }
 
     public Optional<String> reconcile(String turnOrEventId) {

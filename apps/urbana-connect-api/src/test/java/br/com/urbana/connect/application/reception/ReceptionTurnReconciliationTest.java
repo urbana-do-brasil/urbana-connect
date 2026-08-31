@@ -83,7 +83,7 @@ class ReceptionTurnReconciliationTest {
         assertThat(service.reconcile("turn-1")).isEmpty();
         assertThat(transcript.messages).filteredOn(message -> message.direction() == ReceptionMessageDirection.OUTBOUND)
                 .singleElement().extracting(ReceptionMessage::text)
-                .satisfies(value -> assertThat(value.toString()).contains("resposta tardia"));
+                .satisfies(value -> assertThat(value).contains("resposta tardia"));
         assertThat(turns.value.status().name()).isEqualTo("COMPLETED");
     }
 
@@ -217,8 +217,9 @@ class ReceptionTurnReconciliationTest {
         MemoryInvocations invocations = new MemoryInvocations(invocation);
         ReceptionTurnReconciliationService service = new ReceptionTurnReconciliationService(
                 new HermesSessionService(new TermsSessions(termsUrl), new EmptyLinks()), conversations, transcript,
-                turns, Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC), null, policy,
-                new TermsAcceptanceUseCase(audits, conversations), invocations);
+                turns, Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC),
+                new ReceptionTurnReconciliationService.Dependencies(null, policy,
+                        new TermsAcceptanceUseCase(audits, conversations), invocations));
 
         assertThat(service.reconcile("turn-terms")).hasValueSatisfying(value ->
                 assertThat(value).contains(termsUrl));
@@ -260,14 +261,15 @@ class ReceptionTurnReconciliationTest {
         };
         ReceptionTurnReconciliationService service = new ReceptionTurnReconciliationService(
                 new HermesSessionService(sessions, new EmptyLinks()), conversations, transcript, turns,
-                Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC), null, new CommercialPolicyService(), null, null);
+                Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC),
+                new ReceptionTurnReconciliationService.Dependencies(null, new CommercialPolicyService(), null, null));
 
         assertThat(service.reconcile("turn-payment")).hasValueSatisfying(value -> assertThat(value)
                 .contains("simulação", "1 serviço para cada ambiente contratado", "comprovante")
                 .doesNotContain("Pague agora", "http"));
         assertThat(transcript.messages).filteredOn(message -> message.direction() == ReceptionMessageDirection.OUTBOUND)
                 .singleElement().extracting(ReceptionMessage::text)
-                .satisfies(value -> assertThat(value.toString())
+                .satisfies(value -> assertThat(value)
                         .contains("simulação", "1 serviço para cada ambiente contratado", "comprovante"));
     }
 
@@ -340,7 +342,9 @@ class ReceptionTurnReconciliationTest {
                             : "{\"message\":\"Pagamento confirmado\",\"nextAction\":\"AWAIT_PAYMENT_APPROVAL\"}")));
             ReceptionTurnReconciliationService service = new ReceptionTurnReconciliationService(
                     new HermesSessionService(sessions, new EmptyLinks()), conversations, transcript, turns,
-                    Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC), null, new CommercialPolicyService(), null, null);
+                    Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC),
+                    new ReceptionTurnReconciliationService.Dependencies(null,
+                            new CommercialPolicyService(), null, null));
 
             assertThat(service.reconcile(turn.id())).isPresent();
             assertThat(turns.value.status()).isEqualTo(ReceptionTurnStatus.COMPLETED);

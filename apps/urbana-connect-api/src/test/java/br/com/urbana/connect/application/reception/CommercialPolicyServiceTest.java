@@ -27,8 +27,9 @@ class CommercialPolicyServiceTest {
         ReceptionConversation prepared = new ReceptionConversation("conversation-1", "contact-1",
                 ReceptionMode.AI, CommercialStage.PAYMENT, "DECOR", TermsStatus.ACCEPTED,
                 PaymentStatus.PREPARED, null, NOW, NOW, 1);
-        assertThatThrownBy(() -> policy.reconcileOutput(new AgentOutput(
-                "Acesse o link de pagamento.", AgentNextAction.AWAIT_PAYMENT_PROOF), prepared))
+        AgentOutput missingGuidance = new AgentOutput(
+                "Acesse o link de pagamento.", AgentNextAction.AWAIT_PAYMENT_PROOF);
+        assertThatThrownBy(() -> policy.reconcileOutput(missingGuidance, prepared))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("quantity");
         assertThat(policy.reconcileOutput(new AgentOutput(
                 "No link da POC, considere 1 serviço para cada ambiente contratado. Depois, envie o comprovante por aqui.",
@@ -209,11 +210,12 @@ class CommercialPolicyServiceTest {
         AgentOutput requestedBriefing = new AgentOutput("aqui está o briefing", AgentNextAction.AWAIT_CUSTOMER);
         assertThatThrownBy(() -> policy.reconcileOutput(requestedBriefing, conversation))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> policy.reconcileOutput(new AgentOutput(
-                "Segue o briefing DECOR: fixture local.", AgentNextAction.AWAIT_CUSTOMER), conversation))
+        AgentOutput briefingWithFixture = new AgentOutput(
+                "Segue o briefing DECOR: fixture local.", AgentNextAction.AWAIT_CUSTOMER);
+        assertThatThrownBy(() -> policy.reconcileOutput(briefingWithFixture, conversation))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> policy.reconcileOutput(new AgentOutput(
-                "Pagamento confirmado.", AgentNextAction.NONE), conversation))
+        AgentOutput confirmedPayment = new AgentOutput("Pagamento confirmado.", AgentNextAction.NONE);
+        assertThatThrownBy(() -> policy.reconcileOutput(confirmedPayment, conversation))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -234,8 +236,9 @@ class CommercialPolicyServiceTest {
                 ReceptionMode.AI, CommercialStage.PAYMENT, "DECOR", TermsStatus.ACCEPTED,
                 PaymentStatus.NOT_STARTED, null, NOW, NOW, 1);
 
-        assertThatThrownBy(() -> policy.reconcileOutput(new AgentOutput(
-                "Vou aguardar a confirmação do pagamento.", AgentNextAction.AWAIT_PAYMENT_APPROVAL), conversation))
+        AgentOutput approvalBeforeProof = new AgentOutput(
+                "Vou aguardar a confirmação do pagamento.", AgentNextAction.AWAIT_PAYMENT_APPROVAL);
+        assertThatThrownBy(() -> policy.reconcileOutput(approvalBeforeProof, conversation))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("proof");
     }
@@ -268,12 +271,14 @@ class CommercialPolicyServiceTest {
         CommercialPolicyService policy = new CommercialPolicyService();
         ReceptionConversation conversation = ReceptionConversation.start("contact-1", NOW);
 
-        assertThatThrownBy(() -> policy.reconcileOutput(new AgentOutput(
+        AgentOutput paymentLink = new AgentOutput(
                 "Para pagar, acesse https://fixtures.urbana.local/payment/decor.",
-                AgentNextAction.AWAIT_CUSTOMER), conversation))
+                AgentNextAction.AWAIT_CUSTOMER);
+        assertThatThrownBy(() -> policy.reconcileOutput(paymentLink, conversation))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> policy.reconcileOutput(new AgentOutput(
-                "Seu briefing está pronto para preencher.", AgentNextAction.AWAIT_CUSTOMER), conversation))
+        AgentOutput readyBriefing = new AgentOutput(
+                "Seu briefing está pronto para preencher.", AgentNextAction.AWAIT_CUSTOMER);
+        assertThatThrownBy(() -> policy.reconcileOutput(readyBriefing, conversation))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

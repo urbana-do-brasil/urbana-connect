@@ -194,7 +194,8 @@ public class PocReceptionConfiguration {
             ActiveTurnLeaseService leases, CommercialPolicyService policy,
             TermsAcceptanceUseCase termsAcceptance, DomainToolInvocationGateway invocations) {
         return new ReceptionTurnReconciliationService(hermes, conversations, transcript, turns,
-                Clock.systemUTC(), leases, policy, termsAcceptance, invocations);
+                Clock.systemUTC(), new ReceptionTurnReconciliationService.Dependencies(
+                        leases, policy, termsAcceptance, invocations));
     }
 
     @Bean

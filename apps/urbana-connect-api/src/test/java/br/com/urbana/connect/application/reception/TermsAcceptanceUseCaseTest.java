@@ -47,9 +47,10 @@ class TermsAcceptanceUseCaseTest {
         MemoryGateway gateway = new MemoryGateway();
         gateway.savePresentationIfAbsent(presented());
         TermsAcceptanceUseCase useCase = new TermsAcceptanceUseCase(gateway);
+        Instant beforePresentation = NOW.minusSeconds(1);
 
         assertThatThrownBy(() -> useCase.recordAcceptance("presentation-1", "event", "message", "Aceito",
-                4, NOW.minusSeconds(1)))
+                4, beforePresentation))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("precede presentation");
     }
@@ -109,18 +110,20 @@ class TermsAcceptanceUseCaseTest {
     @Test
     void rejectsAcceptanceWhenConversationHasNoActivePresentationOrEvidence() {
         TermsAcceptanceUseCase useCase = new TermsAcceptanceUseCase(new MemoryGateway());
+        CommercialPolicyService policy = new CommercialPolicyService();
         ReceptionConversation selected = ReceptionConversation.start("conversation-1", "contact-1", NOW)
                 .selectService("DECOR_INTERIORES", NOW);
 
         assertThatThrownBy(() -> useCase.recordAcceptance(selected, "event", "message", "Aceito", NOW,
-                new CommercialPolicyService()))
+                policy))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("presented with durable evidence");
 
         ReceptionConversation presentedConversation = selected.presentTerms(NOW)
                 .activateTermsConsent("missing", NOW.plusSeconds(1));
+        Instant acceptanceAt = NOW.plusSeconds(2);
         assertThatThrownBy(() -> useCase.recordAcceptance(presentedConversation, "event", "message", "Aceito",
-                NOW.plusSeconds(2), new CommercialPolicyService()))
+                acceptanceAt, policy))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("evidence is missing");
     }
@@ -144,8 +147,9 @@ class TermsAcceptanceUseCaseTest {
                 base.resumeDecisionAction(), base.resumeDecisionMessage(), base.resumeFailureCode(),
                 base.contractingUnitId(), base.environmentLabel(), base.environmentSourceMessageId(),
                 base.activeTermsConsentId());
+        Instant otherConversationAcceptanceAt = NOW.plusSeconds(1);
         assertThatThrownBy(() -> useCase.recordAcceptance(otherConversation, "event", "message", "Aceito",
-                NOW.plusSeconds(1), policy)).isInstanceOf(IllegalStateException.class)
+                otherConversationAcceptanceAt, policy)).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("does not match");
 
         ReceptionConversation otherUnit = new ReceptionConversation(base.id(), base.contactId(), base.mode(),
@@ -154,14 +158,16 @@ class TermsAcceptanceUseCaseTest {
                 base.resumeIdempotencyKey(), base.resumeChecksum(), base.resumeBoundarySequence(),
                 base.resumeDecisionAction(), base.resumeDecisionMessage(), base.resumeFailureCode(),
                 "unit-other", base.environmentLabel(), base.environmentSourceMessageId(), base.activeTermsConsentId());
+        Instant otherUnitAcceptanceAt = NOW.plusSeconds(1);
         assertThatThrownBy(() -> useCase.recordAcceptance(otherUnit, "event", "message", "Aceito",
-                NOW.plusSeconds(1), policy)).isInstanceOf(IllegalStateException.class)
+                otherUnitAcceptanceAt, policy)).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("does not match");
 
         ReceptionConversation otherService = base.selectService("DECOR_PINTURA", NOW.plusSeconds(1))
                 .presentTerms(NOW.plusSeconds(1)).activateTermsConsent("presentation-1", NOW.plusSeconds(2));
+        Instant otherServiceAcceptanceAt = NOW.plusSeconds(3);
         assertThatThrownBy(() -> useCase.recordAcceptance(otherService, "event", "message", "Aceito",
-                NOW.plusSeconds(3), policy)).isInstanceOf(IllegalStateException.class)
+                otherServiceAcceptanceAt, policy)).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("does not match");
     }
 

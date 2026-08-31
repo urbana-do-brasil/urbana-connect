@@ -133,8 +133,9 @@ class ServiceCatalogItemTest {
                 .containsIgnoringCase("sem visita")
                 .containsIgnoringCase("sem gestão de obra");
         String reformExclusions = String.join(" ", byType.get(ServiceType.DECOR_REFORMA).exclusions());
-        assertThat(reformExclusions).containsIgnoringCase("não executa a obra");
-        assertThat(reformExclusions).containsIgnoringCase("não compra materiais");
-        assertThat(reformExclusions).containsIgnoringCase("nem contrata profissionais");
+        assertThat(reformExclusions)
+                .containsIgnoringCase("não executa a obra")
+                .containsIgnoringCase("não compra materiais")
+                .containsIgnoringCase("nem contrata profissionais");
     }
 }

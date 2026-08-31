@@ -62,15 +62,17 @@ class TermsConsentAuditTest {
     @Test
     void rejectsBlankOrPrematureAcceptanceData() {
         TermsConsentAudit presented = presented();
-        assertThatThrownBy(() -> presented.accept("", "event", "Aceito", PRESENTED_AT.plusSeconds(1), 1))
+        Instant afterPresentation = PRESENTED_AT.plusSeconds(1);
+        Instant beforePresentation = PRESENTED_AT.minusSeconds(1);
+        assertThatThrownBy(() -> presented.accept("", "event", "Aceito", afterPresentation, 1))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> presented.accept("message", " ", "Aceito", PRESENTED_AT.plusSeconds(1), 1))
+        assertThatThrownBy(() -> presented.accept("message", " ", "Aceito", afterPresentation, 1))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> presented.accept("message", "event", " ", PRESENTED_AT.plusSeconds(1), 1))
+        assertThatThrownBy(() -> presented.accept("message", "event", " ", afterPresentation, 1))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> presented.accept("message", "event", "Aceito", PRESENTED_AT.minusSeconds(1), 1))
+        assertThatThrownBy(() -> presented.accept("message", "event", "Aceito", beforePresentation, 1))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("precede");
-        assertThatThrownBy(() -> presented.accept("message", "event", "Aceito", PRESENTED_AT.plusSeconds(1), -1))
+        assertThatThrownBy(() -> presented.accept("message", "event", "Aceito", afterPresentation, -1))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("version");
         assertThatThrownBy(() -> presented.accept("message", "event", "Aceito", null, 1))
                 .isInstanceOf(NullPointerException.class);
