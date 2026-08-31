@@ -31,6 +31,8 @@ public final class CommercialPolicyService {
     public static final String PREFER_NOT_TO_ANSWER = "PREFER_NOT_TO_ANSWER";
     private static final String PAYMENT_PROOF_PENDING_MESSAGE =
             "Recebi o comprovante. Agora ele aguarda validação humana; aviso assim que o pagamento for confirmado.";
+    private static final String TERMS_REVIEW_VERB =
+            "(?:ler|analisar|revisar|avaliar|verificar|refletir|pensar)";
     private static final List<String> MANDATORY_ICP = CustomerFactType.icpFieldNames();
     private static final List<String> ALLOWED_PAYMENT_METHODS = List.of("PIX", "CARD");
 
@@ -107,6 +109,10 @@ public final class CommercialPolicyService {
             throw new IllegalStateException("service must be selected before terms");
         }
         service(conversation.selectedService());
+        if (conversation.termsStatus() == br.com.urbana.connect.domain.reception.model.TermsStatus.ACCEPTED
+                && conversation.activeTermsConsentId() == null) {
+            return conversation.reopenTermsForAudit(Objects.requireNonNull(now, "now"));
+        }
         if (conversation.termsStatus() != br.com.urbana.connect.domain.reception.model.TermsStatus.NOT_PRESENTED
                 && conversation.termsStatus() != br.com.urbana.connect.domain.reception.model.TermsStatus.DECLINED) {
             return conversation;
@@ -139,7 +145,18 @@ public final class CommercialPolicyService {
         if (normalized.contains("nao") || normalized.contains("recuso") || normalized.contains("discordo")) {
             return false;
         }
-        return normalized.matches(".*(?:\\b(aceito|concordo)\\b.*\\btermos\\b|"
+        if (normalized.matches(".*\\b(?:aceito|concordo)\\b\\s*(?:[,;:]\\s*)?"
+                + "(?:(?:em|com|para)\\s+)?\\b" + TERMS_REVIEW_VERB + "\\b.*")
+                || normalized.matches(".*\\b(?:aceito|concordo)\\b.*"
+                + "\\b(?:vou|irei|pretendo|quero|preciso)\\s+" + TERMS_REVIEW_VERB + "\\b.*")
+                || normalized.matches(".*\\b(?:aceito|concordo)\\b.*"
+                + "\\b(?:talvez|nao\\s+sei)\\b.*")
+                || normalized.matches(".*\\b(?:aceito|concordo)\\b\\s*[,;:.! ]*\\bdepois\\b.*")) {
+            return false;
+        }
+        return normalized.matches("aceito[!,. ]*")
+                || normalized.matches("aceito[!,. ]+.*\\b(?:pix|cartao|credito)\\b.*")
+                || normalized.matches(".*(?:\\b(aceito|concordo)\\b.*\\btermos\\b|"
                 + "\\bestou\\s+de\\s+acordo\\b.*\\btermos\\b).*" );
     }
 
@@ -222,6 +239,10 @@ public final class CommercialPolicyService {
             return new AgentOutput(PAYMENT_PROOF_PENDING_MESSAGE, AgentNextAction.AWAIT_PAYMENT_APPROVAL);
         }
         String normalized = normalizeText(candidate.message());
+        if (conversation.paymentStatus() == PaymentStatus.PREPARED
+                && (!normalized.contains("1 servico para cada ambiente") || !normalized.contains("comprovante"))) {
+            throw new IllegalArgumentException("prepared payment output must include quantity per environment and proof guidance");
+        }
         if (conversation.paymentStatus() != PaymentStatus.CONFIRMED) {
             boolean briefingReleaseClaim = claimsBriefingRelease(normalized)
                     && !briefingIsExplicitlyDeferred(normalized);

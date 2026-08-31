@@ -32,6 +32,7 @@ import br.com.urbana.connect.domain.reception.port.out.ReceptionTurnGateway;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessageDirection;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -57,6 +58,17 @@ import static org.mockito.Mockito.when;
 
 class ReceptionOrchestratorTest {
     private static final Instant NOW = Instant.parse("2026-08-05T12:00:00Z");
+
+    @Test
+    void resumeChecksumUsesUtf8ForSupplementaryUnicodeInsteadOfEscapedSurrogates() throws Exception {
+        Method checksum = ReceptionOrchestrator.class.getDeclaredMethod("resumeChecksum", List.class);
+        checksum.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        String actual = (String) checksum.invoke(null, List.of(
+                new HermesResumeGateway.ContextMessage(1, "m-1", "CONTACT", "user", "🦕")));
+
+        assertThat(actual).isEqualTo("sha256:109629377e6112df724faa31ac7d0a57771f88fc18ef448ba8da4da6b610436d");
+    }
 
     @Test
     void persistsInboundBeforeDispatchAndAddsIdentityOnlyToTheFirstHermesResponse() {
@@ -168,7 +180,7 @@ class ReceptionOrchestratorTest {
     }
 
     @Test
-    void appliesAcceptanceAfterHermesPresentsTermsDuringTheSameTurn() {
+    void doesNotApplyAcceptanceWhenHermesPresentsTermsDuringTheSameTurn() {
         MemoryConversation conversations = new MemoryConversation();
         conversations.value = ReceptionConversation.start("conversation-1", "poc:ana", NOW);
         MemoryTranscript transcript = new MemoryTranscript();
@@ -189,7 +201,7 @@ class ReceptionOrchestratorTest {
                 "Aceito os termos", NOW));
 
         assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.ACCEPTED);
+        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
     }
 
     @Test

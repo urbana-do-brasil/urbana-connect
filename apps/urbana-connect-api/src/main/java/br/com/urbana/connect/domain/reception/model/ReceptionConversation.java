@@ -24,7 +24,26 @@ public record ReceptionConversation(
         int resumeBoundarySequence,
         String resumeDecisionAction,
         String resumeDecisionMessage,
-        String resumeFailureCode) {
+        String resumeFailureCode,
+        String contractingUnitId,
+        String environmentLabel,
+        String environmentSourceMessageId,
+        String activeTermsConsentId) {
+
+    /** Compatibility constructor for persisted conversations created before unit binding. */
+    public ReceptionConversation(String id, String contactId, ReceptionMode mode,
+                                 CommercialStage commercialStage, String selectedService,
+                                 TermsStatus termsStatus, PaymentStatus paymentStatus,
+                                 String handoffReason, Instant createdAt, Instant updatedAt,
+                                 long version, ResumeStatus resumeStatus, String resumeId,
+                                 String resumeIdempotencyKey, String resumeChecksum,
+                                 int resumeBoundarySequence, String resumeDecisionAction,
+                                 String resumeDecisionMessage, String resumeFailureCode) {
+        this(id, contactId, mode, commercialStage, selectedService, termsStatus, paymentStatus,
+                handoffReason, createdAt, updatedAt, version, resumeStatus, resumeId,
+                resumeIdempotencyKey, resumeChecksum, resumeBoundarySequence, resumeDecisionAction,
+                resumeDecisionMessage, resumeFailureCode, null, null, null, null);
+    }
 
     public ReceptionConversation(String id, String contactId, ReceptionMode mode,
                                  CommercialStage commercialStage, String selectedService,
@@ -87,6 +106,24 @@ public record ReceptionConversation(
                 handoffReason, now);
     }
 
+    public ReceptionConversation bindContractingUnit(String unitId, String label, String sourceMessageId, Instant now) {
+        require(unitId, "contractingUnitId"); require(label, "environmentLabel"); require(sourceMessageId, "environmentSourceMessageId");
+        if (Objects.equals(contractingUnitId, unitId)) return this;
+        return new ReceptionConversation(id, contactId, mode, CommercialStage.DISCOVERY, null,
+                TermsStatus.NOT_PRESENTED, PaymentStatus.NOT_STARTED, handoffReason, createdAt, now, version + 1,
+                resumeStatus, resumeId, resumeIdempotencyKey, resumeChecksum, resumeBoundarySequence,
+                resumeDecisionAction, resumeDecisionMessage, resumeFailureCode, unitId, label, sourceMessageId, null);
+    }
+
+    public ReceptionConversation activateTermsConsent(String consentId, Instant now) {
+        require(consentId, "activeTermsConsentId");
+        return new ReceptionConversation(id, contactId, mode, commercialStage, selectedService, termsStatus,
+                paymentStatus, handoffReason, createdAt, now, version + 1, resumeStatus, resumeId,
+                resumeIdempotencyKey, resumeChecksum, resumeBoundarySequence, resumeDecisionAction,
+                resumeDecisionMessage, resumeFailureCode, contractingUnitId, environmentLabel,
+                environmentSourceMessageId, consentId);
+    }
+
     public ReceptionConversation presentTerms(Instant now) {
         if (selectedService == null) {
             throw new IllegalStateException("service must be selected before terms");
@@ -96,6 +133,29 @@ public record ReceptionConversation(
         }
         return copy(mode, CommercialStage.TERMS, selectedService, TermsStatus.PRESENTED,
                 paymentStatus, handoffReason, now);
+    }
+
+    /**
+     * Reopens a legacy accepted conversation whose presentation evidence was
+     * never recorded. Payment is reset so an old inferred acceptance can never
+     * authorize a new charge without a fresh, auditable presentation.
+     */
+    public ReceptionConversation reopenTermsForAudit(Instant now) {
+        if (termsStatus != TermsStatus.ACCEPTED || activeTermsConsentId != null) {
+            throw new IllegalStateException("only an unaudited accepted conversation can reopen terms");
+        }
+        if (selectedService == null) {
+            throw new IllegalStateException("service must be selected before terms");
+        }
+        if (mode != ReceptionMode.AI) {
+            throw new IllegalStateException("human conversation cannot reopen terms");
+        }
+        return new ReceptionConversation(id, contactId, mode, CommercialStage.TERMS, selectedService,
+                TermsStatus.PRESENTED, PaymentStatus.NOT_STARTED, handoffReason, createdAt,
+                Objects.requireNonNull(now, "now"), version + 1, resumeStatus, resumeId,
+                resumeIdempotencyKey, resumeChecksum, resumeBoundarySequence, resumeDecisionAction,
+                resumeDecisionMessage, resumeFailureCode, contractingUnitId, environmentLabel,
+                environmentSourceMessageId, null);
     }
 
     public ReceptionConversation acceptTerms(Instant now) {
@@ -222,7 +282,8 @@ public record ReceptionConversation(
         return new ReceptionConversation(id, contactId, nextMode, nextStage, nextService,
                 nextTerms, nextPayment, nextReason, createdAt, now, version + 1,
                 nextResumeStatus, nextResumeId, nextResumeKey, nextChecksum, nextBoundary,
-                nextAction, nextMessage, nextFailure);
+                nextAction, nextMessage, nextFailure, contractingUnitId, environmentLabel,
+                environmentSourceMessageId, Objects.equals(nextService, selectedService) ? activeTermsConsentId : null);
     }
 
     private static String require(String value, String field) {

@@ -16,6 +16,10 @@ import br.com.urbana.connect.domain.reception.model.ReceptionTurn;
 import br.com.urbana.connect.domain.reception.model.ReceptionTurnStatus;
 import br.com.urbana.connect.domain.reception.model.ReceptionEventIds;
 import br.com.urbana.connect.domain.reception.model.ResumeStatus;
+import br.com.urbana.connect.domain.reception.model.TermsConsentAudit;
+import br.com.urbana.connect.domain.reception.model.TermsConsentStatus;
+import br.com.urbana.connect.domain.reception.model.TermsStatus;
+import br.com.urbana.connect.domain.reception.model.DomainToolName;
 import br.com.urbana.connect.domain.reception.port.out.CustomerFactGateway;
 import br.com.urbana.connect.domain.reception.port.out.DomainToolInvocationGateway;
 import br.com.urbana.connect.domain.reception.port.out.HermesResumeGateway;
@@ -67,7 +71,7 @@ public final class ReceptionOrchestrator {
     private static final String SAFE_PAYMENT_PREPARATION_MESSAGE =
             "Para continuar, escolha uma forma de pagamento: PIX ou cartão de crédito.";
     private static final String SAFE_PAYMENT_PROOF_MESSAGE =
-            "O pagamento está preparado. Realize-o pelo link e envie o comprovante por aqui.";
+            "O pagamento está preparado. No link da POC, que é uma simulação, considere 1 serviço para cada ambiente contratado. Depois do pagamento, envie o comprovante por aqui.";
     private static final String SAFE_PAYMENT_PROOF_HANDOFF_MESSAGE =
             "Recebi o comprovante. Vou encaminhar sua conversa para a arquiteta, que fará a validação do pagamento por aqui.";
     private static final String SAFE_COMMERCIAL_RECOVERY_MESSAGE =
@@ -92,6 +96,7 @@ public final class ReceptionOrchestrator {
     private final ReceptionMetrics metrics;
     private final NonProspectPolicy nonProspectPolicy;
     private final Duration delayThreshold;
+    private TermsAcceptanceUseCase termsAcceptance;
     private final Map<String, NonProspectPolicy.State> nonProspectStates = new ConcurrentHashMap<>();
     private final Map<String, LongAdder> hermesChatCallsByContact = new ConcurrentHashMap<>();
 
@@ -191,6 +196,11 @@ public final class ReceptionOrchestrator {
             throw new IllegalArgumentException("delay threshold must be positive");
         }
         this.delayThreshold = delayThreshold;
+    }
+
+    /** Optional additive wiring preserves existing test constructors. */
+    public void setTermsAcceptanceUseCase(TermsAcceptanceUseCase termsAcceptance) {
+        this.termsAcceptance = termsAcceptance;
     }
 
     public ReceptionOrchestrator(HermesSessionService hermes,
@@ -526,7 +536,9 @@ public final class ReceptionOrchestrator {
                         value.put("sourceMessageId", message.sourceMessageId());
                         return value;
                     }).toList();
-            byte[] canonical = RESUME_JSON.writeValueAsBytes(projection);
+            // Hermes canonical JSON keeps supplementary Unicode characters as
+            // UTF-8 rather than Jackson's escaped UTF-16 surrogate pairs.
+            byte[] canonical = RESUME_JSON.writeValueAsString(projection).getBytes(StandardCharsets.UTF_8);
             return "sha256:" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical));
         } catch (Exception failure) {
             throw new IllegalStateException("resume checksum unavailable", failure);
@@ -766,6 +778,7 @@ public final class ReceptionOrchestrator {
                 return runTurn(events, conversation, activeTurn);
             }
             return leases.withLease(resolution.sessionId(), activeTurn.id(), first.contactId(), last.eventId(),
+                    events.stream().map(InboundConversationEvent::eventId).toList(),
                     () -> runTurn(events, conversation, activeTurn));
         } catch (RuntimeException exception) {
             recordLeaseBlockIfApplicable(exception, activeTurn);
@@ -819,9 +832,15 @@ public final class ReceptionOrchestrator {
         }
         Optional<InboundConversationEvent> acceptance = events.stream()
                 .filter(event -> policy.isExplicitTermsAcceptance(event.conversationalText())).findFirst();
-        if (initial.termsStatus() == br.com.urbana.connect.domain.reception.model.TermsStatus.PRESENTED
-                && acceptance.isPresent()) {
-            beforeChat = conversations.save(policy.acceptTerms(initial, acceptance.get().occurredAt()));
+        if (beforeChat.termsStatus() == TermsStatus.PRESENTED && acceptance.isPresent()
+                && termsAcceptance != null && beforeChat.activeTermsConsentId() != null) {
+            InboundConversationEvent accepted = acceptance.get();
+            ReceptionMessage acceptanceMessage = transcript.findByEventId(accepted.eventId()).orElseThrow();
+            ReceptionConversation acceptedConversation = termsAcceptance.recordAcceptance(beforeChat,
+                    accepted.eventId(), acceptanceMessage.id(), acceptanceMessage.text(),
+                    accepted.occurredAt(), policy);
+            beforeChat = termsAcceptance.persistsConversation()
+                    ? acceptedConversation : conversations.save(acceptedConversation);
         }
         Optional<InboundConversationEvent> proof = events.stream()
                 .filter(InboundConversationEvent::isPaymentProof).findFirst();
@@ -853,10 +872,10 @@ public final class ReceptionOrchestrator {
         HermesSessionsGateway.HermesChatResult chat = chatWithDelayTracking(first.contactId(),
                 new HermesSessionsGateway.HermesChatRequest(input, images, null, null, null), turn);
         ReceptionConversation canonical = conversations.findByContactId(first.contactId()).orElse(beforeChat);
-        if (canonical.termsStatus() == br.com.urbana.connect.domain.reception.model.TermsStatus.PRESENTED
-                && acceptance.isPresent()) {
-            canonical = conversations.save(policy.acceptTerms(canonical, acceptance.get().occurredAt()));
-        }
+        // An inbound message cannot accept terms that Hermes has only just
+        // prepared in this same turn.  Only the pre-chat checkpoint above may
+        // consume an acceptance, and only for terms already visible to the
+        // person before this inbound event.
         List<br.com.urbana.connect.domain.reception.model.DomainToolInvocation> ledger = invocations == null
                 ? List.of() : invocations.findByTurnId(turn.id());
         // The handoff tool may have changed the authoritative conversation
@@ -891,7 +910,15 @@ public final class ReceptionOrchestrator {
         }
         String customerMessage = ensureInitialPresentation(canonical, output.message());
         output = new AgentOutput(customerMessage, output.nextAction());
-        appendOutbound(canonical, last.eventId() + ":outbound", turn.correlationId(), customerMessage);
+        if (hasNewerInboundThan(canonical, last)) {
+            ReceptionTurn stale = turn.failSafeToRetry("STALE_INBOUND_BEFORE_PUBLICATION", clock.instant());
+            turns.save(stale);
+            metrics.recordTurn(stale, ledger);
+            return new TurnReceipt(last.eventId(), turn.correlationId(), TurnStatus.FAILED_SAFE_TO_RETRY,
+                    null, "STALE_INBOUND_BEFORE_PUBLICATION");
+        }
+        ReceptionMessage outbound = appendOutbound(canonical, last.eventId() + ":outbound", turn.correlationId(), customerMessage);
+        canonical = recordTermsPresentationIfNeeded(canonical, ledger, turn, outbound);
         ReceptionTurn completed = turn.complete(chat.usage(), clock.instant(), output);
         turns.save(completed);
         metrics.recordTurn(completed, ledger);
@@ -1124,13 +1151,50 @@ public final class ReceptionOrchestrator {
                 || normalized.contains("unavailable");
     }
 
-    private void appendOutbound(ReceptionConversation conversation, String eventId,
+    private ReceptionMessage appendOutbound(ReceptionConversation conversation, String eventId,
                                 String correlationId, String text) {
         ReceptionMessage message = new ReceptionMessage(UUID.randomUUID().toString(),
                 ReceptionEventIds.outbound(eventId, correlationId), correlationId,
                 conversation.id(), conversation.contactId(), ReceptionMessageDirection.OUTBOUND,
                 ReceptionMessageSender.URBA, ReceptionMessageType.TEXT, text, null, null, clock.instant());
         transcript.appendIfAbsent(message);
+        return transcript.findByEventId(message.eventId()).orElse(message);
+    }
+
+    private ReceptionConversation recordTermsPresentationIfNeeded(ReceptionConversation conversation,
+                                                                   List<br.com.urbana.connect.domain.reception.model.DomainToolInvocation> ledger,
+                                                                   ReceptionTurn turn, ReceptionMessage outbound) {
+        if (termsAcceptance == null || conversation.termsStatus() != TermsStatus.PRESENTED
+                || conversation.activeTermsConsentId() != null || conversation.contractingUnitId() == null
+                || conversation.environmentLabel() == null || conversation.environmentSourceMessageId() == null) {
+            return conversation;
+        }
+        Optional<br.com.urbana.connect.domain.reception.model.DomainToolInvocation> invocation = ledger.stream()
+                .filter(value -> value.toolName() == DomainToolName.PREPARE_TERMS)
+                .filter(value -> value.status() == br.com.urbana.connect.domain.reception.model.DomainToolInvocationStatus.SUCCEEDED)
+                .reduce((first, last) -> last);
+        if (invocation.isEmpty()) return conversation;
+        Object payload = invocation.get().resultPayload();
+        String resource = payload instanceof Map<?, ?> map && map.get("url") != null ? map.get("url").toString() : null;
+        if (resource == null || resource.isBlank()
+                || outbound.text() == null || !outbound.text().contains(resource)) return conversation;
+        String presentationId = "terms:" + conversation.id() + ":" + conversation.contractingUnitId()
+                + ":" + invocation.get().id();
+        TermsConsentAudit audit = new TermsConsentAudit(presentationId, conversation.id(), conversation.contactId(),
+                turn.id(), conversation.contractingUnitId(), conversation.environmentLabel(),
+                conversation.environmentSourceMessageId(), conversation.selectedService(), resource, null,
+                invocation.get().id(), outbound.id(), outbound.createdAt(), null, null, null, null, outbound.createdAt(),
+                TermsConsentStatus.PRESENTED, conversation.version(), null);
+        termsAcceptance.recordPresentation(audit);
+        return conversations.save(conversation.activateTermsConsent(presentationId, outbound.createdAt()));
+    }
+
+    /** Prevents a delayed turn from replying after a newer inbound was persisted. */
+    private boolean hasNewerInboundThan(ReceptionConversation conversation, InboundConversationEvent processed) {
+        return transcript.findByConversationId(conversation.id()).stream()
+                .filter(message -> message.direction() == ReceptionMessageDirection.INBOUND)
+                .anyMatch(message -> !message.eventId().equals(processed.eventId())
+                        && message.createdAt().isAfter(processed.occurredAt()));
     }
 
     /**

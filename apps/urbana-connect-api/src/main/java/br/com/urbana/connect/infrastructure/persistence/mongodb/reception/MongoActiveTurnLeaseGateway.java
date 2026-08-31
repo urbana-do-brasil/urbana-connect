@@ -264,6 +264,7 @@ public class MongoActiveTurnLeaseGateway implements ActiveTurnLeaseGateway {
                 .set("turnId", lease.turnId())
                 .set("contactId", lease.contactId())
                 .set("sourceMessageId", lease.sourceMessageId())
+                .set("sourceMessageIds", lease.sourceMessageIds())
                 .set("status", lease.status())
                 .set("acquiredAt", lease.acquiredAt())
                 .set("expiresAt", lease.expiresAt())
@@ -285,6 +286,7 @@ public class MongoActiveTurnLeaseGateway implements ActiveTurnLeaseGateway {
         document.setTurnId(lease.turnId());
         document.setContactId(lease.contactId());
         document.setSourceMessageId(lease.sourceMessageId());
+        document.setSourceMessageIds(lease.sourceMessageIds());
         document.setStatus(lease.status());
         document.setAcquiredAt(lease.acquiredAt());
         document.setExpiresAt(lease.expiresAt());
@@ -297,7 +299,9 @@ public class MongoActiveTurnLeaseGateway implements ActiveTurnLeaseGateway {
     private ActiveTurnLease toDomain(ActiveTurnLeaseDocument document) {
         return new ActiveTurnLease(document.getHermesSessionId(), document.getTurnId(), document.getContactId(),
                 document.getSourceMessageId(), document.getStatus(), document.getAcquiredAt(),
-                document.getExpiresAt(), document.getRevokedAt(), document.getVersion(), document.getClaimToken());
+                document.getExpiresAt(), document.getRevokedAt(), document.getVersion(), document.getClaimToken(),
+                document.getSourceMessageIds() == null || document.getSourceMessageIds().isEmpty()
+                        ? java.util.List.of(document.getSourceMessageId()) : document.getSourceMessageIds());
     }
 
     private static void require(String value, String field) {

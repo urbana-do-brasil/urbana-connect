@@ -135,7 +135,7 @@ test.describe('qualidade conversacional ao vivo', () => {
         latestProjection,
       );
       const initialIcpReply = lastOutboundTextFor(latestProjection, /quero contratar|contratar o decor pintura/i);
-      evidence.icpPrompt = hasAllIcpTopics(initialIcpReply)
+      evidence.icpPrompt = hasExactlyOneIcpTopic(initialIcpReply)
         && !hasTermsBeenPresented(latestProjection)
         && !hasPaymentBeenPrepared(latestProjection);
       evidence.observations.push(`campos solicitados no primeiro checkpoint: ${icpTopics(initialIcpReply).join(', ') || 'nenhum sinal semântico'}`);
@@ -143,11 +143,11 @@ test.describe('qualidade conversacional ao vivo', () => {
       latestProjection = await sendAndWait(
         page,
         alias,
-        'Pode me chamar de Dani.',
+        'Prefiro que use ela/dela.',
         latestProjection,
       );
-      const partialIcpReply = lastOutboundTextFor(latestProjection, /pode me chamar de dani/i);
-      evidence.partialIcp = hasRemainingIcpTopics(partialIcpReply)
+      const partialIcpReply = lastOutboundTextFor(latestProjection, /prefiro que use ela\/dela/i);
+      evidence.partialIcp = hasExactlyOneIcpTopic(partialIcpReply)
         && !hasTopic(partialIcpReply, 'pronoun');
       evidence.observations.push(`campos restantes após resposta parcial: ${icpTopics(partialIcpReply).join(', ') || 'nenhum sinal semântico'}`);
 
@@ -167,12 +167,7 @@ test.describe('qualidade conversacional ao vivo', () => {
         && paymentStatus(latestProjection) === 'NOT_STARTED'
         && !paymentInstructionPattern.test(normalize(ambiguousReply));
 
-      latestProjection = await sendAndWait(
-        page,
-        alias,
-        'Aceito claramente os termos apresentados e quero seguir com a contratação.',
-        latestProjection,
-      );
+      latestProjection = await sendAndWait(page, alias, 'Aceito', latestProjection);
       evidence.clearAcceptance = termsStatus(latestProjection) === 'ACCEPTED'
         && paymentStatus(latestProjection) === 'NOT_STARTED';
 
@@ -547,10 +542,11 @@ function hasServiceComparison(projection: Projection): boolean {
 function hasCatalogExplanation(projection: Projection): boolean {
   const text = normalize(repliesAfterCustomerQuestion(projection, /como funciona|detalhar entregas|o que eu recebo|processo|suporte/i).join('\n'));
   return /consultoria\s+online|online.*consultoria/.test(text)
-    && /manual/.test(text)
+    && /manual\s+do\s+espaco|manual/.test(text)
     && /tour\s+virtual/.test(text)
     && /(?:3|tres)\s+op(?:c|ç)oes?/.test(text)
-    && /(?:2|duas)\s+rodadas?/.test(text);
+    && /(?:2|duas)\s+rodadas?/.test(text)
+    && /suporte/.test(text);
 }
 
 function hasNoCommercialAdvance(projection: Projection): boolean {
@@ -559,13 +555,8 @@ function hasNoCommercialAdvance(projection: Projection): boolean {
     && ownership(projection) === 'URBA';
 }
 
-function hasAllIcpTopics(text: string): boolean {
-  return icpTopics(text).length === 3;
-}
-
-function hasRemainingIcpTopics(text: string): boolean {
-  const topics = icpTopics(text);
-  return topics.length > 0 && topics.length < 3;
+function hasExactlyOneIcpTopic(text: string): boolean {
+  return icpTopics(text).length === 1;
 }
 
 function icpTopics(text: string): string[] {
@@ -575,7 +566,9 @@ function icpTopics(text: string): string[] {
 function hasTopic(text: string, topic: 'pronoun' | 'firstTimeHiring' | 'occupation'): boolean {
   const normalized = normalize(text);
   if (topic === 'pronoun') {
-    return /pronome|tratamento|refir|cham[ae]d|senhor|senhora/.test(normalized);
+    // Keep `prefiro` (a valid refusal/example in the first-time question)
+    // from being mistaken for the pronoun stem `refir`.
+    return /\b(?:pronome|tratamento|refira|referir|chamad[ao]|senhor|senhora)\b/.test(normalized);
   }
   if (topic === 'firstTimeHiring') {
     return /primeir|contrat(ou|ar|a).*vez|ja.*contrat/.test(normalized);

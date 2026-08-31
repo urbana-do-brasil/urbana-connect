@@ -24,10 +24,10 @@ public record ServiceCatalogItem(
         boolean available) {
 
     private static final List<String> COMMON_DELIVERABLES = List.of(
-            "Manual PDF",
+            "Manual do Espaço em PDF",
             "Tour Virtual",
             "3 opções de solução",
-            "2 rodadas consolidadas");
+            "2 rodadas de alterações ou ajustes");
 
     private static final List<String> COMMON_PROCESS = List.of(
             "briefing",
@@ -41,7 +41,7 @@ public record ServiceCatalogItem(
             "7 dias úteis a partir do início da produção",
             "pausa do prazo enquanto o cliente estiver pendente de feedback ou aprovação",
             "aprovação final explícita",
-            "entrega por e-mail do Manual PDF e do Tour Virtual",
+            "entrega por e-mail do Manual do Espaço em PDF e do Tour Virtual",
             "suporte de 3 meses pelo WhatsApp");
 
     private static final List<String> COMMON_RESPONSIBILITIES = List.of(
@@ -147,7 +147,7 @@ public record ServiceCatalogItem(
                         ServiceType.DECOR_REFORMA,
                         "Decor Reforma",
                         "🧱",
-                        "Solução para reforma interna; demandas técnicas específicas dependem de avaliação da arquiteta.",
+                        "Consultoria online para reforma de ambiente interno. Atende até 20 m² por ambiente contratado; mudanças técnicas dependem de avaliação da arquiteta e cada ambiente recebe sua própria solução.",
                         new BigDecimal("450.00"),
                         AreaRule.UP_TO_20_SQM_PER_ENVIRONMENT,
                         "decor-reforma"));
@@ -178,9 +178,20 @@ public record ServiceCatalogItem(
                 COMMON_DELIVERABLES,
                 COMMON_PROCESS,
                 COMMON_RESPONSIBILITIES,
-                COMMON_EXCLUSIONS,
-                "Suporte de 3 meses após a entrega para dúvidas sobre o Manual e cores, sem visita ou gestão de obra.",
+                exclusionsFor(type),
+                "Suporte de 3 meses após a entrega pelo WhatsApp para dúvidas sobre o Manual e cores, sem visita e sem gestão de obra.",
                 true);
+    }
+
+    private static List<String> exclusionsFor(ServiceType type) {
+        if (type == ServiceType.DECOR_REFORMA) {
+            return List.of(
+                    "A Urbana presta consultoria online e não executa a obra.",
+                    "A Urbana não compra materiais nem contrata profissionais.",
+                    "Demandas estruturais, elétricas, hidráulicas, de gás, ART/RRT, projeto legal ou aprovações dependem de avaliação da arquiteta.",
+                    "O suporte não inclui visita, gestão de obra ou garantia do resultado.");
+        }
+        return COMMON_EXCLUSIONS;
     }
 
     private static List<String> immutableCopy(List<String> values) {

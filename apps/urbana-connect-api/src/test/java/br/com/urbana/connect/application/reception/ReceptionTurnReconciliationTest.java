@@ -3,11 +3,20 @@ package br.com.urbana.connect.application.reception;
 import br.com.urbana.connect.domain.reception.model.AgentUsage;
 import br.com.urbana.connect.domain.reception.model.ActiveTurnLease;
 import br.com.urbana.connect.domain.reception.model.ReceptionConversation;
+import br.com.urbana.connect.domain.reception.model.CommercialStage;
+import br.com.urbana.connect.domain.reception.model.PaymentStatus;
+import br.com.urbana.connect.domain.reception.model.ReceptionMode;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessage;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessageDirection;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessageSender;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessageType;
 import br.com.urbana.connect.domain.reception.model.ReceptionTurn;
+import br.com.urbana.connect.domain.reception.model.TermsConsentAudit;
+import br.com.urbana.connect.domain.reception.model.TermsConsentStatus;
+import br.com.urbana.connect.domain.reception.model.TermsStatus;
+import br.com.urbana.connect.domain.reception.model.DomainToolInvocation;
+import br.com.urbana.connect.domain.reception.model.DomainToolInvocationStatus;
+import br.com.urbana.connect.domain.reception.model.DomainToolName;
 import br.com.urbana.connect.domain.reception.port.out.AgentSessionLinkGateway;
 import br.com.urbana.connect.domain.reception.port.out.ActiveTurnLeaseGateway;
 import br.com.urbana.connect.domain.reception.port.out.CustomerFactGateway;
@@ -16,13 +25,17 @@ import br.com.urbana.connect.domain.reception.port.out.HermesSessionsGateway.Her
 import br.com.urbana.connect.domain.reception.port.out.ReceptionConversationGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTranscriptGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTurnGateway;
+import br.com.urbana.connect.domain.reception.port.out.DomainToolInvocationGateway;
+import br.com.urbana.connect.domain.reception.port.out.TermsConsentAuditGateway;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -63,10 +76,12 @@ class ReceptionTurnReconciliationTest {
                 new HermesSessionService(sessions, new EmptyLinks()), conversations, transcript, turns,
                 Clock.fixed(NOW.plusSeconds(3), ZoneOffset.UTC));
 
-        assertThat(service.reconcile("turn-1")).contains("resposta tardia");
+        assertThat(service.reconcile("turn-1")).hasValueSatisfying(value ->
+                assertThat(value).contains("resposta tardia"));
         assertThat(service.reconcile("turn-1")).isEmpty();
         assertThat(transcript.messages).filteredOn(message -> message.direction() == ReceptionMessageDirection.OUTBOUND)
-                .singleElement().extracting(ReceptionMessage::text).isEqualTo("resposta tardia");
+                .singleElement().extracting(ReceptionMessage::text)
+                .satisfies(value -> assertThat(value.toString()).contains("resposta tardia"));
         assertThat(turns.value.status().name()).isEqualTo("COMPLETED");
     }
 
@@ -126,7 +141,8 @@ class ReceptionTurnReconciliationTest {
                 new HermesSessionService(sessions, new EmptyLinks()), conversations, transcript, turns,
                 Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC), leases);
 
-        assertThat(service.reconcile("turn-3")).contains("resposta tardia");
+        assertThat(service.reconcile("turn-3")).hasValueSatisfying(value ->
+                assertThat(value).contains("resposta tardia"));
         verify(gateway).revoke(eq("session-1"), eq("turn-3"), any(Instant.class));
         assertThat(transcript.messages).filteredOn(message ->
                 message.direction() == ReceptionMessageDirection.OUTBOUND).hasSize(1);
@@ -173,6 +189,100 @@ class ReceptionTurnReconciliationTest {
                 .isEqualTo("Vou encaminhar sua conversa para a arquiteta, que continuará com você por aqui.");
     }
 
+    @Test
+    void reconciledTermsTextIsPublishedOnlyWithDurablePresentationEvidence() {
+        MemoryTurns turns = new MemoryTurns();
+        ReceptionTurn turn = ReceptionTurn.queued("turn-terms", "corr-terms", "poc:ana", "session-1",
+                List.of("message-terms"), NOW, "cursor-1|1")
+                .start(NOW).reconcile("HERMES_TIMEOUT_AFTER_DISPATCH", NOW.plusSeconds(1));
+        turns.save(turn);
+        MemoryConversation conversations = new MemoryConversation();
+        ReceptionConversation presented = ReceptionConversation.start("conversation-terms", "poc:ana", NOW)
+                .bindContractingUnit("unit-1", "sala", "message-environment", NOW)
+                .selectService("DECOR_INTERIORES", NOW)
+                .presentTerms(NOW);
+        conversations.value = presented;
+        MemoryTranscript transcript = new MemoryTranscript();
+        transcript.messages.add(new ReceptionMessage("message-terms", "event-terms", "corr-terms",
+                "conversation-terms", "poc:ana", ReceptionMessageDirection.INBOUND,
+                ReceptionMessageSender.CONTACT, ReceptionMessageType.TEXT, "aguardo os termos", null, null, NOW));
+        CommercialPolicyService policy = new CommercialPolicyService();
+        String termsUrl = policy.termsUrl("DECOR_INTERIORES");
+        MemoryAudits audits = new MemoryAudits();
+        DomainToolInvocation invocation = new DomainToolInvocation("invocation-terms", "key-terms", "turn-terms",
+                "session-1", "poc:ana", DomainToolName.PREPARE_TERMS, "hash", DomainToolInvocationStatus.SUCCEEDED,
+                "OK", Map.of("status", "PRESENTED", "url", termsUrl), NOW, NOW.plusSeconds(1));
+        MemoryInvocations invocations = new MemoryInvocations(invocation);
+        ReceptionTurnReconciliationService service = new ReceptionTurnReconciliationService(
+                new HermesSessionService(new TermsSessions(termsUrl), new EmptyLinks()), conversations, transcript,
+                turns, Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC), null, policy,
+                new TermsAcceptanceUseCase(audits, conversations), invocations);
+
+        assertThat(service.reconcile("turn-terms")).hasValueSatisfying(value ->
+                assertThat(value).contains(termsUrl));
+        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
+        assertThat(conversations.value.activeTermsConsentId()).isNotBlank();
+        assertThat(audits.findByPresentationId(conversations.value.activeTermsConsentId()))
+                .hasValueSatisfying(audit -> assertThat(audit.status()).isEqualTo(TermsConsentStatus.PRESENTED));
+    }
+
+    @Test
+    void invalidPreparedPaymentOutputFallsBackToPocQuantityAndProofGuidance() {
+        MemoryTurns turns = new MemoryTurns();
+        ReceptionTurn turn = ReceptionTurn.queued("turn-payment", "corr-payment", "poc:ana", "session-1",
+                        List.of("message-payment"), NOW, "cursor-1|1")
+                .start(NOW)
+                .reconcile("HERMES_TIMEOUT_AFTER_DISPATCH", NOW.plusSeconds(1));
+        turns.save(turn);
+        MemoryConversation conversations = new MemoryConversation();
+        conversations.value = new ReceptionConversation("conversation-payment", "poc:ana", ReceptionMode.AI,
+                CommercialStage.PAYMENT, "DECOR_INTERIORES", TermsStatus.ACCEPTED, PaymentStatus.PREPARED,
+                null, NOW, NOW, 1);
+        MemoryTranscript transcript = new MemoryTranscript();
+        transcript.messages.add(new ReceptionMessage("message-payment", "event-payment", "corr-payment",
+                "conversation-payment", "poc:ana", ReceptionMessageDirection.INBOUND,
+                ReceptionMessageSender.CONTACT, ReceptionMessageType.TEXT, "Como faço o pagamento?",
+                null, null, NOW));
+        HermesSessionsGateway sessions = new HermesSessionsGateway() {
+            @Override public String createSession(String contactId) { return "session-1"; }
+            @Override public HermesChatResult chat(String sessionId, HermesChatRequest request) {
+                throw new AssertionError("must not dispatch");
+            }
+            @Override public List<HermesHistoryMessage> history(String sessionId) { return List.of(); }
+            @Override public HermesHistorySnapshot historySnapshot(String sessionId) {
+                return new HermesHistorySnapshot("cursor-2", List.of(
+                        new HermesHistoryMessage("user", "Como faço o pagamento?"),
+                        new HermesHistoryMessage("assistant",
+                                "{\"message\":\"Pague agora.\",\"nextAction\":\"AWAIT_PAYMENT_PROOF\"}")));
+            }
+        };
+        ReceptionTurnReconciliationService service = new ReceptionTurnReconciliationService(
+                new HermesSessionService(sessions, new EmptyLinks()), conversations, transcript, turns,
+                Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC), null, new CommercialPolicyService(), null, null);
+
+        assertThat(service.reconcile("turn-payment")).hasValueSatisfying(value -> assertThat(value)
+                .contains("simulação", "1 serviço para cada ambiente contratado", "comprovante")
+                .doesNotContain("Pague agora", "http"));
+        assertThat(transcript.messages).filteredOn(message -> message.direction() == ReceptionMessageDirection.OUTBOUND)
+                .singleElement().extracting(ReceptionMessage::text)
+                .satisfies(value -> assertThat(value.toString())
+                        .contains("simulação", "1 serviço para cada ambiente contratado", "comprovante"));
+    }
+
+    private static final class TermsSessions implements HermesSessionsGateway {
+        private final String termsUrl;
+        private TermsSessions(String termsUrl) { this.termsUrl = termsUrl; }
+        @Override public String createSession(String contactId) { return "session-1"; }
+        @Override public HermesChatResult chat(String sessionId, HermesChatRequest request) { throw new AssertionError(); }
+        @Override public List<HermesHistoryMessage> history(String sessionId) { return List.of(); }
+        @Override public HermesHistorySnapshot historySnapshot(String sessionId) {
+            return new HermesHistorySnapshot("cursor-2", List.of(
+                    new HermesHistoryMessage("user", "aguardo os termos"),
+                    new HermesHistoryMessage("assistant", "{\"message\":\"Confira os termos: "
+                            + termsUrl + "\",\"nextAction\":\"AWAIT_CUSTOMER\"}")));
+        }
+    }
+
     private static final class EmptyLinks implements AgentSessionLinkGateway {
         @Override public Optional<br.com.urbana.connect.domain.reception.model.AgentSessionLink> findActiveByContactId(String contactId) { return Optional.empty(); }
         @Override public Optional<br.com.urbana.connect.domain.reception.model.AgentSessionLink> findBySessionId(String sessionId) { return Optional.empty(); }
@@ -202,5 +312,39 @@ class ReceptionTurnReconciliationTest {
         @Override public ReceptionTurn save(ReceptionTurn turn) { return value = turn; }
         @Override public Optional<ReceptionTurn> findById(String turnId) { return Optional.ofNullable(value); }
         @Override public Optional<ReceptionTurn> findByInboundMessageId(String messageId) { return Optional.ofNullable(value); }
+    }
+
+    private static final class MemoryAudits implements TermsConsentAuditGateway {
+        private final Map<String, TermsConsentAudit> values = new HashMap<>();
+        @Override public Optional<TermsConsentAudit> findByPresentationId(String id) {
+            return Optional.ofNullable(values.get(id));
+        }
+        @Override public Optional<TermsConsentAudit> findPresented(String conversationId, String unitId) {
+            return values.values().stream().filter(value -> value.conversationId().equals(conversationId)
+                    && value.contractingUnitId().equals(unitId)
+                    && value.status() == TermsConsentStatus.PRESENTED).findFirst();
+        }
+        @Override public TermsConsentAudit savePresentationIfAbsent(TermsConsentAudit audit) {
+            return values.computeIfAbsent(audit.presentationId(), ignored -> audit);
+        }
+        @Override public TermsConsentAudit acceptIfPresented(String id, String eventId, String messageId,
+                                                             String text, long version, Instant at) {
+            TermsConsentAudit current = findByPresentationId(id).orElseThrow();
+            TermsConsentAudit accepted = current.accept(messageId, eventId, text, at, version);
+            values.put(id, accepted);
+            return accepted;
+        }
+    }
+
+    private static final class MemoryInvocations implements DomainToolInvocationGateway {
+        private final DomainToolInvocation invocation;
+        private MemoryInvocations(DomainToolInvocation invocation) { this.invocation = invocation; }
+        @Override public Optional<DomainToolInvocation> findByIdempotencyKey(String key) {
+            return invocation.idempotencyKey().equals(key) ? Optional.of(invocation) : Optional.empty();
+        }
+        @Override public DomainToolInvocation save(DomainToolInvocation value) { return value; }
+        @Override public List<DomainToolInvocation> findByTurnId(String turnId) {
+            return invocation.turnId().equals(turnId) ? List.of(invocation) : List.of();
+        }
     }
 }

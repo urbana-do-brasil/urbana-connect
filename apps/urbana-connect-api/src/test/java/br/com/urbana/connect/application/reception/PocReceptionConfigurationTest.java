@@ -15,6 +15,7 @@ import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.Spring
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataAgentSessionLinkRepository;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataDomainToolInvocationRepository;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataPocPendingEventRepository;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataTermsConsentAuditRepository;
 import br.com.urbana.connect.interfaces.rest.poc.DomainToolController;
 import br.com.urbana.connect.interfaces.rest.poc.ConversationSimulatorController;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ class PocReceptionConfigurationTest {
         SpringDataReceptionMessageRepository messageRepository = mock(SpringDataReceptionMessageRepository.class);
         SpringDataReceptionTurnRepository turnRepository = mock(SpringDataReceptionTurnRepository.class);
         SpringDataPocPendingEventRepository pendingEventRepository = mock(SpringDataPocPendingEventRepository.class);
+        SpringDataTermsConsentAuditRepository termsConsentAuditRepository = mock(SpringDataTermsConsentAuditRepository.class);
         new ApplicationContextRunner()
                 .withUserConfiguration(PocReceptionConfiguration.class, ControllerConfiguration.class)
                 .withBean(SpringDataActiveTurnLeaseRepository.class, () -> leaseRepository)
@@ -55,6 +57,7 @@ class PocReceptionConfigurationTest {
                 .withBean(SpringDataReceptionMessageRepository.class, () -> messageRepository)
                 .withBean(SpringDataReceptionTurnRepository.class, () -> turnRepository)
                 .withBean(SpringDataPocPendingEventRepository.class, () -> pendingEventRepository)
+                .withBean(SpringDataTermsConsentAuditRepository.class, () -> termsConsentAuditRepository)
                 .withBean(MongoTemplate.class, () -> mongoTemplate)
                 .withBean(WhatsAppMessageGateway.class, () -> mock(WhatsAppMessageGateway.class))
                 .withBean(RestClient.Builder.class, RestClient::builder)
@@ -77,6 +80,9 @@ class PocReceptionConfigurationTest {
                     assertThat(context).hasSingleBean(ReceptionTurnReconciliationService.class);
                     assertThat(context).hasSingleBean(PocReceptionWorker.class);
                     assertThat(context).hasSingleBean(DomainToolService.class);
+                    assertThat(context).hasSingleBean(TermsAcceptanceUseCase.class);
+                    assertThat(context).hasSingleBean(
+                            br.com.urbana.connect.domain.reception.port.out.TermsConsentAuditGateway.class);
                     assertThat(context.getBean(DomainToolService.class)).isInstanceOf(StatefulDomainToolService.class);
                     assertThat(context).hasSingleBean(ActiveTurnLeaseService.class);
                     assertThat(ReflectionTestUtils.getField(context.getBean(ReceptionOrchestrator.class), "delayThreshold"))

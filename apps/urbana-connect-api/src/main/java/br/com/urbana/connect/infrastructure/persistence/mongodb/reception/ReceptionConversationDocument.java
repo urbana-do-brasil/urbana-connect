@@ -36,4 +36,8 @@ public class ReceptionConversationDocument {
     private String resumeDecisionAction;
     private String resumeDecisionMessage;
     private String resumeFailureCode;
+    private String contractingUnitId;
+    private String environmentLabel;
+    private String environmentSourceMessageId;
+    private String activeTermsConsentId;
 }

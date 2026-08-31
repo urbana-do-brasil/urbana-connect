@@ -17,6 +17,8 @@ class CustomerFactTypeTest {
         assertThat(CustomerFactType.OCCUPATION.isIcpField()).isTrue();
         assertThat(CustomerFactType.NEED.isIcpField()).isFalse();
         assertThat(CustomerFactType.SELECTED_SERVICE.isIcpField()).isFalse();
+        assertThat(CustomerFactType.ENVIRONMENT.isIcpField()).isFalse();
+        assertThat(CustomerFactType.isAllowed("environment")).isTrue();
 
         assertThat(CustomerFactType.icpFieldNames())
                 .containsExactly("PRONOUN_PREFERENCE", "FIRST_TIME_HIRING", "OCCUPATION");

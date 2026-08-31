@@ -22,6 +22,20 @@ class CommercialPolicyServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-05T12:00:00Z");
 
     @Test
+    void rejectsPreparedPaymentOutputWithoutQuantityAndProofCopyButAllowsTheRequiredGuidance() {
+        CommercialPolicyService policy = new CommercialPolicyService();
+        ReceptionConversation prepared = new ReceptionConversation("conversation-1", "contact-1",
+                ReceptionMode.AI, CommercialStage.PAYMENT, "DECOR", TermsStatus.ACCEPTED,
+                PaymentStatus.PREPARED, null, NOW, NOW, 1);
+        assertThatThrownBy(() -> policy.reconcileOutput(new AgentOutput(
+                "Acesse o link de pagamento.", AgentNextAction.AWAIT_PAYMENT_PROOF), prepared))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("quantity");
+        assertThat(policy.reconcileOutput(new AgentOutput(
+                "No link da POC, considere 1 serviço para cada ambiente contratado. Depois, envie o comprovante por aqui.",
+                AgentNextAction.AWAIT_PAYMENT_PROOF), prepared).message()).contains("1 serviço");
+    }
+
+    @Test
     void allowsTermsAndPaymentWithoutOptionalIcpAndKeepsHumanApprovalBeforeBriefing() {
         CommercialPolicyService policy = new CommercialPolicyService();
         ReceptionConversation conversation = ReceptionConversation.start("contact-1", NOW);
@@ -60,6 +74,20 @@ class CommercialPolicyServiceTest {
         conversation = policy.approvePaymentProof(conversation, NOW);
         assertThat(conversation.paymentStatus()).isEqualTo(PaymentStatus.CONFIRMED);
         assertThat(policy.briefingFor(conversation)).containsIgnoringCase("briefing").contains("DECOR_INTERIORES");
+    }
+
+    @Test
+    void reopensLegacyAcceptedConversationWithoutConsentEvidence() {
+        CommercialPolicyService policy = new CommercialPolicyService();
+        ReceptionConversation legacy = policy.acceptTerms(policy.presentTerms(
+                policy.selectService(ReceptionConversation.start("contact-1", NOW), "DECOR", NOW),
+                List.of(), NOW), NOW);
+        ReceptionConversation presentedAgain = policy.presentTerms(legacy, List.of(), NOW.plusSeconds(1));
+
+        assertThat(presentedAgain.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
+        assertThat(presentedAgain.activeTermsConsentId()).isNull();
+        assertThat(presentedAgain.paymentStatus()).isEqualTo(PaymentStatus.NOT_STARTED);
+        assertThat(presentedAgain.commercialStage()).isEqualTo(CommercialStage.TERMS);
     }
 
     @Test
@@ -129,7 +157,7 @@ class CommercialPolicyServiceTest {
 
         policy.services().forEach(service -> {
             assertThat(service.deliverables())
-                    .containsExactly("Manual PDF", "Tour Virtual", "3 opções de solução", "2 rodadas consolidadas");
+                    .containsExactly("Manual do Espaço em PDF", "Tour Virtual", "3 opções de solução", "2 rodadas de alterações ou ajustes");
             assertThat(service.process()).anyMatch(value -> value.equals("briefing"));
             assertThat(service.process()).anyMatch(value -> value.equals("medidas, fotos e vídeos"));
             assertThat(service.process()).anyMatch(value -> value.contains("Google Meet"));
@@ -261,13 +289,36 @@ class CommercialPolicyServiceTest {
     }
 
     @Test
-    void acceptsClearTermsWithNaturalQualifiersButNotBareAcceptance() {
+    void acceptsClearTermsIncludingBareAcceptanceOnlyWhenTheConversationAlreadyPresentedTerms() {
         CommercialPolicyService policy = new CommercialPolicyService();
 
-        assertThat(policy.isExplicitTermsAcceptance(
-                "Aceito claramente os termos apresentados e quero seguir com a contratação.")).isTrue();
-        assertThat(policy.isExplicitTermsAcceptance("Aceito")).isFalse();
-        assertThat(policy.isExplicitTermsAcceptance("Não aceito os termos.")).isFalse();
+        List.of(
+                new AcceptanceCase("Aceito claramente os termos apresentados e quero seguir com a contratação.", true),
+                new AcceptanceCase(" Aceito! ", true),
+                new AcceptanceCase("ACEITO, quero pagar no cartão", true),
+                new AcceptanceCase("aceito os termos", true),
+                new AcceptanceCase("Não aceito os termos.", false),
+                new AcceptanceCase("talvez", false),
+                new AcceptanceCase("Aceito depois", false),
+                new AcceptanceCase("Aceito, mas vou pensar", false),
+                new AcceptanceCase("Aceito ler os termos", false),
+                new AcceptanceCase("Aceito analisar os termos", false),
+                new AcceptanceCase("Aceito revisar os termos", false),
+                new AcceptanceCase("Aceito avaliar os termos", false),
+                new AcceptanceCase("Aceito verificar os termos", false),
+                new AcceptanceCase("Aceito refletir sobre os termos", false),
+                new AcceptanceCase("Concordo com ler os termos", false),
+                new AcceptanceCase("Aceito os termos, vou ler", false),
+                new AcceptanceCase("Aceito os termos, mas vou analisar", false),
+                new AcceptanceCase("Aceito os termos, mas pretendo revisar", false),
+                new AcceptanceCase("Aceito os termos, vou ler depois", false),
+                new AcceptanceCase("Aceito pensar", false))
+                .forEach(testCase -> assertThat(policy.isExplicitTermsAcceptance(testCase.text()))
+                        .as("acceptance text: %s", testCase.text())
+                        .isEqualTo(testCase.expected()));
+    }
+
+    private record AcceptanceCase(String text, boolean expected) {
     }
 
     @Test
@@ -307,7 +358,7 @@ class CommercialPolicyServiceTest {
                 ReceptionMode.AI, CommercialStage.PAYMENT, "DECOR", TermsStatus.ACCEPTED,
                 PaymentStatus.PREPARED, null, NOW, NOW, 1);
         AgentOutput candidate = new AgentOutput(
-                "O pagamento via PIX está preparado. Após realizar o pagamento, envie o comprovante. "
+                "O pagamento via PIX está preparado. Considere 1 serviço para cada ambiente contratado. Após realizar o pagamento, envie o comprovante. "
                         + "O comprovante não confirma a aprovação.", AgentNextAction.AWAIT_PAYMENT_PROOF);
 
         assertThat(policy.reconcileOutput(candidate, conversation)).isEqualTo(candidate);
@@ -320,7 +371,7 @@ class CommercialPolicyServiceTest {
                 ReceptionMode.AI, CommercialStage.PAYMENT, "DECOR", TermsStatus.ACCEPTED,
                 PaymentStatus.PREPARED, null, NOW, NOW, 1);
         AgentOutput candidate = new AgentOutput(
-                "O pagamento via PIX foi preparado. Envie o comprovante; ele será analisado e aprovado "
+                "O pagamento via PIX foi preparado. Considere 1 serviço para cada ambiente contratado. Envie o comprovante; ele será analisado e aprovado "
                         + "exclusivamente pela equipe humana.", AgentNextAction.AWAIT_PAYMENT_PROOF);
 
         assertThat(policy.reconcileOutput(candidate, conversation)).isEqualTo(candidate);
@@ -333,7 +384,7 @@ class CommercialPolicyServiceTest {
                 ReceptionMode.AI, CommercialStage.PAYMENT, "DECOR", TermsStatus.ACCEPTED,
                 PaymentStatus.PREPARED, null, NOW, NOW, 1);
         AgentOutput candidate = new AgentOutput(
-                "O pagamento via PIX foi preparado: https://fixtures.urbana.local/payment/decor. "
+                "O pagamento via PIX foi preparado: https://fixtures.urbana.local/payment/decor. Considere 1 serviço para cada ambiente contratado. "
                         + "Após realizar o pagamento, envie o comprovante; ele será submetido à aprovação humana.",
                 AgentNextAction.AWAIT_PAYMENT_PROOF);
 
@@ -363,7 +414,7 @@ class CommercialPolicyServiceTest {
                 ReceptionMode.AI, CommercialStage.PAYMENT, "DECOR", TermsStatus.ACCEPTED,
                 PaymentStatus.PREPARED, null, NOW, NOW, 1);
         AgentOutput candidate = new AgentOutput(
-                "Certo. O pagamento via Pix está preparado em https://fixtures.urbana.local/payment/decor. "
+                "Certo. O pagamento via Pix está preparado em https://fixtures.urbana.local/payment/decor. Considere 1 serviço para cada ambiente contratado. "
                         + "Após pagar, envie o comprovante; a aprovação será feita exclusivamente pela equipe da Urbana.",
                 AgentNextAction.AWAIT_PAYMENT_PROOF);
 
@@ -377,7 +428,7 @@ class CommercialPolicyServiceTest {
                 ReceptionMode.AI, CommercialStage.PAYMENT, "DECOR", TermsStatus.ACCEPTED,
                 PaymentStatus.PREPARED, null, NOW, NOW, 1);
         AgentOutput candidate = new AgentOutput(
-                "O pagamento via PIX foi preparado. Após realizar o pagamento, envie o comprovante. "
+                "O pagamento via PIX foi preparado. Considere 1 serviço para cada ambiente contratado. Após realizar o pagamento, envie o comprovante. "
                         + "A confirmação depende de aprovação humana.", AgentNextAction.AWAIT_PAYMENT_PROOF);
 
         assertThat(policy.reconcileOutput(candidate, conversation)).isEqualTo(candidate);

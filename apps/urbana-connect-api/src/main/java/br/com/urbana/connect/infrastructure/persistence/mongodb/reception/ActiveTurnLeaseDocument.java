@@ -8,6 +8,7 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.util.List;
 
 @Data
 @Document(collection = "reception_active_turn_leases")
@@ -21,6 +22,7 @@ public class ActiveTurnLeaseDocument {
     @Indexed
     private String contactId;
     private String sourceMessageId;
+    private List<String> sourceMessageIds;
     private ActiveTurnLeaseStatus status;
     private Instant acquiredAt;
     // Keep EXPIRED/REVOKED tombstones. TTL deletion would allow a late

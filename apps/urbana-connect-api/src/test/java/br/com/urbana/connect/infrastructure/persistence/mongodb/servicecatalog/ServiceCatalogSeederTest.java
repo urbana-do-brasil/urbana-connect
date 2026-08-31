@@ -33,7 +33,7 @@ class ServiceCatalogSeederTest {
         assertThat(saved).allSatisfy(item -> {
             assertThat(item.isAvailable()).isTrue();
             assertThat(item.getAreaRule()).isNotNull();
-            assertThat(item.getDeliverables()).contains("Manual PDF", "Tour Virtual");
+            assertThat(item.getDeliverables()).contains("Manual do Espaço em PDF", "Tour Virtual");
             assertThat(item.getProcess()).anyMatch(value -> value.contains("Google Meet"));
             assertThat(item.getProcess()).anyMatch(value -> value.contains("7 dias úteis"));
             assertThat(item.getTermsResource()).startsWith("https://fixtures.urbana.local/");
