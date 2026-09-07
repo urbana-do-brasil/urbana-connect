@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Termos do serviço</title>
+  <link rel="stylesheet" href="/termos/terms.css">
+</head>
+<body>
+  <main class="terms-shell" aria-labelledby="page-title">
+    <header class="terms-header">
+      <p class="eyebrow">Urbana do Brasil</p>
+      <h1 id="page-title">Termos do serviço</h1>
+      <p id="service-label" class="service-label" aria-live="polite">Carregando os termos…</p>
+    </header>
+
+    <section class="terms-card" aria-labelledby="content-title">
+      <h2 id="content-title" class="sr-only">Conteúdo integral dos termos</h2>
+      <div id="terms-content" class="terms-content" tabindex="0" role="document"
+           aria-describedby="scroll-hint" aria-busy="true"></div>
+      <p id="scroll-hint" class="scroll-hint">Percorra todo o conteúdo para habilitar o aceite.</p>
+    </section>
+
+    <p id="status" class="status" role="status" aria-live="polite">Aguarde o carregamento dos termos.</p>
+    <div class="actions" aria-label="Decisão sobre os termos">
+      <button id="accept" class="button button-primary" type="button" disabled>
+        Li e aceito os termos
+      </button>
+      <button id="decline" class="button button-secondary" type="button" disabled>
+        Não aceito
+      </button>
+    </div>
+  </main>
+  <script src="/termos/terms.js" defer></script>
+</body>
+</html>

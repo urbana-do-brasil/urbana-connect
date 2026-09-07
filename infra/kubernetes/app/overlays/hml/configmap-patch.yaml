@@ -5,3 +5,13 @@ metadata:
 data:
   SPRING_PROFILES_ACTIVE: "hml"
   LOGGING_LEVEL_ROOT: "INFO"
+  # Hermes owns the HML webhook; the controller fails closed if this is not
+  # explicitly enabled. There is no legacy state-machine fallback.
+  HERMES_POC_ENABLED: "true"
+  # Keep these disabled until legal artifacts, sandbox resources and the
+  # token secret are supplied to HML.
+  TERMS_CONSENT_ENABLED: "false"
+  TERMS_CONSENT_REQUIRED: "true"
+  TERMS_PUBLIC_BASE_URL: "https://api-hml.urbanadobrasil.com"
+  CATALOG_OPERATIONAL_ENABLED: "false"
+  CATALOG_FIXTURE_FALLBACK: "false"

@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asaas Sandbox — decisões para começar</title>
+</head>
+<body>
+<main>
+<header><p class="eyebrow">PEE-107 · roteiro de decisão</p><h1>Como começar com o Asaas Sandbox</h1><p>Primeiro testamos os links no ambiente de simulação do Asaas. Com o resultado em mãos, você decide se seguimos com a integração na Urbana.</p></header>
+<div id="asaasSandboxFlow" class="asaas-flow" role="group" aria-label="Fluxo de decisões para validar o Asaas Sandbox">
+  <style>
+    #asaasSandboxFlow {
+      --flow-line: var(--border);
+      --flow-soft: color-mix(in srgb, var(--primary) 9%, var(--background));
+      --flow-smoke: color-mix(in srgb, var(--viz-series-1) 12%, var(--background));
+      --flow-hml: color-mix(in srgb, var(--viz-series-2) 12%, var(--background));
+      width: 100%;
+      color: var(--foreground);
+      font-size: var(--font-size-base);
+    }
+
+    #asaasSandboxFlow .flow-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-block-end: 0.75rem;
+    }
+
+    #asaasSandboxFlow .flow-controls .btn {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    #asaasSandboxFlow .flow-summary {
+      margin: 0 0 1rem;
+      color: var(--muted-foreground);
+    }
+
+    #asaasSandboxFlow .flow-node,
+    #asaasSandboxFlow .branch,
+    #asaasSandboxFlow .outcome {
+      min-width: 0;
+      border: 1px solid var(--flow-line);
+      border-radius: 0.75rem;
+      background: var(--flow-soft);
+      padding: 0.85rem 1rem;
+    }
+
+    #asaasSandboxFlow .flow-node {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.7rem;
+      align-items: start;
+      max-width: 40rem;
+      margin-inline: auto;
+    }
+
+    #asaasSandboxFlow .node-mark {
+      display: grid;
+      place-items: center;
+      width: 1.8rem;
+      height: 1.8rem;
+      border-radius: 50%;
+      background: var(--primary);
+      color: var(--primary-foreground);
+      font-weight: 500;
+    }
+
+    #asaasSandboxFlow .node-copy,
+    #asaasSandboxFlow .step-copy {
+      min-width: 0;
+    }
+
+    #asaasSandboxFlow .node-copy strong,
+    #asaasSandboxFlow .step-copy strong {
+      display: block;
+      font-weight: 500;
+    }
+
+    #asaasSandboxFlow .node-copy p,
+    #asaasSandboxFlow .step-copy p {
+      margin: 0.25rem 0 0;
+      color: var(--muted-foreground);
+    }
+
+    #asaasSandboxFlow .connector {
+      display: grid;
+      place-items: center;
+      height: 2rem;
+      color: var(--muted-foreground);
+      font-size: 1.2rem;
+      line-height: 1;
+    }
+
+    #asaasSandboxFlow .branch-label {
+      margin: 0 0 0.65rem;
+      text-align: center;
+      color: var(--muted-foreground);
+    }
+
+    #asaasSandboxFlow .branch-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+      align-items: start;
+    }
+
+    #asaasSandboxFlow .branch {
+      background: var(--flow-smoke);
+      border-inline-start: 3px solid var(--viz-series-1);
+      transition: opacity 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+
+    #asaasSandboxFlow .branch[data-lane="hml"] {
+      background: var(--flow-hml);
+      border-inline-start-color: var(--viz-series-2);
+    }
+
+    #asaasSandboxFlow[data-mode="smoke"] .branch[data-lane="hml"],
+    #asaasSandboxFlow[data-mode="hml"] .branch[data-lane="smoke"] {
+      opacity: 0.48;
+    }
+
+    #asaasSandboxFlow .branch-title {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      align-items: baseline;
+      margin: 0;
+      font-weight: 500;
+    }
+
+    #asaasSandboxFlow .branch-title .viz-badge {
+      white-space: nowrap;
+    }
+
+    #asaasSandboxFlow .branch-steps {
+      display: grid;
+      gap: 0.8rem;
+      list-style: none;
+      margin: 0.9rem 0 0;
+      padding: 0;
+    }
+
+    #asaasSandboxFlow .branch-steps li {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.6rem;
+      align-items: start;
+      min-width: 0;
+    }
+
+    #asaasSandboxFlow .branch-steps li:not(:last-child)::after {
+      content: "↓";
+      position: absolute;
+      inset-inline-start: 0.48rem;
+      inset-block-start: 1.65rem;
+      color: var(--muted-foreground);
+    }
+
+    #asaasSandboxFlow .step-number {
+      display: grid;
+      place-items: center;
+      width: 1.45rem;
+      height: 1.45rem;
+      border: 1px solid var(--flow-line);
+      border-radius: 50%;
+      background: var(--background);
+      color: var(--foreground);
+      font-weight: 500;
+    }
+
+    #asaasSandboxFlow .merge,
+    #asaasSandboxFlow .outcome {
+      max-width: 40rem;
+      margin-inline: auto;
+    }
+
+    #asaasSandboxFlow .merge {
+      background: var(--flow-soft);
+    }
+
+    #asaasSandboxFlow .outcome-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+      max-width: 40rem;
+      margin-inline: auto;
+    }
+
+    #asaasSandboxFlow .outcome {
+      margin: 0;
+    }
+
+    #asaasSandboxFlow .outcome[data-result="stop"] {
+      border-inline-start: 3px solid var(--destructive);
+    }
+
+    #asaasSandboxFlow .outcome[data-result="continue"] {
+      border-inline-start: 3px solid var(--viz-series-1);
+    }
+
+    #asaasSandboxFlow .flow-footer {
+      margin: 0.9rem 0 0;
+      color: var(--muted-foreground);
+      text-align: center;
+    }
+
+    @media (max-width: 640px) {
+      #asaasSandboxFlow .flow-controls .btn {
+        flex-basis: 100%;
+        white-space: normal;
+      }
+
+      #asaasSandboxFlow .branch-grid,
+      #asaasSandboxFlow .outcome-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      #asaasSandboxFlow .branch {
+        transition: none;
+      }
+    }
+  </style>
+
+  <div class="flow-controls" role="group" aria-label="Escolha o caminho a destacar">
+    <button type="button" class="btn btn-primary" data-mode="smoke" aria-pressed="true">Destacar smoke direto</button>
+    <button type="button" class="btn btn-ghost" data-mode="hml" aria-pressed="false">Destacar HML integrado</button>
+  </div>
+  <p id="asaasFlowSummary" class="flow-summary" aria-live="polite">Caminho recomendado para começar: testar o Asaas diretamente no Sandbox, sem alterar o fluxo da Urbana.</p>
+
+  <div class="flow-node" data-kind="decision">
+    <span class="node-mark" aria-hidden="true">1</span>
+    <div class="node-copy">
+      <strong>Autorizar o teste no Sandbox</strong>
+      <p>Sem produção, sem cliente real e sem cobrança real.</p>
+    </div>
+  </div>
+
+  <div class="connector" aria-hidden="true">↓</div>
+  <p class="branch-label text-small">Depois da autorização, existem dois caminhos</p>
+
+  <div class="branch-grid">
+    <section class="branch" data-lane="smoke" aria-labelledby="asaasSmokeTitle">
+      <h2 id="asaasSmokeTitle" class="branch-title">Smoke direto <span class="viz-badge">recomendado agora</span></h2>
+      <ol class="branch-steps">
+        <li>
+          <span class="step-number" aria-hidden="true">1</span>
+          <div class="step-copy"><strong>Conta Sandbox</strong><p class="text-small">Criar ou acessar a conta de teste.</p></div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">2</span>
+          <div class="step-copy"><strong>Chave protegida</strong><p class="text-small">Disponibilizar a API key fora do chat e do repositório.</p></div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">3</span>
+          <div class="step-copy"><strong>URL de retorno</strong><p class="text-small">Definir a URL HTTPS de sucesso, cancelamento e expiração.</p></div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">4</span>
+          <div class="step-copy"><strong>Formato do teste</strong><p class="text-small">Confirmar link avulso, Pix + cartão e validade de 30 minutos.</p></div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">5</span>
+          <div class="step-copy"><strong>Serviços e valores</strong><p class="text-small">Confirmar os quatro serviços e os preços que serão simulados.</p></div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">6</span>
+          <div class="step-copy"><strong>Executar</strong><p class="text-small">Criar os links, abrir no navegador e conferir valor e meios de pagamento.</p></div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="branch" data-lane="hml" aria-labelledby="asaasHmlTitle">
+      <h2 id="asaasHmlTitle" class="branch-title">HML integrado <span class="viz-badge">etapa seguinte</span></h2>
+      <ol class="branch-steps">
+        <li>
+          <span class="step-number" aria-hidden="true">1</span>
+          <div class="step-copy"><strong>Adapter pronto?</strong><p class="text-small">T041–T043 precisam estar implementadas.</p></div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">2</span>
+          <div class="step-copy"><strong>HML preparado</strong><p class="text-small">Deploy, segredo e saída HTTPS para o Sandbox.</p></div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">3</span>
+          <div class="step-copy"><strong>Fluxo operacional</strong><p class="text-small">Catálogo, termos, Hermes, WhatsApp de teste e caixa de handoff.</p></div>
+        </li>
+        <li>
+          <span class="step-number" aria-hidden="true">4</span>
+          <div class="step-copy"><strong>Executar E2E</strong><p class="text-small">Começar no WhatsApp e chegar até o link do Asaas.</p></div>
+        </li>
+      </ol>
+    </section>
+  </div>
+
+  <div class="connector" aria-hidden="true">↓</div>
+  <div class="flow-node merge">
+    <span class="node-mark" aria-hidden="true">2</span>
+    <div class="node-copy">
+      <strong>Resultado do teste</strong>
+      <p>O link foi criado, está ativo, mostra o serviço e oferece Pix/cartão?</p>
+    </div>
+  </div>
+
+  <div class="connector" aria-hidden="true">↓</div>
+  <div class="flow-node" data-kind="decision">
+    <span class="node-mark" aria-hidden="true">3</span>
+    <div class="node-copy">
+      <strong>Asaas será o provedor oficial?</strong>
+      <p>Essa é a decisão T040. O Sandbox sozinho não decide a contratação.</p>
+    </div>
+  </div>
+
+  <div class="connector" aria-hidden="true">↓</div>
+  <div class="outcome-grid">
+    <div class="outcome" data-result="stop">
+      <strong>Não ou ainda não</strong>
+      <p class="text-small">Registrar o resultado e continuar a comparação com os outros candidatos.</p>
+    </div>
+    <div class="outcome" data-result="continue">
+      <strong>Sim</strong>
+      <p class="text-small">Finalizar a integração no HML e, em outra etapa, preparar produção.</p>
+    </div>
+  </div>
+
+  <p class="flow-footer text-small">Produção exige conta, chave, contrato/taxas, URLs e controles próprios. Nada disso é necessário para o primeiro smoke.</p>
+
+  <script>
+    (() => {
+      const root = document.getElementById("asaasSandboxFlow");
+      if (!root) return;
+
+      const summary = root.querySelector("#asaasFlowSummary");
+      const buttons = root.querySelectorAll("[data-mode]");
+      const messages = {
+        smoke: "Caminho recomendado para começar: testar o Asaas diretamente no Sandbox, sem alterar o fluxo da Urbana.",
+        hml: "Caminho integrado: só seguir quando o adapter, o deploy e os recursos de HML estiverem preparados."
+      };
+
+      const setMode = (mode) => {
+        root.dataset.mode = mode;
+        buttons.forEach((button) => {
+          const selected = button.dataset.mode === mode;
+          button.setAttribute("aria-pressed", String(selected));
+          button.classList.toggle("btn-primary", selected);
+          button.classList.toggle("btn-ghost", !selected);
+        });
+        if (summary) summary.textContent = messages[mode];
+      };
+
+      buttons.forEach((button) => {
+        button.addEventListener("click", () => setMode(button.dataset.mode));
+      });
+
+      setMode("smoke");
+    })();
+  </script>
+</div>
+<style>
+:root{color-scheme:light;--background:#fff;--foreground:#183044;--primary:#1456a0;--primary-foreground:#fff;--muted-foreground:#465d70;--border:#cbd8e2;--viz-series-1:#16735e;--viz-series-2:#41638e;--destructive:#97651e;--font-size-base:17px}
+*{box-sizing:border-box}body{margin:0;background:#edf2f7;color:var(--foreground);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:17px;line-height:1.65}main{max-width:1120px;margin:auto;padding:48px 28px 64px}header{margin-bottom:32px}header .eyebrow{color:#176653;font-size:13px;letter-spacing:.12em;text-transform:uppercase;font-weight:750;margin:0 0 10px}h1{font-size:clamp(30px,4vw,44px);letter-spacing:-.035em;line-height:1.15;margin:0 0 18px}header p{max-width:800px;color:var(--muted-foreground);margin:0}.btn{font:inherit;font-size:15px;font-weight:650;padding:12px 18px;border:1px solid #b6c8d9;border-radius:9px;background:#fff;color:#224666;cursor:pointer;min-height:46px}.btn[aria-pressed="true"]{background:#1456a0;color:white;border-color:#1456a0}.btn:focus-visible{outline:3px solid #d49318;outline-offset:3px}.btn:hover{box-shadow:0 0 0 2px #aac3dd}.text-small{font-size:15px}.viz-badge{display:inline-block;font-size:12px;font-weight:750;padding:4px 9px;border-radius:5px;background:#e5efe9;color:#195d4b}.flow-controls{max-width:560px}.flow-summary{padding:16px 20px;background:#e6effa;border-left:4px solid #1456a0;border-radius:0 8px 8px 0}
+#asaasSandboxFlow .flow-node{max-width:760px;background:white;padding:24px;border-radius:14px;gap:16px;box-shadow:0 4px 16px #24436008}
+#asaasSandboxFlow .node-mark{width:36px;height:36px;font-size:18px}
+#asaasSandboxFlow .node-copy strong{font-size:20px;font-weight:750;line-height:1.4}
+#asaasSandboxFlow .branch{background:white;padding:24px;border-radius:14px;border-inline-start-width:5px}
+#asaasSandboxFlow .branch[data-lane="hml"]{background:#f7f9fc}
+#asaasSandboxFlow[data-mode="smoke"] .branch[data-lane="hml"],#asaasSandboxFlow[data-mode="hml"] .branch[data-lane="smoke"]{opacity:1}
+#asaasSandboxFlow[data-mode="smoke"] .branch[data-lane="smoke"],#asaasSandboxFlow[data-mode="hml"] .branch[data-lane="hml"]{outline:2px solid #1456a0;outline-offset:4px}
+#asaasSandboxFlow .branch-title{font-size:23px;line-height:1.4;font-weight:750;gap:10px}
+#asaasSandboxFlow .branch-steps{gap:22px;margin-top:24px}
+#asaasSandboxFlow .step-copy strong{font-weight:700;font-size:17px}
+#asaasSandboxFlow .step-number{width:28px;height:28px;font-size:14px;background:#edf2f7;font-weight:750}
+#asaasSandboxFlow .branch-steps li{gap:12px}
+#asaasSandboxFlow .branch-steps li:not(:last-child)::after{inset-block-start:35px;inset-inline-start:9px}
+#asaasSandboxFlow .connector{height:56px;font-size:28px;color:#426780}
+#asaasSandboxFlow .outcome-grid{max-width:760px}
+#asaasSandboxFlow .outcome{background:white;padding:20px;border-radius:12px}
+#asaasSandboxFlow .outcome strong{font-size:18px}
+#asaasSandboxFlow .outcome p{margin:8px 0 0}
+#asaasSandboxFlow .flow-footer{margin-top:26px;border-top:1px solid #cbd8e2;padding-top:20px;text-align:left}
+@media(max-width:640px){main{padding:26px 16px 40px}#asaasSandboxFlow .branch,#asaasSandboxFlow .flow-node{padding:18px}#asaasSandboxFlow .node-copy strong{font-size:18px}#asaasSandboxFlow .branch-grid{gap:24px}.btn{white-space:normal}header{margin-bottom:24px}}
+@media print{body{background:white}main{padding:0}.flow-controls{display:none}.branch,.flow-node,.outcome{break-inside:avoid}}
+</style>
+</main>
+</body>
+</html>

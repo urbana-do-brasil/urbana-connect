@@ -35,7 +35,8 @@ public final class WebhookCanonicalEventMapper {
             text = message.interactiveReplyTitle();
         }
         String media = type == ReceptionMessageType.IMAGE || type == ReceptionMessageType.DOCUMENT
-                || type == ReceptionMessageType.AUDIO ? message.providerMessageId() : null;
+                || type == ReceptionMessageType.AUDIO || type == ReceptionMessageType.PAYMENT_PROOF
+                ? message.providerMessageId() : null;
         String transcript = type == ReceptionMessageType.AUDIO ? text : null;
         return new InboundConversationEvent(
                 nonBlank(message.providerMessageId(), "whatsapp-event-" + digest(message.phoneNumber() + ":" + occurredAt)),

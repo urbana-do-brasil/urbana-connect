@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PEE-23 — decisões refinadas</title>
+  <style>
+    :root { color-scheme: light; --ink:#1f2937; --muted:#6b7280; --line:#dbe2ea; --accent:#0f766e; --soft:#f0fdfa; --warn:#fff7ed; }
+    body { margin:0; padding:32px; font:16px/1.55 system-ui,-apple-system,Segoe UI,sans-serif; color:var(--ink); background:#f8fafc; }
+    main { max-width:1050px; margin:auto; background:white; padding:32px 40px; box-shadow:0 4px 22px #0f172a12; }
+    h1,h2,h3 { line-height:1.2; } h1 { margin-top:0; } h2 { border-bottom:1px solid var(--line); padding-bottom:8px; margin-top:32px; }
+    .meta { color:var(--muted); } .decision { background:var(--soft); border-left:4px solid var(--accent); padding:12px 16px; }
+    .warning { background:var(--warn); border-left:4px solid #ea580c; padding:12px 16px; }
+    table { width:100%; border-collapse:collapse; margin:12px 0 20px; } th,td { text-align:left; vertical-align:top; border:1px solid var(--line); padding:9px 10px; } th { background:#f1f5f9; }
+    code { background:#f1f5f9; padding:1px 4px; border-radius:4px; } li { margin:4px 0; }
+    .status { display:inline-block; padding:3px 9px; border-radius:999px; background:#fef3c7; color:#92400e; font-weight:600; }
+    footer { margin-top:36px; color:var(--muted); font-size:14px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PEE-23 — decisões refinadas para conclusão</h1>
+  <p class="meta">Documento de decisão aprovado · 02/09/2026 · status da entrega: <span class="status">parcial — não encerrar ainda</span></p>
+
+  <div class="decision">
+    <strong>Veredito provisório:</strong> o código e os testes locais estão maduros, mas a história só deve ser concluída depois das dependências de termos, checkout sandbox, deploy/validação corrente em HML e aceite do PO. A conclusão não depende de confirmação de pagamento, webhook, briefing ou produção.
+  </div>
+
+  <h2>1. Contrato da PEE-23</h2>
+  <p>Entregar o fluxo comercial no WhatsApp, conduzido pelo Hermes, desde a saudação/triagem até a preparação e envio do link de checkout do serviço escolhido. O pagamento pode ser realizado pelo cliente, mas a confirmação do pagamento permanece fora desta história.</p>
+  <ul>
+    <li>Quatro serviços canônicos: <strong>Decor Interiores</strong>, Decor Pintura, Decor Fachada e Decor Reforma.</li>
+    <li>Um serviço por checkout. Trocar de serviço invalida o aceite anterior e reinicia termos/preço/pagamento.</li>
+    <li>HML oferece os quatro serviços com checkout sandbox/teste; PROD só oferece um serviço quando preço, termos e checkout de produção estiverem válidos.</li>
+    <li>Após termos aceitos, o sistema retoma automaticamente o WhatsApp e pergunta PIX ou cartão; o cliente não precisa enviar outra mensagem.</li>
+  </ul>
+
+  <h2>2. Termos e consentimento</h2>
+  <table>
+    <tr><th>Decisão</th><th>Regra aprovada</th></tr>
+    <tr><td>Canal de aceite</td><td>O aceite textual no WhatsApp nunca libera pagamento. O único aceite válido é o botão da tela web.</td></tr>
+    <tr><td>Tela</td><td>Renderiza o texto integral do serviço/versão. O botão se chama <strong>“Li e aceito os termos”</strong> e só habilita após o conteúdo ser percorrido até o fim.</td></tr>
+    <tr><td>Auditoria</td><td>Registrar, separadamente, chegada ao final e aceite/recusa, vinculando contato, ambiente, serviço, versão/hash do documento, token e data/hora. O scroll é evidência de interação, não prova de leitura.</td></tr>
+    <tr><td>Recusa</td><td>“Não aceito” registra a recusa, não libera pagamento e retorna ao menu do WhatsApp.</td></tr>
+    <tr><td>Abandono</td><td>Fechar, perder conexão ou deixar o link expirar não registra recusa. O atendimento permanece pendente; a próxima interação pode emitir novo link ou voltar ao menu.</td></tr>
+    <tr><td>Troca de serviço/versão</td><td>Aceite anterior é invalidado; apresentar termos vigentes novamente antes do pagamento.</td></tr>
+    <tr><td>Ambientes</td><td>HML e PROD usam o mesmo conteúdo jurídico aprovado, versionado por serviço; somente o checkout muda por ambiente.</td></tr>
+    <tr><td>Aprovação</td><td>Cada serviço precisa de confirmação jurídica do texto/versão e validação funcional do PO.</td></tr>
+    <tr><td>Retenção</td><td>Prazo ainda inexistente: deixar parametrizado e exigir definição da Urba/Jurídico antes da ativação em PROD.</td></tr>
+  </table>
+
+  <h2>3. Pagamento e provedor</h2>
+  <ul>
+    <li>Criar uma subtask de discovery/implementação sandbox, com estratégia explícita para PROD.</li>
+    <li>Comparar candidatos quanto a PIX, cartão, checkout sandbox sem cobrança, operação em HML/PROD, credenciais, rotação de segredos, custos e caminho futuro de webhook.</li>
+    <li>PIX e cartão são requisitos desejáveis, não filtro automático. Limitações devem ser apresentadas para decisão explícita do PO/negócio; sem essa decisão a PEE-23 não fecha.</li>
+    <li>Não ativar produção nesta história. HML deve usar sandbox/teste; PROD terá configuração/credenciais próprias, sem alteração de código para promoção.</li>
+    <li>Não confirmar pagamento, processar webhook de confirmação, liberar briefing ou tratar onboarding na PEE-23.</li>
+  </ul>
+
+  <h2>4. Arquitetura e comportamento técnico assumidos</h2>
+  <ul>
+    <li><strong>Hermes-first é a arquitetura oficial.</strong> O webhook não possui fallback e o bean da state machine fica inativo no perfil Hermes. A remoção física do conjunto legado ainda precisa de uma limpeza serial própria, pois gateways/modelos de canal continuam compartilhados.</li>
+    <li>Falhas são classificadas por fase/ação: pré-dispatch, transitória retryável com idempotência, pós-dispatch ambígua (reconciliar antes de agir), saída inválida, entrega e persistência. Nunca expor detalhe técnico ao cliente.</li>
+    <li>Na falha sem recuperação, enviar a mensagem fixa: <em>“Recebemos sua mensagem. Vamos encaminhar seu atendimento para nossa equipe, que entrará em contato para ajudar.”</em> Enviar também e-mail obrigatório, persistir posse HUMAN e tornar ambos idempotentes; não prometer SLA.</li>
+    <li>Mídia reconhecida entra na fila; imagem/documento recebido com pagamento preparado vira evidência pendente e atendimento humano, sem confirmação automática. O ACK persistido do handoff também é publicado pelo outbox e pode ser recuperado após falha.</li>
+    <li>HML usará caixa/alias de teste separado do destinatário real de PROD. Os dados SMTP e o endereço serão solicitados na etapa de execução.</li>
+    <li>Catálogo: propriedades por ambiente são baseline/fallback; Mongo é override operacional. No primeiro deploy, ausência no Mongo é preenchida pelo baseline; valor existente não é sobrescrito em reinicializações; se Mongo falhar, usar o fallback do ambiente com observabilidade. Seeder destrutivo deve ser eliminado.</li>
+    <li>Link da tela: URL HTTPS pública configurável por ambiente, token opaco, curto e de uso único, vinculado ao contato/serviço/versão, sem PII na URL. Aceite e callback são idempotentes; duração inicial sugerida: 30 minutos, parametrizada.</li>
+    <li>A confirmação da página dispara a pergunta de pagamento no WhatsApp. Falha de entrega persiste o evento para retry/alerta, sem duplicar mensagens.</li>
+  </ul>
+
+  <h2>5. Ordem de conclusão e critérios</h2>
+  <ol>
+    <li><strong>PEE-93 atualizada:</strong> conteúdo jurídico por serviço, tela, rolagem, aceite/recusa, auditoria e aprovações jurídica/PO.</li>
+    <li><strong>Nova subtask de provedor:</strong> PEE-107 foi criada e está em andamento; a matriz ampla está em <code>specs/011-pee23-closeout/research.md</code> e o aprofundamento dos três finalistas escolhidos pelo PO (Asaas, PagBank e Mercado Pago), incluindo tarifas e sandbox, está em <code>docs/plans/pee-107-discovery-providers.html</code>. A decisão e as limitações aprovadas ainda são necessárias.</li>
+    <li><strong>Nova subtask de validação técnica final HML:</strong> deploy corrente, secrets/SMTP, URL HTTPS, Mongo/configuração, Hermes-only, WhatsApp e e-mail. Não reabrir PEE-88.</li>
+    <li><strong>PEE-92:</strong> executar checklist atual no HML com transcripts/evidências: saudação, triagem guiada/direta, quatro serviços, confirmação/retorno, termos web, sandbox, escolha PIX/cartão, out-of-flow/handoff, retomada e expiração.</li>
+    <li><strong>PEE-23:</strong> concluir somente com todas as subtasks acima aprovadas, evidências anexadas e riscos residuais aceitos.</li>
+  </ol>
+
+  <h2>6. Insumos ainda necessários para execução</h2>
+  <ul>
+    <li>Quatro documentos/URLs oficiais, versões e aprovação jurídica.</li>
+    <li>Provedor escolhido após discovery; credenciais sandbox e plano/credenciais PROD.</li>
+    <li>Endereço da caixa de teste HML e parâmetros SMTP (host, porta, TLS, usuário, segredo e remetente).</li>
+    <li>Base URL HTTPS pública de cada ambiente e configuração de ingress/DNS.</li>
+    <li>Política de retenção dos registros de aceite.</li>
+    <li>Acesso funcional ao WhatsApp de teste e cluster de HML para a validação final.</li>
+  </ul>
+
+  <h2>7. Fora de escopo</h2>
+  <p>Confirmação automática de pagamento, webhook/reconciliação financeira, validação de comprovante como confirmação, briefing, agendamento, onboarding, ativação de produção e qualquer fluxo pós-pagamento.</p>
+
+  <div class="warning"><strong>Próximo passo:</strong> a decisão foi aprovada e foi convertida em spec/plano em <code>specs/011-pee23-closeout/</code>. A aprovação não escolhe provedor nem fornece credenciais; código, Jira, deploy e produção seguem os gates e tarefas do plano.</div>
+  <footer>Fontes usadas na avaliação: PEE-23, PEE-92, PEE-93, PEE-100–106, specs locais de PEE-23/PEE-102 e código atual do repositório urbana-connect.</footer>
+</main>
+</body>
+</html>

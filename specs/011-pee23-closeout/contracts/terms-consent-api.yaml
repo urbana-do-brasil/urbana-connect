@@ -1,0 +1,68 @@
+openapi: 3.0.3
+info:
+  title: Urbana Terms Consent API
+  version: 1.0.0
+  description: >-
+    Endpoints same-origin usados pela tela pública de consentimento. O token
+    bearer é efêmero, não contém PII e não deve aparecer em logs ou URLs do
+    servidor.
+servers:
+  - url: https://{publicHost}
+    variables:
+      publicHost:
+        default: api-hml.urbanadobrasil.com
+paths:
+  /termos:
+    get:
+      summary: Página estática de termos
+      responses:
+        '200':
+          description: HTML da tela; o token é lido do fragmento do navegador.
+  /api/terms/presentation:
+    post:
+      summary: Carrega o recurso jurídico vinculado ao token e registra PAGE_PRESENTED
+      security:
+        - termsBearer: []
+      responses:
+        '200':
+          description: Conteúdo estruturado e dados mínimos para a tela
+        '401': {description: Token ausente/inválido}
+        '404': {description: Sessão inexistente}
+        '410': {description: Sessão expirada/inválida}
+  /api/terms/end-reached:
+    post:
+      summary: Registra a chegada ao final do conteúdo
+      security:
+        - termsBearer: []
+      responses:
+        '204': {description: Evento aceito ou já registrado}
+        '401': {description: Token ausente/inválido}
+        '409': {description: Binding ou estado incompatível}
+        '410': {description: Sessão expirada/inválida}
+  /api/terms/decision:
+    post:
+      summary: Registra aceite ou recusa explícita
+      security:
+        - termsBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [ACCEPT, DECLINE]
+      responses:
+        '200': {description: Resultado persistido; replay idêntico é idempotente}
+        '401': {description: Token ausente/inválido}
+        '409': {description: END_REACHED ausente, binding divergente ou decisão oposta}
+        '410': {description: Sessão expirada/inválida}
+components:
+  securitySchemes:
+    termsBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque ephemeral token

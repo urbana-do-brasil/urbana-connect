@@ -4,9 +4,16 @@
 
 - **Ticket:** [PEE-102](https://urbanadobrasil.atlassian.net/browse/PEE-102)
 - **Épico relacionado:** PEE-23 — Urba: Fluxo de Triagem e Vendas
-- **Status:** contrato de negócio e discovery técnica consolidados; implementação não iniciada
+- **Status:** contrato de negócio consolidado; execução corrente vinculada à `specs/011-pee23-closeout/`
 - **Data da consolidação:** 2026-08-16
 - **Fonte de negócio:** entrevista com a Urbana do Brasil, registrada na PEE-102
+
+> **Nota de execução — 2026-09-03:** esta referência continua sendo a fonte
+> comercial do catálogo e do contexto. O fechamento da PEE-23 acrescenta a
+> regra operacional de que o aceite jurídico é feito na tela web auditável
+> (botão “Li e aceito os termos”), por serviço e versão, e não por texto no
+> WhatsApp. A confirmação de pagamento, briefing e produção continuam fora do
+> escopo da PEE-23.
 
 ## 1. Objetivo
 
@@ -141,7 +148,7 @@ Antes da transferência formal para o humano, a Urba:
 - ajuda o cliente a identificar o serviço adequado;
 - apresenta o preço vigente e o resumo do serviço;
 - envia os termos pelo WhatsApp;
-- valida que houve aceite textual antes de pagamento;
+- valida que houve aceite web auditável antes de pagamento;
 - envia o link de pagamento correto;
 - recebe o comprovante;
 - encaminha dúvidas que não consegue resolver;
@@ -231,9 +238,10 @@ encaminhar à arquiteta. Isso não substitui a validação posterior da arquitet
 Antes do pagamento:
 
 - a Urba envia os termos de uso pelo WhatsApp;
-- o cliente deve responder com confirmação textual clara;
-- exemplos válidos: “aceito os termos”, “estou de acordo”;
-- silêncio, pagamento, reação, “ok” ou resposta ambígua não valem como aceite;
+- o cliente deve abrir a tela HTTPS e clicar em “Li e aceito os termos” depois
+  de percorrer o conteúdo até o final;
+- texto no WhatsApp, silêncio, pagamento, reação, “ok” ou resposta ambígua não
+  valem como aceite;
 - cada ambiente/serviço independente exige seu próprio aceite;
 - o aceite comercial do serviço não substitui o aceite formal dos termos.
 
@@ -465,8 +473,8 @@ que o serviço parecer adequado, em uma mensagem curta.
 3. A Urba não aprova automaticamente Interiores/Reforma acima de 20 m².
 4. A Urba não usa links de pagamento antigos ou sem vínculo confirmado com o
    serviço/ambiente.
-5. A Urba exige termos enviados pelo WhatsApp e aceite textual claro antes do
-   pagamento.
+5. A Urba envia os termos pelo WhatsApp e exige aceite na tela web auditável
+   antes do pagamento; texto no WhatsApp não libera a etapa.
 6. Cada contratação independente mantém seu próprio aceite e registro de
    auditoria.
 7. O comprovante é validado por humano antes do briefing.

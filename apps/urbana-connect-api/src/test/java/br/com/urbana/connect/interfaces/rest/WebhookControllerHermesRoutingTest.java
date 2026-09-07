@@ -1,6 +1,5 @@
 package br.com.urbana.connect.interfaces.rest;
 
-import br.com.urbana.connect.application.conversation.ConversationFlowService;
 import br.com.urbana.connect.application.conversation.InboundWhatsAppMessage;
 import br.com.urbana.connect.application.reception.HermesWebhookMessageHandler;
 import br.com.urbana.connect.application.config.SecurityConfig;
@@ -14,12 +13,12 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(value = WebhookController.class)
+@WebMvcTest(value = WebhookController.class, properties = "hermes.poc.enabled=true")
 @Import(SecurityConfig.class)
 class WebhookControllerHermesRoutingTest {
 
@@ -27,10 +26,17 @@ class WebhookControllerHermesRoutingTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private ConversationFlowService legacyConversationFlowService;
-
-    @MockitoBean
     private HermesWebhookMessageHandler hermesWebhookMessageHandler;
+
+    @Test
+    void refusesToConstructAnActiveHermesWebhookWithoutItsHandler() {
+        assertThatThrownBy(() -> new WebhookController(
+                "verify-token",
+                java.util.Optional.empty(),
+                true))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("HermesWebhookMessageHandler");
+    }
 
     @Test
     void routesWhatsAppMessageToHermesHandlerWhenItIsAvailable() throws Exception {
@@ -56,6 +62,5 @@ class WebhookControllerHermesRoutingTest {
         verify(hermesWebhookMessageHandler).handle(
                 eq(new InboundWhatsAppMessage("5511999999999", "Quero falar com a Urba", "", "", "text", "wamid-hermes")),
                 any());
-        verify(legacyConversationFlowService, never()).handleIncomingMessage(any(), any());
     }
 }

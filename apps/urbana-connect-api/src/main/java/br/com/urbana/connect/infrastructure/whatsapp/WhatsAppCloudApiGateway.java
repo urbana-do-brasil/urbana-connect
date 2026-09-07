@@ -8,10 +8,14 @@ import br.com.urbana.connect.domain.conversation.port.out.ConversationGateway;
 import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
+import br.com.urbana.connect.domain.reception.model.DeliveryDispatchPhase;
+import br.com.urbana.connect.domain.reception.port.out.DeliveryDispatchException;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -39,7 +43,8 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
         "https://drive.google.com/file/d/10ZFSwmVHybvuaYTYE4lW5XspLN7tZa67/view?usp=sharing";
     private static final String PAYMENT_METHOD_TEXT = "Você irá realizar o pagamento via PIX ou cartão de crédito?";
     private static final String CLOSING_TEXT = "Perfeito! Assim que o pagamento for confirmado, daremos os próximos passos 😊";
-    private static final String HUMAN_HANDOFF_ACK = "Iremos repassar sua dúvida para nossa equipe, que entrará em contato logo mais";
+    private static final String HUMAN_HANDOFF_ACK =
+        "Iremos repassar sua dúvida para nossa equipe, que entrará em contato logo mais";
     private static final String UNKNOWN_INPUT_FALLBACK = "Não entendi 😊 Por favor, use as opções abaixo:";
     private static final String GUIDED_TRIAGE_PROMPT = "Das opções abaixo, qual você se identifica mais?";
     private static final String MESSAGING_PRODUCT = "messaging_product";
@@ -79,6 +84,41 @@ public class WhatsAppCloudApiGateway implements WhatsAppMessageGateway {
     @Override
     public void sendTextMessage(String phoneNumber, String bodyText) {
         sendPayload(textPayload(phoneNumber, bodyText), phoneNumber, "TEXT", bodyText, ConversationMessageType.TEXT);
+    }
+
+    @Override
+    public String sendTextMessageWithResult(String phoneNumber, String bodyText) {
+        if (log.isInfoEnabled()) {
+            log.info("Enviando mensagem WhatsApp: type={} destination={}", "TEXT", maskPhoneNumber(phoneNumber));
+        }
+        ResponseEntity<JsonNode> response;
+        try {
+            response = restClient.post()
+                .uri("/v18.0/{phoneNumberId}/messages", phoneNumberId)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(textPayload(phoneNumber, bodyText))
+                .retrieve()
+                .toEntity(JsonNode.class);
+        } catch (org.springframework.web.client.HttpClientErrorException exception) {
+            throw new DeliveryDispatchException("WhatsApp rejected the message before dispatch",
+                    DeliveryDispatchPhase.PRE_DISPATCH, exception);
+        } catch (RestClientException exception) {
+            // A timeout/transport error can happen after Graph accepted the
+            // request; never let the durable worker blindly resend it.
+            throw new DeliveryDispatchException("WhatsApp dispatch outcome is unknown",
+                    DeliveryDispatchPhase.POST_DISPATCH_UNKNOWN, exception);
+        }
+
+        String providerMessageId = response.getBody() == null
+            ? ""
+            : response.getBody().path("messages").path(0).path("id").asText("");
+        if (providerMessageId.isBlank()) {
+            throw new DeliveryDispatchException("WhatsApp response did not contain a message id",
+                    DeliveryDispatchPhase.POST_DISPATCH_UNKNOWN);
+        }
+        persistOutboundMessageSafely(phoneNumber, bodyText, ConversationMessageType.TEXT);
+        return providerMessageId;
     }
 
     @Override

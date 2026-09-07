@@ -410,6 +410,24 @@ class StatefulDomainToolServiceTest {
     }
 
     @Test
+    void neverFallsBackToTheLegacyTermsAuditInHermesMode() {
+        CommercialPolicyService policy = new CommercialPolicyService();
+        MemoryConversation conversations = new MemoryConversation();
+        AuditedAcceptance audited = auditedAccepted(policy, conversations, "contact-1");
+        StatefulDomainToolService tools = new StatefulDomainToolService(policy, conversations,
+                new MemoryFacts(), new MemoryTranscript());
+        tools.setTermsAcceptanceUseCase(audited.useCase());
+        tools.setWebTermsRequired(true);
+
+        assertThatThrownBy(() -> tools.execute(DomainToolName.PREPARE_PAYMENT, "contact-1",
+                Map.of("serviceType", "DECOR", "method", "PIX"), context("message-terms")))
+                .isInstanceOf(DomainToolInvocationUseCase.DomainRejectionException.class)
+                .satisfies(error -> assertThat(((DomainToolInvocationUseCase.DomainRejectionException) error).code())
+                        .isEqualTo("TERMS_NOT_ACCEPTED"));
+        assertThat(conversations.value.paymentStatus()).isEqualTo(PaymentStatus.NOT_STARTED);
+    }
+
+    @Test
     void rejectsAnUnsupportedPaymentMethodWithACommercialCorrectionWithoutReaskingTerms() {
         CommercialPolicyService policy = new CommercialPolicyService();
         MemoryConversation conversations = new MemoryConversation();

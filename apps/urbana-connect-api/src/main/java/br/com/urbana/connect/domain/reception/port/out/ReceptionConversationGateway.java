@@ -7,6 +7,11 @@ import java.util.Optional;
 public interface ReceptionConversationGateway {
     Optional<ReceptionConversation> findByContactId(String contactId);
 
+    /** Lookup used by outbox destination resolvers; old adapters may omit it. */
+    default Optional<ReceptionConversation> findById(String conversationId) {
+        return Optional.empty();
+    }
+
     ReceptionConversation save(ReceptionConversation conversation);
 
     /**

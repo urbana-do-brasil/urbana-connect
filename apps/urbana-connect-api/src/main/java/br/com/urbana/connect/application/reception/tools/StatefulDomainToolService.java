@@ -2,6 +2,7 @@ package br.com.urbana.connect.application.reception.tools;
 
 import br.com.urbana.connect.application.reception.CommercialPolicyService;
 import br.com.urbana.connect.application.reception.TermsAcceptanceUseCase;
+import br.com.urbana.connect.application.reception.TermsConsentService;
 import br.com.urbana.connect.domain.reception.model.CustomerFact;
 import br.com.urbana.connect.domain.reception.model.CustomerFactType;
 import br.com.urbana.connect.domain.reception.model.FactConfidence;
@@ -53,6 +54,8 @@ public final class StatefulDomainToolService implements DomainToolService {
     private IcpObservationEventGateway icpObservations;
     private HumanHandoffNotificationGateway handoffNotifications;
     private TermsAcceptanceUseCase termsAcceptance;
+    private TermsConsentService termsConsentService;
+    private boolean webTermsRequired;
 
     public StatefulDomainToolService(CommercialPolicyService policy,
                                      ReceptionConversationGateway conversations,
@@ -102,6 +105,20 @@ public final class StatefulDomainToolService implements DomainToolService {
     @Autowired(required = false)
     public void setTermsAcceptanceUseCase(TermsAcceptanceUseCase termsAcceptance) {
         this.termsAcceptance = termsAcceptance;
+    }
+
+    @Autowired(required = false)
+    public void setTermsConsentService(TermsConsentService termsConsentService) {
+        this.termsConsentService = termsConsentService;
+    }
+
+    /**
+     * Official Hermes deployments set this flag so a missing consent service
+     * fails closed. It defaults to false only for isolated legacy unit
+     * adapters that exercise unrelated domain tools.
+     */
+    public void setWebTermsRequired(boolean webTermsRequired) {
+        this.webTermsRequired = webTermsRequired;
     }
 
     @Override
@@ -156,7 +173,7 @@ public final class StatefulDomainToolService implements DomainToolService {
                 if (isTermsRejection(rejection) && (conversation.termsStatus()
                         != br.com.urbana.connect.domain.reception.model.TermsStatus.ACCEPTED
                         || conversation.activeTermsConsentId() == null
-                        || rejection.getMessage().toLowerCase(Locale.ROOT).contains("durable terms"))) {
+                        || rejection.getMessage().toLowerCase(Locale.ROOT).contains("durable"))) {
                     yield termsRejection();
                 }
                 yield new DomainToolInvocationUseCase.DomainRejectionException(
@@ -335,6 +352,23 @@ public final class StatefulDomainToolService implements DomainToolService {
         }
         ReceptionConversation presented = policy.presentTerms(conversation, facts.findByContactId(contactId), now);
         conversations.save(presented);
+        if (termsConsentService != null) {
+            CommercialPolicyService.ServiceFixture service = policy.service(presented.selectedService());
+            TermsConsentService.Issued issued = termsConsentService.issue(
+                    new TermsConsentService.IssueRequest(
+                            presented.id(), presented.contactId(), "conversation:" + presented.id(),
+                            presented.contractingUnitId(), presented.environmentLabel(),
+                            presented.selectedService(), null, service.termsUrl(), null,
+                            context.lease().turnId()));
+            // The bearer URL is already durable in the delivery outbox. Do
+            // not return it to Hermes, whose session history is outside the
+            // Urbana ledger and must not become another token repository.
+            return Map.of("status", "PRESENTED", "serviceType", presented.selectedService(),
+                   "presentationId", issued.presentationId(), "delivery", "WHATSAPP_OUTBOX");
+        }
+        if (webTermsRequired) {
+            throw new IllegalStateException("web terms consent is not configured");
+        }
         return Map.of("status", "PRESENTED", "serviceType", presented.selectedService(),
                 "url", policy.termsUrl(presented.selectedService()));
     }
@@ -353,10 +387,21 @@ public final class StatefulDomainToolService implements DomainToolService {
                 || conversation.activeTermsConsentId() == null) {
             throw new IllegalStateException("payment requires accepted terms with durable consent evidence");
         }
-        if (termsAcceptance == null) {
+        if (termsConsentService != null) {
+            // The web session is the sole contractual source in the Hermes
+            // path. The legacy audit is retained only for isolated historical
+            // adapters and is never consulted when the web flow is active.
+            termsConsentService.requireAcceptedEvidence(conversation);
+        } else if (webTermsRequired) {
+            // A Hermes deployment must not silently fall back to the old
+            // textual/audit projection when the web-consent module is absent.
+            // Fail closed until the approved web artifacts are configured.
+            throw new IllegalStateException("durable web terms acceptance evidence is unavailable");
+        } else if (termsAcceptance != null) {
+            termsAcceptance.requireAcceptedEvidence(conversation);
+        } else {
             throw new IllegalStateException("durable terms acceptance evidence is unavailable");
         }
-        termsAcceptance.requireAcceptedEvidence(conversation);
         ReceptionConversation prepared = policy.preparePayment(conversation, facts.findByContactId(contactId),
                 stringArg(args, "method"), now);
         if (prepared != conversation) {

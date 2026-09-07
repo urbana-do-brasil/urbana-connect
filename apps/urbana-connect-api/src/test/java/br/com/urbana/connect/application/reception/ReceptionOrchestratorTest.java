@@ -56,6 +56,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -226,6 +227,35 @@ class ReceptionOrchestratorTest {
 
         assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
         assertThat(conversations.value.paymentStatus()).isEqualTo(PaymentStatus.NOT_STARTED);
+    }
+
+    @Test
+    void ignoresTextualTermsAcceptanceInTheHermesConversationPath() {
+        MemoryConversation conversations = new MemoryConversation();
+        conversations.value = ReceptionConversation.start("conversation-1", "poc:ana", NOW)
+                .bindContractingUnit("unit-1", "hml", "environment-event", NOW)
+                .selectService("DECOR_INTERIORES", NOW)
+                .presentTerms(NOW)
+                .activateTermsConsent("presentation-1", NOW);
+        TermsAcceptanceUseCase legacyTerms = mock(TermsAcceptanceUseCase.class);
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(new FakeSessions("{\"message\":\"ok\",\"nextAction\":\"AWAIT_CUSTOMER\"}"),
+                        new MemoryLinks()), conversations, new MemoryFacts(), new MemoryTranscript(), new MemoryTurns(),
+                new CommercialPolicyService(), new ReceptionTurnCoordinator(),
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+        orchestrator.setTermsAcceptanceUseCase(legacyTerms);
+
+        ReceptionOrchestrator.TurnReceipt receipt = orchestrator.process(new InboundConversationEvent(
+                "terms-hermes-only", "poc:ana", ReceptionMessageType.TEXT, "Aceito os termos", NOW));
+
+        assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
+        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
+        assertThat(conversations.value.paymentStatus()).isEqualTo(PaymentStatus.NOT_STARTED);
+        verify(legacyTerms, never()).recordAcceptance(
+                org.mockito.ArgumentMatchers.any(ReceptionConversation.class),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -441,6 +471,34 @@ class ReceptionOrchestratorTest {
                 .singleElement()
                 .extracting(ReceptionMessage::text)
                 .isEqualTo("Pagamento confirmado pela arquiteta.");
+    }
+
+    @Test
+    void imageReceivedAfterPaymentPreparationIsHandledAsProofWithoutAutomaticConfirmation() {
+        MemoryConversation conversations = new MemoryConversation();
+        conversations.value = new ReceptionConversation("conversation-image-proof", "poc:ana",
+                br.com.urbana.connect.domain.reception.model.ReceptionMode.AI, CommercialStage.PAYMENT,
+                "DECOR", TermsStatus.ACCEPTED, PaymentStatus.PREPARED, null, NOW, NOW, 0);
+        MemoryTranscript transcript = new MemoryTranscript();
+        CapturingSessions sessions = new CapturingSessions();
+        ReceptionOrchestrator orchestrator = new ReceptionOrchestrator(
+                new HermesSessionService(sessions, new MemoryLinks()), conversations, new MemoryFacts(),
+                transcript, new MemoryTurns(), new CommercialPolicyService(), new ReceptionTurnCoordinator(),
+                java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+
+        ReceptionOrchestrator.TurnReceipt receipt = orchestrator.process(new InboundConversationEvent(
+                "image-proof-1", "poc:ana", ReceptionMessageType.IMAGE,
+                null, null, "wamid-proof-image", null, NOW, "wamid-proof-image"));
+
+        assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.BLOCKED_BY_HUMAN);
+        assertThat(receipt.output()).isNull();
+        assertThat(conversations.value.mode()).isEqualTo(ReceptionMode.HUMAN);
+        assertThat(conversations.value.paymentStatus()).isEqualTo(PaymentStatus.PROOF_RECEIVED);
+        assertThat(sessions.chatCalls).isZero();
+        assertThat(transcript.messages).filteredOn(message ->
+                        message.direction() == ReceptionMessageDirection.OUTBOUND)
+                .singleElement().extracting(ReceptionMessage::text).asString()
+                .contains("Recebi o comprovante", "arquiteta");
     }
 
     @Test
@@ -1052,7 +1110,7 @@ class ReceptionOrchestratorTest {
     }
 
     @Test
-    void acceptsAnExplicitInboundOnlyAfterDurableTermsPresentationEvidence() {
+    void doesNotAcceptInboundTextEvenWhenLegacyPresentationEvidenceExists() {
         CommercialPolicyService policy = new CommercialPolicyService();
         MemoryConversation conversations = new MemoryConversation();
         ReceptionConversation presented = policy.presentTerms(
@@ -1080,12 +1138,9 @@ class ReceptionOrchestratorTest {
                 "acceptance-event", "poc:ana", ReceptionMessageType.TEXT, "Aceito os termos", NOW.plusSeconds(1)));
 
         assertThat(receipt.status()).isEqualTo(ReceptionOrchestrator.TurnStatus.COMPLETED);
-        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.ACCEPTED);
-        assertThat(audits.findByPresentationId("presentation-1")).hasValueSatisfying(audit -> {
-            assertThat(audit.status()).isEqualTo(TermsConsentStatus.ACCEPTED);
-            assertThat(audit.acceptanceEventId()).isEqualTo("acceptance-event");
-            assertThat(audit.acceptanceTextExact()).isEqualTo("Aceito os termos");
-        });
+        assertThat(conversations.value.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
+        assertThat(audits.findByPresentationId("presentation-1")).hasValueSatisfying(audit ->
+                assertThat(audit.status()).isEqualTo(TermsConsentStatus.PRESENTED));
     }
 
     @Test

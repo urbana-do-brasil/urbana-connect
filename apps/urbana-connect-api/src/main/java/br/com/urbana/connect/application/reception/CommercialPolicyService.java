@@ -9,6 +9,9 @@ import br.com.urbana.connect.domain.reception.model.ReceptionConversation;
 import br.com.urbana.connect.domain.reception.model.ReceptionMode;
 import br.com.urbana.connect.domain.servicecatalog.model.AreaRule;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
+import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGateway;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.text.Normalizer;
@@ -28,6 +31,7 @@ import java.util.Optional;
  * phrase the conversation, but it cannot bypass any method in this policy.
  */
 public final class CommercialPolicyService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CommercialPolicyService.class);
     public static final String PREFER_NOT_TO_ANSWER = "PREFER_NOT_TO_ANSWER";
     private static final String PAYMENT_PROOF_PENDING_MESSAGE =
             "Recebi o comprovante. Agora ele aguarda validação humana; aviso assim que o pagamento for confirmado.";
@@ -46,20 +50,33 @@ public final class CommercialPolicyService {
     private static final List<String> ALLOWED_PAYMENT_METHODS = List.of("PIX", "CARD");
 
     private final Map<String, ServiceFixture> catalog;
+    private final ServiceCatalogGateway catalogGateway;
 
     public CommercialPolicyService() {
-        this(ServiceCatalogItem.canonicalCatalog().stream()
+        this(null, ServiceCatalogItem.canonicalCatalog().stream()
                 .map(ServiceFixture::from)
                 .toList());
     }
 
+    /** Uses the operational catalog resolved as Mongo override plus configured baseline. */
+    public CommercialPolicyService(ServiceCatalogGateway catalogGateway) {
+        this(Objects.requireNonNull(catalogGateway, "catalogGateway"),
+                ServiceCatalogItem.canonicalCatalog().stream().map(ServiceFixture::from).toList());
+    }
+
     public CommercialPolicyService(Collection<ServiceFixture> catalog) {
+        this(null, catalog);
+    }
+
+    private CommercialPolicyService(ServiceCatalogGateway catalogGateway,
+                                    Collection<ServiceFixture> catalog) {
         if (catalog == null || catalog.isEmpty()) {
             throw new IllegalArgumentException("catalog must not be empty");
         }
         Map<String, ServiceFixture> values = new LinkedHashMap<>();
         catalog.forEach(item -> values.put(normalizeService(item.serviceType()), item));
         this.catalog = Collections.unmodifiableMap(new LinkedHashMap<>(values));
+        this.catalogGateway = catalogGateway;
     }
 
     public List<String> mandatoryIcpFields() {
@@ -81,7 +98,7 @@ public final class CommercialPolicyService {
 
     public ServiceFixture service(String serviceType) {
         String normalized = normalizeService(serviceType);
-        ServiceFixture service = catalog.get(normalized);
+        ServiceFixture service = effectiveCatalog().get(normalized);
         if (service == null || !service.available()) {
             throw new IllegalArgumentException("service is not present in the approved catalog: " + serviceType);
         }
@@ -89,7 +106,37 @@ public final class CommercialPolicyService {
     }
 
     public List<ServiceFixture> services() {
-        return catalog.values().stream().toList();
+        return effectiveCatalog().values().stream()
+                .filter(ServiceFixture::available)
+                .toList();
+    }
+
+    /**
+     * Resolve operational values on each policy read so a Mongo override can
+     * be changed without a new application deployment. The constructor map is
+     * the safe baseline used when the backing store is unavailable.
+     */
+    private Map<String, ServiceFixture> effectiveCatalog() {
+        if (catalogGateway == null) {
+            return catalog;
+        }
+        try {
+            List<ServiceCatalogItem> current = catalogGateway.findAll();
+            if (current == null || current.isEmpty()) {
+                LOGGER.warn("service catalog returned no entries; using configured baseline");
+                return catalog;
+            }
+            Map<String, ServiceFixture> values = new LinkedHashMap<>(catalog);
+            current.stream()
+                    .filter(Objects::nonNull)
+                    .map(ServiceFixture::from)
+                    .forEach(item -> values.put(normalizeService(item.serviceType()), item));
+            return Collections.unmodifiableMap(values);
+        } catch (RuntimeException failure) {
+            LOGGER.warn("service catalog lookup failed; using configured baseline: {}",
+                    failure.getClass().getSimpleName());
+            return catalog;
+        }
     }
 
     public String serviceTypeForInteractiveReply(String replyId) {

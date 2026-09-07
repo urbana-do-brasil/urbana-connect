@@ -168,6 +168,10 @@ __pycache__/
 # Cross-system generated quality output
 /quality/conversation-corpus/results/
 /quality/system-e2e/test-results/
+/quality/terms-ui/test-results/
+/quality/terms-ui/playwright-report/
+!quality/terms-ui/package.json
+!quality/terms-ui/package-lock.json
 !/specs/002-poc-manual-chat/contracts/browser-storage.schema.json
 
 # Exceções para arquivos que devem ser versionados mesmo sendo de tipos ignorados

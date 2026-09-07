@@ -122,6 +122,30 @@ class DomainToolInvocationUseCaseTest {
     }
 
     @Test
+    void keepsTermsBearerUrlOutOfTheDurableInvocationLedger() {
+        FakeLeaseGateway leaseGateway = new FakeLeaseGateway();
+        ActiveTurnLeaseService leases = activeLease(leaseGateway);
+        FakeInvocationGateway invocations = new FakeInvocationGateway();
+        String bearerUrl = "https://hml.example/termos#t=token-that-must-not-be-persisted";
+        DomainToolService tool = (name, contact, args) -> Map.of(
+                "status", "PRESENTED", "url", bearerUrl, "presentationId", "terms-1");
+        DomainToolInvocationUseCase useCase = new DomainToolInvocationUseCase(leases, invocations, tool,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        var first = useCase.invoke("session-1", "hermes-urbana-domain", DomainToolName.PREPARE_TERMS,
+                Map.of("serviceType", "DECOR"));
+
+        assertThat(first.result().toString()).contains(bearerUrl);
+        Object persisted = invocations.findByIdempotencyKey(first.idempotencyKey()).orElseThrow().resultPayload();
+        assertThat(persisted.toString()).doesNotContain("token-that-must-not-be-persisted", bearerUrl)
+                .contains("[REDACTED]");
+
+        var replay = useCase.invoke("session-1", "hermes-urbana-domain", DomainToolName.PREPARE_TERMS,
+                Map.of("serviceType", "DECOR"));
+        assertThat(replay.result().toString()).doesNotContain("token-that-must-not-be-persisted", bearerUrl);
+    }
+
+    @Test
     void snapshotsJavaTimeValuesReturnedByAProfileTool() {
         FakeLeaseGateway leaseGateway = new FakeLeaseGateway();
         ActiveTurnLeaseService leases = activeLease(leaseGateway);

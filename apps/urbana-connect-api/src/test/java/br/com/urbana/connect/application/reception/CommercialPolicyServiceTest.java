@@ -9,11 +9,15 @@ import br.com.urbana.connect.domain.reception.model.ReceptionMode;
 import br.com.urbana.connect.domain.reception.model.CommercialStage;
 import br.com.urbana.connect.domain.reception.model.TermsStatus;
 import br.com.urbana.connect.domain.servicecatalog.model.AreaRule;
+import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
+import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
+import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGateway;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -180,6 +184,43 @@ class CommercialPolicyServiceTest {
                 .doesNotContain("20 m²");
         assertThat(policy.service("DECOR_FACHADA").scope()).containsIgnoringCase("fachada").contains("externa");
         assertThat(policy.service("DECOR_REFORMA").scope()).containsIgnoringCase("reforma");
+    }
+
+    @Test
+    void resolvesMongoCatalogOverridesOnEachReadWithoutAProcessRestart() {
+        MutableCatalogGateway gateway = new MutableCatalogGateway(override("https://hml.example/v1", "299.00"));
+        CommercialPolicyService policy = new CommercialPolicyService(gateway);
+
+        assertThat(policy.service("DECOR_PINTURA").price()).isEqualByComparingTo("299.00");
+
+        gateway.item = override("https://hml.example/v2", "325.00");
+
+        assertThat(policy.service("DECOR_PINTURA").price()).isEqualByComparingTo("325.00");
+        assertThat(policy.service("DECOR_PINTURA").paymentUrl()).isEqualTo("https://hml.example/v2/payment");
+    }
+
+    private static ServiceCatalogItem override(String version, String price) {
+        ServiceCatalogItem canonical = ServiceCatalogItem.canonicalCatalog().stream()
+                .filter(item -> item.type() == ServiceType.DECOR_PINTURA).findFirst().orElseThrow();
+        return new ServiceCatalogItem(canonical.type(), canonical.name(), canonical.emoji(),
+                canonical.scenarioText(), canonical.presentationText(), new BigDecimal(price),
+                version + "/terms", version + "/payment", version + "/briefing", canonical.areaRule(),
+                canonical.scope(), canonical.deliverables(), canonical.process(), canonical.responsibilities(),
+                canonical.exclusions(), canonical.support(), true);
+    }
+
+    private static final class MutableCatalogGateway implements ServiceCatalogGateway {
+        private ServiceCatalogItem item;
+
+        private MutableCatalogGateway(ServiceCatalogItem item) {
+            this.item = item;
+        }
+
+        @Override public List<ServiceCatalogItem> findAll() { return List.of(item); }
+        @Override public List<ServiceCatalogItem> findAvailable() { return List.of(item); }
+        @Override public Optional<ServiceCatalogItem> findByType(ServiceType type) {
+            return Optional.of(item).filter(value -> value.type() == type);
+        }
     }
 
     @Test

@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: urbana-connect
+
+hermes:
+  poc:
+    # Production activation is an explicit operational gate. A pod deployed
+    # with the default remains fail-closed and cannot route through legacy
+    # state-machine code.
+    enabled: ${HERMES_POC_ENABLED:false}
+
+terms:
+  consent:
+    enabled: ${TERMS_CONSENT_ENABLED:false}
+    required: ${TERMS_CONSENT_REQUIRED:true}
+    public-base-url: ${TERMS_PUBLIC_BASE_URL:https://api.urbanadobrasil.com}
+    token-secret: ${TERMS_TOKEN_SECRET:}
+    ttl: ${TERMS_SESSION_TTL:30m}
+
+catalog:
+  operational:
+    enabled: ${CATALOG_OPERATIONAL_ENABLED:false}
+    fixture-fallback: ${CATALOG_FIXTURE_FALLBACK:false}

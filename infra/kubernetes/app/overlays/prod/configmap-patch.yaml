@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: urbana-connect-config
+data:
+  SPRING_PROFILES_ACTIVE: "prod"
+  LOGGING_LEVEL_ROOT: "INFO"
+  # Production is deliberately fail-closed until the separate operational
+  # activation gate, credentials and HML acceptance evidence exist.
+  HERMES_POC_ENABLED: "false"
+  TERMS_CONSENT_ENABLED: "false"
+  TERMS_CONSENT_REQUIRED: "true"
+  TERMS_PUBLIC_BASE_URL: "https://api.urbanadobrasil.com"
+  CATALOG_OPERATIONAL_ENABLED: "false"
+  CATALOG_FIXTURE_FALLBACK: "false"

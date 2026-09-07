@@ -43,6 +43,12 @@ whatsapp:
   webhook:
     verify-token: ${WHATSAPP_VERIFY_TOKEN:}
 
+# Hermes is the only supported webhook owner. Profiles/overlays opt in
+# explicitly; when it is not active the webhook fails closed with HTTP 503.
+hermes:
+  poc:
+    enabled: ${HERMES_POC_ENABLED:false}
+
 ai:
   gemini:
     api-key: ${GEMINI_API_KEY:}
@@ -52,3 +58,85 @@ ai:
 handoff:
   human:
     recipient: ${HANDOFF_EMAIL_RECIPIENT:comunicacao@urbanadobrasil.com}
+
+# Disabled while legal/payment/briefing artifacts are still being discovered.
+# When enabled, every canonical service must be fully configured; fixture URLs
+# and missing resources are rejected at startup.
+catalog:
+  operational:
+    enabled: ${CATALOG_OPERATIONAL_ENABLED:false}
+    fixture-fallback: ${CATALOG_FIXTURE_FALLBACK:true}
+    services:
+      decor-interiores:
+        price: ${CATALOG_DECOR_INTERIORES_PRICE:}
+        terms-resource: ${CATALOG_DECOR_INTERIORES_TERMS_RESOURCE:}
+        payment-resource: ${CATALOG_DECOR_INTERIORES_PAYMENT_RESOURCE:}
+        briefing-resource: ${CATALOG_DECOR_INTERIORES_BRIEFING_RESOURCE:}
+        available: ${CATALOG_DECOR_INTERIORES_AVAILABLE:true}
+      decor-pintura:
+        price: ${CATALOG_DECOR_PINTURA_PRICE:}
+        terms-resource: ${CATALOG_DECOR_PINTURA_TERMS_RESOURCE:}
+        payment-resource: ${CATALOG_DECOR_PINTURA_PAYMENT_RESOURCE:}
+        briefing-resource: ${CATALOG_DECOR_PINTURA_BRIEFING_RESOURCE:}
+        available: ${CATALOG_DECOR_PINTURA_AVAILABLE:true}
+      decor-fachada:
+        price: ${CATALOG_DECOR_FACHADA_PRICE:}
+        terms-resource: ${CATALOG_DECOR_FACHADA_TERMS_RESOURCE:}
+        payment-resource: ${CATALOG_DECOR_FACHADA_PAYMENT_RESOURCE:}
+        briefing-resource: ${CATALOG_DECOR_FACHADA_BRIEFING_RESOURCE:}
+        available: ${CATALOG_DECOR_FACHADA_AVAILABLE:true}
+      decor-reforma:
+        price: ${CATALOG_DECOR_REFORMA_PRICE:}
+        terms-resource: ${CATALOG_DECOR_REFORMA_TERMS_RESOURCE:}
+        payment-resource: ${CATALOG_DECOR_REFORMA_PAYMENT_RESOURCE:}
+        briefing-resource: ${CATALOG_DECOR_REFORMA_BRIEFING_RESOURCE:}
+        available: ${CATALOG_DECOR_REFORMA_AVAILABLE:true}
+
+# The web-consent path is fail-closed by default. Enable it only after the
+# approved legal artifacts, HTTPS origin and secret have been supplied.
+terms:
+  consent:
+    enabled: ${TERMS_CONSENT_ENABLED:false}
+    # Hermes must fail closed to the auditable web consent path unless an
+    # environment explicitly opts into a legacy-only compatibility test.
+    required: ${TERMS_CONSENT_REQUIRED:true}
+    public-base-url: ${TERMS_PUBLIC_BASE_URL:https://api-hml.urbanadobrasil.com}
+    token-secret: ${TERMS_TOKEN_SECRET:}
+    ttl: ${TERMS_SESSION_TTL:30m}
+  audit:
+    # Retention is a legal decision and intentionally has no invented default.
+    retention: ${TERMS_AUDIT_RETENTION:}
+  documents:
+    decor-interiores:
+      version: ${TERMS_DECOR_INTERIORES_VERSION:}
+      resource: ${TERMS_DECOR_INTERIORES_RESOURCE:}
+      content: ${TERMS_DECOR_INTERIORES_CONTENT:}
+    decor-pintura:
+      version: ${TERMS_DECOR_PINTURA_VERSION:}
+      resource: ${TERMS_DECOR_PINTURA_RESOURCE:}
+      content: ${TERMS_DECOR_PINTURA_CONTENT:}
+    decor-fachada:
+      version: ${TERMS_DECOR_FACHADA_VERSION:}
+      resource: ${TERMS_DECOR_FACHADA_RESOURCE:}
+      content: ${TERMS_DECOR_FACHADA_CONTENT:}
+    decor-reforma:
+      version: ${TERMS_DECOR_REFORMA_VERSION:}
+      resource: ${TERMS_DECOR_REFORMA_RESOURCE:}
+      content: ${TERMS_DECOR_REFORMA_CONTENT:}
+
+# The durable worker is intentionally disabled until a protected destination
+# resolver and the selected WhatsApp/SMTP adapters are supplied. Enabling it
+# without those beans fails at startup instead of sending to a guessed target.
+delivery:
+  outbox:
+    enabled: ${DELIVERY_OUTBOX_ENABLED:false}
+    fixed-delay: ${DELIVERY_OUTBOX_FIXED_DELAY:5s}
+    recovery-lease: ${DELIVERY_OUTBOX_RECOVERY_LEASE:5m}
+    retry-base-delay: ${DELIVERY_OUTBOX_RETRY_BASE_DELAY:10s}
+    max-attempts: ${DELIVERY_OUTBOX_MAX_ATTEMPTS:5}
+    batch-size: ${DELIVERY_OUTBOX_BATCH_SIZE:50}
+    destinations:
+      # Required only when delivery.outbox.enabled=true. Never provide a
+      # fallback recipient; contact addresses are supplied per environment.
+      support-mailbox: ${DELIVERY_SUPPORT_MAILBOX:}
+      contact-addresses: {}

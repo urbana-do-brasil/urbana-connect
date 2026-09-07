@@ -29,6 +29,7 @@ kubectl apply -k infra/kubernetes/app/overlays/hml
 - secret `container-registry-credentials`
 - secret `urbana-connect-mongodb-uri`
 - secret `urbana-connect-whatsapp`
+- secret `urbana-connect-terms` quando `TERMS_CONSENT_ENABLED=true`
 - `ClusterIssuer` `letsencrypt-prod` aplicado
 - DNS `api-hml.urbanadobrasil.com` apontando para o IP público da VPS de homolog
 
@@ -37,7 +38,16 @@ kubectl apply -k infra/kubernetes/app/overlays/hml
 O `Ingress` desta overlay assume o stack atual de homolog:
 - `k3s` com `Traefik` como ingress controller
 - `cert-manager` emitindo certificado TLS via Let's Encrypt
-- apenas `/api/webhook`, `/api/v1/health` e `/api/v1/readiness` ficam expostos publicamente
+- `/api/webhook`, `/termos`, `/api/terms`, `/api/v1/health` e `/api/v1/readiness` ficam expostos publicamente
+
+O bloco de consentimento permanece desligado no ConfigMap versionado até que
+os quatro textos jurídicos, versões, hash, segredo do token e recursos sandbox
+sejam fornecidos. Ao habilitá-lo, o endpoint usa a mesma origem HTTPS e não há
+fallback para aceite textual ou para a state machine legada.
+
+O ConfigMap também mantém `CATALOG_FIXTURE_FALLBACK=false`: enquanto os quatro
+recursos operacionais não forem fornecidos, nenhum link de fixture pode ser
+ofertado ao cliente.
 
 Depois de aplicar a overlay:
 

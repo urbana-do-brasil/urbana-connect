@@ -20,6 +20,7 @@ import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -112,10 +113,16 @@ public class DomainToolInvocationUseCase {
         try {
             Map<String, Object> result = tools.execute(toolName, lease.contactId(), normalized,
                     new ToolExecutionContext(lease, clock.instant()));
-            Object payloadSnapshot = snapshot(result);
-            invocations.save(started.finish(DomainToolInvocationStatus.SUCCEEDED, "OK", payloadSnapshot,
+            // Keep the live response usable by Hermes (the terms link is
+            // delivered through the outbox), but do not copy bearer material
+            // into the durable invocation ledger.  A replay therefore remains
+            // safe to inspect even when the first response contained a
+            // fragment token.
+            Object responseSnapshot = snapshot(result);
+            Object durableSnapshot = snapshotForLedger(result);
+            invocations.save(started.finish(DomainToolInvocationStatus.SUCCEEDED, "OK", durableSnapshot,
                     clock.instant()));
-            return new InvocationResult(snapshot(payloadSnapshot), key, false);
+            return new InvocationResult(responseSnapshot, key, false);
         } catch (DomainRejectionException rejection) {
             Object failurePayload = snapshot(rejection.toPayload());
             invocations.save(started.finish(DomainToolInvocationStatus.REJECTED,
@@ -244,5 +251,44 @@ public class DomainToolInvocationUseCase {
         } catch (Exception exception) {
             throw new IllegalStateException("unable to snapshot tool result", exception);
         }
+    }
+
+    /**
+     * Removes bearer material from durable tool history while preserving the
+     * shape of ordinary tool responses.  Terms links use a fragment token
+     * ({@code #t=...}); payment/resource URLs without that marker are not
+     * redacted because they are operational catalog data rather than bearer
+     * credentials.
+     */
+    private static Object snapshotForLedger(Object payload) {
+        return snapshot(redactBearerMaterial(payload));
+    }
+
+    private static Object redactBearerMaterial(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            map.forEach((key, nested) -> {
+                String field = String.valueOf(key);
+                String normalized = field.toLowerCase(java.util.Locale.ROOT);
+                if (normalized.contains("token") || normalized.contains("authorization")) {
+                    copy.put(field, "[REDACTED]");
+                } else {
+                    copy.put(field, redactBearerMaterial(nested));
+                }
+            });
+            return copy;
+        }
+        if (value instanceof List<?> list) {
+            return list.stream().map(DomainToolInvocationUseCase::redactBearerMaterial).toList();
+        }
+        if (value instanceof String text && looksLikeBearerLink(text)) {
+            return "[REDACTED]";
+        }
+        return value;
+    }
+
+    private static boolean looksLikeBearerLink(String value) {
+        String normalized = value.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("#t=") || normalized.matches(".*[?&](token|t)=[^&\\s]+.*");
     }
 }

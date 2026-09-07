@@ -1,8 +1,11 @@
 package br.com.urbana.connect.infrastructure.persistence.mongodb.servicecatalog;
 
+import br.com.urbana.connect.application.catalog.ConfiguredCatalogBaseline;
+import br.com.urbana.connect.application.catalog.CatalogBaselineProperties;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -11,22 +14,30 @@ import java.util.List;
 public class ServiceCatalogSeeder implements ApplicationRunner {
 
     private final SpringDataServiceCatalogRepository repository;
+    private final ConfiguredCatalogBaseline baseline;
 
-    public ServiceCatalogSeeder(SpringDataServiceCatalogRepository repository) {
+    @Autowired
+    public ServiceCatalogSeeder(SpringDataServiceCatalogRepository repository, ConfiguredCatalogBaseline baseline) {
         this.repository = repository;
+        this.baseline = baseline;
+    }
+
+    /** Compatibility constructor for focused adapter tests. Runtime wiring supplies the configured baseline. */
+    public ServiceCatalogSeeder(SpringDataServiceCatalogRepository repository) {
+        this(repository, new ConfiguredCatalogBaseline(new CatalogBaselineProperties()));
     }
 
     @Override
     public void run(ApplicationArguments args) {
         for (ServiceCatalogDocument seed : initialCatalog()) {
-            repository.findByType(seed.getType())
-                    .map(existing -> merge(existing, seed))
-                    .ifPresentOrElse(repository::save, () -> repository.save(seed));
+            if (!repository.existsByType(seed.getType())) {
+                repository.save(seed);
+            }
         }
     }
 
     private List<ServiceCatalogDocument> initialCatalog() {
-        return ServiceCatalogItem.canonicalCatalog().stream()
+        return baseline.all().stream()
                 .map(this::toDocument)
                 .toList();
     }
@@ -53,24 +64,4 @@ public class ServiceCatalogSeeder implements ApplicationRunner {
         return document;
     }
 
-    private ServiceCatalogDocument merge(ServiceCatalogDocument existing, ServiceCatalogDocument seed) {
-        existing.setType(seed.getType());
-        existing.setName(seed.getName());
-        existing.setEmoji(seed.getEmoji());
-        existing.setScenarioText(seed.getScenarioText());
-        existing.setPresentationText(seed.getPresentationText());
-        existing.setPrice(seed.getPrice());
-        existing.setTermsResource(seed.getTermsResource());
-        existing.setPaymentResource(seed.getPaymentResource());
-        existing.setBriefingResource(seed.getBriefingResource());
-        existing.setAreaRule(seed.getAreaRule());
-        existing.setScope(seed.getScope());
-        existing.setDeliverables(seed.getDeliverables());
-        existing.setProcess(seed.getProcess());
-        existing.setResponsibilities(seed.getResponsibilities());
-        existing.setExclusions(seed.getExclusions());
-        existing.setSupport(seed.getSupport());
-        existing.setAvailable(seed.isAvailable());
-        return existing;
-    }
 }

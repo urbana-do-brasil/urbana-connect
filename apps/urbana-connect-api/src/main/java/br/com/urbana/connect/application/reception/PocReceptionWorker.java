@@ -37,6 +37,8 @@ public class PocReceptionWorker implements AutoCloseable {
     private final ReceptionOrchestrator orchestrator;
     private final PocPendingEventGateway pendingEvents;
     private final ReceptionTurnReconciliationService reconciliation;
+    private final HermesOutboundPublisher outboundPublisher;
+    private final HermesFailureHandoffService failureHandoff;
     private final Clock clock;
     private final Duration claimTtl;
     private final Duration successorRetryDelay;
@@ -50,7 +52,7 @@ public class PocReceptionWorker implements AutoCloseable {
                               ReceptionTurnReconciliationService reconciliation,
                               int parallelism, Clock clock, Duration claimTtl) {
         this(orchestrator, pendingEvents, reconciliation, parallelism, clock, claimTtl,
-                DEFAULT_SUCCESSOR_RETRY_DELAY);
+                DEFAULT_SUCCESSOR_RETRY_DELAY, null, null);
     }
 
     public PocReceptionWorker(ReceptionOrchestrator orchestrator,
@@ -58,6 +60,28 @@ public class PocReceptionWorker implements AutoCloseable {
                               ReceptionTurnReconciliationService reconciliation,
                               int parallelism, Clock clock, Duration claimTtl,
                               Duration successorRetryDelay) {
+        this(orchestrator, pendingEvents, reconciliation, parallelism, clock, claimTtl,
+                successorRetryDelay, null, null);
+    }
+
+    public PocReceptionWorker(ReceptionOrchestrator orchestrator,
+                              PocPendingEventGateway pendingEvents,
+                              ReceptionTurnReconciliationService reconciliation,
+                              int parallelism, Clock clock, Duration claimTtl,
+                              HermesOutboundPublisher outboundPublisher,
+                              HermesFailureHandoffService failureHandoff) {
+        this(orchestrator, pendingEvents, reconciliation, parallelism, clock, claimTtl,
+                DEFAULT_SUCCESSOR_RETRY_DELAY, Objects.requireNonNull(outboundPublisher, "outboundPublisher"),
+                Objects.requireNonNull(failureHandoff, "failureHandoff"));
+    }
+
+    private PocReceptionWorker(ReceptionOrchestrator orchestrator,
+                               PocPendingEventGateway pendingEvents,
+                               ReceptionTurnReconciliationService reconciliation,
+                               int parallelism, Clock clock, Duration claimTtl,
+                               Duration successorRetryDelay,
+                               HermesOutboundPublisher outboundPublisher,
+                               HermesFailureHandoffService failureHandoff) {
         if (parallelism < 1) throw new IllegalArgumentException("parallelism must be positive");
         if (claimTtl == null || claimTtl.isZero() || claimTtl.isNegative()) {
             throw new IllegalArgumentException("claim ttl must be positive");
@@ -68,6 +92,8 @@ public class PocReceptionWorker implements AutoCloseable {
         this.orchestrator = Objects.requireNonNull(orchestrator, "orchestrator");
         this.pendingEvents = Objects.requireNonNull(pendingEvents, "pendingEvents");
         this.reconciliation = Objects.requireNonNull(reconciliation, "reconciliation");
+        this.outboundPublisher = outboundPublisher;
+        this.failureHandoff = failureHandoff;
         this.clock = clock == null ? Clock.systemUTC() : clock;
         this.claimTtl = claimTtl;
         this.successorRetryDelay = successorRetryDelay;
@@ -228,6 +254,7 @@ public class PocReceptionWorker implements AutoCloseable {
             case RECONCILING -> {
                 Optional<String> output = tryReconcile(receipt.eventId());
                 if (output.isPresent()) {
+                    publishReconciled(batch.getFirst(), receipt.correlationId(), output.orElseThrow());
                     complete(claims);
                     clearBlock(contactId, batch.getFirst().eventId());
                     return;
@@ -244,7 +271,25 @@ public class PocReceptionWorker implements AutoCloseable {
             case RUNNING, DELAYED, QUEUED -> {
                 block(contactId, batch.getFirst().eventId());
             }
-            case FAILED_SAFE_TO_RETRY -> requeue(claims);
+            case FAILED_SAFE_TO_RETRY, FAILED_RETRYABLE -> {
+                requeue(claims);
+                scheduleBatchAfter(batch);
+            }
+            case FAILED_TERMINAL, FAILED -> {
+                recordTerminalHandoff(batch.getFirst(), receipt);
+                complete(claims);
+            }
+            case BLOCKED_BY_HUMAN -> {
+                publishHumanHandoffAcknowledgement(batch.getFirst(), receipt);
+                complete(claims);
+                clearBlock(contactId, batch.getFirst().eventId());
+            }
+            case COMPLETED -> {
+                if (receipt.output() != null) {
+                    publishReply(batch.getFirst(), receipt);
+                }
+                complete(claims);
+            }
             default -> complete(claims);
         }
     }
@@ -259,10 +304,36 @@ public class PocReceptionWorker implements AutoCloseable {
         }
         Optional<String> output = tryReconcile(event.eventId());
         if (output.isPresent()) {
+            publishReconciled(event.event(), event.eventId(), output.orElseThrow());
             pendingEvents.complete(event.eventId(), claimToken, clock.instant());
             clearBlock(contactId, event.eventId());
             return;
         }
+
+        // The orchestrator persists a completed turn before the outbound
+        // intent is written. If that outbox write fails, the queue claim is
+        // intentionally left recoverable. Reconciliation only applies to an
+        // uncertain Hermes execution, so consult the finalized-turn fence
+        // separately and republish the already persisted response without
+        // invoking Hermes a second time.
+        Optional<ReceptionOrchestrator.HumanHandoffAcknowledgement> handoff =
+                tryFindFinalizedHumanHandoff(event.event());
+        if (handoff.isPresent()) {
+            publishHumanHandoffAcknowledgement(event.event(), handoff.orElseThrow());
+            pendingEvents.complete(event.eventId(), claimToken, clock.instant());
+            clearBlock(contactId, event.eventId());
+            return;
+        }
+
+        Optional<ReceptionOrchestrator.TurnReceipt> finalized = tryFindFinalized(event.event());
+        if (finalized.filter(receipt -> receipt.status() == ReceptionOrchestrator.TurnStatus.DUPLICATE
+                && receipt.output() != null).isPresent()) {
+            publishReply(event.event(), finalized.orElseThrow());
+            pendingEvents.complete(event.eventId(), claimToken, clock.instant());
+            clearBlock(contactId, event.eventId());
+            return;
+        }
+
         // Keep the claim recoverable. The scheduled recovery cycle will try
         // again only after the claim TTL, preventing a hot loop and preserving
         // the no-redispatch guarantee for an ambiguous remote execution.
@@ -276,6 +347,73 @@ public class PocReceptionWorker implements AutoCloseable {
             LOGGER.warn("POC reception reconciliation failed id={}", turnOrEventId, failure);
             return Optional.empty();
         }
+    }
+
+    private Optional<ReceptionOrchestrator.TurnReceipt> tryFindFinalized(InboundConversationEvent event) {
+        try {
+            return orchestrator.duplicateReceiptIfFinalized(event);
+        } catch (RuntimeException failure) {
+            LOGGER.warn("POC reception finalized-turn lookup failed eventId={}", event.eventId(), failure);
+            return Optional.empty();
+        }
+    }
+
+    private Optional<ReceptionOrchestrator.HumanHandoffAcknowledgement> tryFindFinalizedHumanHandoff(
+            InboundConversationEvent event) {
+        try {
+            return orchestrator.finalizedHumanHandoff(event);
+        } catch (RuntimeException failure) {
+            LOGGER.warn("POC reception human-handoff lookup failed eventId={}", event.eventId(), failure);
+            return Optional.empty();
+        }
+    }
+
+    private void publishReply(InboundConversationEvent event, ReceptionOrchestrator.TurnReceipt receipt) {
+        if (outboundPublisher != null && isWhatsApp(event)) {
+            outboundPublisher.reply(event, receipt.correlationId(), receipt.output());
+        }
+    }
+
+    private void publishReconciled(InboundConversationEvent event, String correlationId, String output) {
+        if (outboundPublisher != null && isWhatsApp(event)) {
+            outboundPublisher.reconciledReply(event, correlationId, output);
+        }
+    }
+
+    private void publishHumanHandoffAcknowledgement(InboundConversationEvent event,
+                                                     ReceptionOrchestrator.TurnReceipt receipt) {
+        if (outboundPublisher == null || !isWhatsApp(event)) return;
+        Optional<ReceptionOrchestrator.HumanHandoffAcknowledgement> acknowledgement =
+                tryFindFinalizedHumanHandoff(event);
+        if (acknowledgement.isPresent()) {
+            publishHumanHandoffAcknowledgement(event, acknowledgement.orElseThrow());
+            return;
+        }
+        // A direct/unit-compatible receipt may not expose the transcript
+        // projection yet; keep the customer-facing fallback safe and fixed.
+        outboundPublisher.humanHandoffAcknowledgement(event, receipt.correlationId(),
+                HermesWebhookMessageHandler.SAFE_HUMAN_HANDOFF_MESSAGE);
+    }
+
+    private void publishHumanHandoffAcknowledgement(
+            InboundConversationEvent event,
+            ReceptionOrchestrator.HumanHandoffAcknowledgement acknowledgement) {
+        if (outboundPublisher != null && isWhatsApp(event)) {
+            outboundPublisher.humanHandoffAcknowledgement(event, acknowledgement.correlationId(),
+                    acknowledgement.message());
+        }
+    }
+
+    private void recordTerminalHandoff(InboundConversationEvent event, ReceptionOrchestrator.TurnReceipt receipt) {
+        if (failureHandoff != null && isWhatsApp(event)) {
+            String reason = receipt.error() == null || receipt.error().isBlank()
+                    ? "HERMES_" + receipt.status() : receipt.error();
+            failureHandoff.record(event, receipt.correlationId(), reason);
+        }
+    }
+
+    private static boolean isWhatsApp(InboundConversationEvent event) {
+        return event.contactId().startsWith("wa:");
     }
 
     private void complete(List<ClaimedEvent> claims) {

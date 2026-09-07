@@ -1,11 +1,13 @@
 package br.com.urbana.connect.application.reception;
 
 import br.com.urbana.connect.domain.reception.model.AgentOutput;
+import br.com.urbana.connect.domain.reception.model.DeliveryOutbox;
 import br.com.urbana.connect.domain.reception.model.PocPendingEvent;
 import br.com.urbana.connect.domain.reception.model.PocPendingEventStatus;
 import br.com.urbana.connect.domain.reception.model.ReceptionMessageType;
 import br.com.urbana.connect.domain.reception.model.ReceptionTurnStatus;
 import br.com.urbana.connect.domain.reception.port.out.PocPendingEventGateway;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -120,7 +123,7 @@ class PocReceptionWorkerTest {
     }
 
     @Test
-    void requeuesSafeFailureAndAllowsTheSameEventToBeRetried() {
+    void requeuesSafeFailureAndDurablySchedulesTheSameEventForRetry() {
         ReceptionOrchestrator orchestrator = mock(ReceptionOrchestrator.class);
         AtomicInteger calls = new AtomicInteger();
         when(orchestrator.processBatch(anyList())).thenAnswer(invocation -> {
@@ -138,12 +141,7 @@ class PocReceptionWorkerTest {
         InboundConversationEvent event = event("safe-retry", "poc:ana");
 
         worker.enqueue(List.of(event));
-        worker.awaitIdle(Duration.ofSeconds(2));
-        assertThat(pending.values.get(event.eventId()).status()).isEqualTo(PocPendingEventStatus.QUEUED);
-        assertThat(pending.completed).isEmpty();
-
-        worker.enqueue(List.of(event));
-        worker.awaitIdle(Duration.ofSeconds(2));
+        worker.awaitIdle(Duration.ofSeconds(3));
 
         verify(orchestrator, times(2)).processBatch(anyList());
         assertThat(pending.completed).containsExactly(event.eventId());
@@ -171,6 +169,80 @@ class PocReceptionWorkerTest {
     }
 
     @Test
+    void republishesACompletedTurnWhenTheFirstOutboxWriteFails() {
+        ReceptionOrchestrator orchestrator = mock(ReceptionOrchestrator.class);
+        ReceptionTurnReconciliationService reconciliation = mock(ReceptionTurnReconciliationService.class);
+        br.com.urbana.connect.domain.reception.port.out.DeliveryOutboxGateway outbox = mock(
+                br.com.urbana.connect.domain.reception.port.out.DeliveryOutboxGateway.class);
+        AgentOutput output = new AgentOutput("resposta persistida",
+                br.com.urbana.connect.domain.reception.model.AgentNextAction.AWAIT_CUSTOMER);
+        InboundConversationEvent event = event("outbox-retry", "wa:opaque-contact");
+        when(orchestrator.processBatch(anyList())).thenReturn(new ReceptionOrchestrator.TurnReceipt(
+                event.eventId(), "corr-outbox", ReceptionOrchestrator.TurnStatus.COMPLETED, output, null));
+        when(orchestrator.duplicateReceiptIfFinalized(any())).thenReturn(Optional.of(
+                new ReceptionOrchestrator.TurnReceipt(event.eventId(), "corr-outbox",
+                        ReceptionOrchestrator.TurnStatus.DUPLICATE, output, null)));
+        AtomicInteger outboxWrites = new AtomicInteger();
+        when(outbox.saveIfAbsent(any(DeliveryOutbox.class))).thenAnswer(invocation -> {
+            if (outboxWrites.getAndIncrement() == 0) {
+                throw new IllegalStateException("outbox unavailable");
+            }
+            return invocation.getArgument(0);
+        });
+
+        MemoryPendingEvents pending = new MemoryPendingEvents();
+        PocReceptionWorker worker = new PocReceptionWorker(orchestrator, pending, reconciliation,
+                2, Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofSeconds(30),
+                new HermesOutboundPublisher(outbox, Clock.fixed(NOW, ZoneOffset.UTC)),
+                new HermesFailureHandoffService(outbox, Clock.fixed(NOW, ZoneOffset.UTC)));
+        workers.add(worker);
+
+        worker.enqueue(List.of(event));
+        worker.awaitIdle(Duration.ofSeconds(2));
+        pending.expireClaim(event.eventId());
+        worker.recover();
+        worker.awaitIdle(Duration.ofSeconds(2));
+
+        verify(orchestrator).processBatch(anyList());
+        verify(orchestrator).duplicateReceiptIfFinalized(event);
+        verify(outbox, org.mockito.Mockito.times(2)).saveIfAbsent(any(DeliveryOutbox.class));
+        assertThat(pending.completed).containsExactly(event.eventId());
+    }
+
+    @Test
+    void publishesHumanHandoffAcknowledgementThroughTheIdempotentOutbox() {
+        ReceptionOrchestrator orchestrator = mock(ReceptionOrchestrator.class);
+        ReceptionTurnReconciliationService reconciliation = mock(ReceptionTurnReconciliationService.class);
+        br.com.urbana.connect.domain.reception.port.out.DeliveryOutboxGateway outbox = mock(
+                br.com.urbana.connect.domain.reception.port.out.DeliveryOutboxGateway.class);
+        InboundConversationEvent event = event("handoff-ack", "wa:opaque-contact");
+        when(orchestrator.processBatch(anyList())).thenReturn(new ReceptionOrchestrator.TurnReceipt(
+                event.eventId(), "corr-handoff", ReceptionOrchestrator.TurnStatus.BLOCKED_BY_HUMAN, null, null));
+        when(orchestrator.finalizedHumanHandoff(event)).thenReturn(Optional.of(
+                new ReceptionOrchestrator.HumanHandoffAcknowledgement("corr-handoff", "Recebemos sua mensagem.")));
+        when(outbox.saveIfAbsent(any(DeliveryOutbox.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        MemoryPendingEvents pending = new MemoryPendingEvents();
+        PocReceptionWorker worker = new PocReceptionWorker(orchestrator, pending, reconciliation,
+                2, Clock.fixed(NOW, ZoneOffset.UTC), Duration.ofSeconds(30),
+                new HermesOutboundPublisher(outbox, Clock.fixed(NOW, ZoneOffset.UTC)),
+                new HermesFailureHandoffService(outbox, Clock.fixed(NOW, ZoneOffset.UTC)));
+        workers.add(worker);
+
+        worker.enqueue(List.of(event));
+        worker.awaitIdle(Duration.ofSeconds(2));
+
+        ArgumentCaptor<DeliveryOutbox> intent = ArgumentCaptor.forClass(DeliveryOutbox.class);
+        verify(outbox).saveIfAbsent(intent.capture());
+        assertThat(intent.getValue().eventKey()).isEqualTo("hermes:handoff-ack:handoff-ack");
+        assertThat(intent.getValue().kind()).isEqualTo(
+                br.com.urbana.connect.domain.reception.model.DeliveryOutboxKind.WHATSAPP_HUMAN_HANDOFF_ACK);
+        assertThat(intent.getValue().payload()).isEqualTo("Recebemos sua mensagem.");
+        assertThat(intent.getValue().destinationRef()).isEqualTo("contact:wa:opaque-contact");
+        assertThat(pending.completed).containsExactly(event.eventId());
+    }
+
+    @Test
     void recoversAClaimedEventThroughReconciliationWithoutRedispatch() throws Exception {
         ReceptionOrchestrator orchestrator = mock(ReceptionOrchestrator.class);
         ReceptionTurnReconciliationService reconciliation = mock(ReceptionTurnReconciliationService.class);
@@ -183,7 +255,7 @@ class PocReceptionWorkerTest {
         worker.awaitIdle(Duration.ofSeconds(2));
 
         org.mockito.Mockito.verify(reconciliation).reconcile("stale-1");
-        org.mockito.Mockito.verifyNoInteractions(orchestrator);
+        verify(orchestrator).duplicateReceiptIfFinalized(any());
         assertThat(pending.completed).isEmpty();
     }
 
@@ -287,6 +359,14 @@ class PocReceptionWorkerTest {
                 return requeued[0];
             });
             return Optional.ofNullable(requeued[0]);
+        }
+
+        void expireClaim(String eventId) {
+            values.computeIfPresent(eventId, (ignored, current) -> new PocPendingEvent(
+                    current.eventId(), current.contactId(), current.type(), current.text(), current.transcript(),
+                    current.mediaFixture(), current.interactiveReplyId(), current.occurredAt(),
+                    current.providerMessageId(), current.acceptedAt(), PocPendingEventStatus.CLAIMED,
+                    current.claimToken(), NOW.minusSeconds(600), current.completedAt()));
         }
     }
 }

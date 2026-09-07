@@ -3,7 +3,10 @@ package br.com.urbana.connect.application.reception;
 import br.com.urbana.connect.domain.reception.port.out.ActiveTurnLeaseGateway;
 import br.com.urbana.connect.domain.reception.port.out.AgentSessionLinkGateway;
 import br.com.urbana.connect.domain.reception.port.out.PocPendingEventGateway;
+import br.com.urbana.connect.domain.reception.port.out.DeliveryDestinationRegistryGateway;
+import br.com.urbana.connect.domain.conversation.port.out.AiGateway;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
+import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGateway;
 import br.com.urbana.connect.application.reception.tools.DomainToolInvocationUseCase;
 import br.com.urbana.connect.application.reception.tools.DomainToolService;
 import br.com.urbana.connect.application.reception.tools.StatefulDomainToolService;
@@ -16,6 +19,8 @@ import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.Spring
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataDomainToolInvocationRepository;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataPocPendingEventRepository;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataTermsConsentAuditRepository;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataDeliveryOutboxRepository;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataDeliveryDestinationRepository;
 import br.com.urbana.connect.interfaces.rest.poc.DomainToolController;
 import br.com.urbana.connect.interfaces.rest.poc.ConversationSimulatorController;
 import org.junit.jupiter.api.Test;
@@ -48,6 +53,9 @@ class PocReceptionConfigurationTest {
         SpringDataReceptionTurnRepository turnRepository = mock(SpringDataReceptionTurnRepository.class);
         SpringDataPocPendingEventRepository pendingEventRepository = mock(SpringDataPocPendingEventRepository.class);
         SpringDataTermsConsentAuditRepository termsConsentAuditRepository = mock(SpringDataTermsConsentAuditRepository.class);
+        SpringDataDeliveryOutboxRepository deliveryOutboxRepository = mock(SpringDataDeliveryOutboxRepository.class);
+        SpringDataDeliveryDestinationRepository deliveryDestinationRepository =
+                mock(SpringDataDeliveryDestinationRepository.class);
         new ApplicationContextRunner()
                 .withUserConfiguration(PocReceptionConfiguration.class, ControllerConfiguration.class)
                 .withBean(SpringDataActiveTurnLeaseRepository.class, () -> leaseRepository)
@@ -59,6 +67,9 @@ class PocReceptionConfigurationTest {
                 .withBean(SpringDataReceptionTurnRepository.class, () -> turnRepository)
                 .withBean(SpringDataPocPendingEventRepository.class, () -> pendingEventRepository)
                 .withBean(SpringDataTermsConsentAuditRepository.class, () -> termsConsentAuditRepository)
+                .withBean(SpringDataDeliveryOutboxRepository.class, () -> deliveryOutboxRepository)
+                .withBean(SpringDataDeliveryDestinationRepository.class, () -> deliveryDestinationRepository)
+                .withBean(ServiceCatalogGateway.class, () -> mock(ServiceCatalogGateway.class))
                 .withBean(MongoTemplate.class, () -> mongoTemplate)
                 .withBean(WhatsAppMessageGateway.class, () -> mock(WhatsAppMessageGateway.class))
                 .withBean(RestClient.Builder.class, RestClient::builder)
@@ -79,6 +90,9 @@ class PocReceptionConfigurationTest {
         assertThat(context).hasSingleBean(HermesSessionService.class);
         assertThat(context).hasSingleBean(ReceptionOrchestrator.class);
         assertThat(context).hasSingleBean(HermesWebhookMessageHandler.class);
+        assertThat(context).hasSingleBean(HermesFailureHandoffService.class);
+        assertThat(context).hasSingleBean(DeliveryDestinationRegistryGateway.class);
+        assertThat(context).doesNotHaveBean(AiGateway.class);
         assertThat(context).hasSingleBean(NonProspectPolicy.class);
         assertThat(context).hasSingleBean(MessageBatcher.class);
         assertThat(context).hasSingleBean(MediaNormalizationService.class);

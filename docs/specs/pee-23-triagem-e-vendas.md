@@ -4,7 +4,7 @@
 
 - `Título da feature`: Urba: Fluxo de Triagem e Vendas
 - `Ticket Jira`: PEE-23
-- `Status`: Draft
+- `Status`: Baseline histórica — fechamento operacional em `specs/011-pee23-closeout/`
 - `Responsável pela spec`: Visão Claude
 - `Branch`: `feature/PEE-2-urba`
 - `Data`: 2026-04-04
@@ -17,6 +17,15 @@
 > Em caso de conflito, a PEE-102 prevalece. Em particular, não usar o antigo
 > serviço `Decor`, os links de pagamento históricos ou a regra que mantinha
 > Decor Reforma indisponível.
+
+> **Atualização de fechamento — PEE-23 (2026-09-03):** o contrato executável
+> desta história está em [`specs/011-pee23-closeout/spec.md`](../../specs/011-pee23-closeout/spec.md).
+> Para a validação corrente, Hermes é o único caminho oficial; a antiga state
+> machine não é fallback; `Decor Interiores`, `Decor Pintura`, `Decor Fachada`
+> e `Decor Reforma` são os nomes canônicos; e o aceite de termos ocorre
+> somente na tela web auditável, com o botão “Li e aceito os termos”. A decisão
+> textual no WhatsApp não libera pagamento. A confirmação financeira,
+> briefing, produção e ativação de produção permanecem fora da PEE-23.
 
 ---
 

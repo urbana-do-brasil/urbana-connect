@@ -1,9 +1,7 @@
 package br.com.urbana.connect.interfaces.rest;
 
-import br.com.urbana.connect.application.conversation.ConversationFlowService;
 import br.com.urbana.connect.application.conversation.InboundWhatsAppMessage;
 import br.com.urbana.connect.application.reception.HermesWebhookMessageHandler;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.util.Optional;
 
 @RestController
 public class WebhookController {
@@ -33,13 +32,23 @@ public class WebhookController {
 
     public WebhookController(
             @Value("${whatsapp.webhook.verify-token:}") String verifyToken,
-            ConversationFlowService conversationFlowService,
-            ObjectProvider<HermesWebhookMessageHandler> hermesWebhookMessageHandler) {
+            Optional<HermesWebhookMessageHandler> hermesWebhookMessageHandler,
+            @Value("${hermes.poc.enabled:false}") boolean hermesProfileActive) {
         this.verifyToken = verifyToken;
-        HermesWebhookMessageHandler hermesHandler = hermesWebhookMessageHandler.getIfAvailable();
-        this.messageHandler = hermesHandler == null
-                ? conversationFlowService::handleIncomingMessage
-                : hermesHandler::handle;
+        if (hermesProfileActive) {
+            // The profile that owns the official webhook is fail-closed: a
+            // missing Hermes handler must prevent startup rather than silently
+            // routing a customer message through the legacy state machine.
+            HermesWebhookMessageHandler hermesHandler = hermesWebhookMessageHandler.orElseThrow(
+                    () -> new IllegalStateException("HermesWebhookMessageHandler is required when Hermes is active"));
+            this.messageHandler = hermesHandler::handle;
+            return;
+        }
+
+        // There is deliberately no legacy state-machine fallback. A process
+        // without the official Hermes profile must fail closed rather than
+        // accept customer traffic through a second source of truth.
+        this.messageHandler = null;
     }
 
     @GetMapping("/api/webhook")
@@ -64,6 +73,11 @@ public class WebhookController {
         if (!WHATSAPP_BUSINESS_ACCOUNT.equals(object)) {
             log.warn("Webhook rejeitado: object={} entries={}", object, entriesCount);
             return ResponseEntity.badRequest().build();
+        }
+
+        if (messageHandler == null) {
+            log.error("Webhook indisponível: o perfil Hermes não está ativo");
+            return ResponseEntity.status(503).build();
         }
 
         log.info("Webhook recebido: object={} entries={}", object, entriesCount);

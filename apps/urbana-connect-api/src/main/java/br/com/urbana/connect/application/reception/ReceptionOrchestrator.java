@@ -268,6 +268,29 @@ public final class ReceptionOrchestrator {
         });
     }
 
+    /**
+     * Returns the durable acknowledgement created for a finalized HUMAN turn.
+     * The delivery worker uses this read-only fence to create/retry the
+     * WhatsApp outbox intent without running Hermes or changing ownership.
+     */
+    public Optional<HumanHandoffAcknowledgement> finalizedHumanHandoff(InboundConversationEvent event) {
+        Objects.requireNonNull(event, "event");
+        return coordinator.serialize(event.contactId(), () -> {
+            Optional<ReceptionMessage> inbound = transcript.findByEventId(event.eventId());
+            if (inbound.isEmpty()) return Optional.empty();
+            ReceptionTurn turn = turns.findByInboundMessageId(inbound.orElseThrow().id()).orElse(null);
+            if (turn == null || turn.status() != ReceptionTurnStatus.BLOCKED_BY_HUMAN) {
+                return Optional.empty();
+            }
+            ReceptionConversation conversation = conversations.findByContactId(event.contactId()).orElse(null);
+            if (conversation == null) return Optional.empty();
+            return transcript.findByEventId(StatefulDomainToolService.handoffAckEventId(conversation))
+                    .filter(message -> message.direction() == ReceptionMessageDirection.OUTBOUND)
+                    .filter(message -> message.text() != null && !message.text().isBlank())
+                    .map(message -> new HumanHandoffAcknowledgement(turn.correlationId(), message.text()));
+        });
+    }
+
     /** Processes one released POC batch as a single conversational turn. */
     public TurnReceipt processBatch(List<InboundConversationEvent> events) {
         if (events == null || events.isEmpty()) {
@@ -698,7 +721,7 @@ public final class ReceptionOrchestrator {
         // Hermes session, acquiring a lease, invoking tools, or publishing an
         // automated outbound message.
         if (conversation.mode() == ReceptionMode.HUMAN) {
-            String acknowledgement = events.stream().anyMatch(InboundConversationEvent::isPaymentProof)
+            String acknowledgement = events.stream().anyMatch(ReceptionOrchestrator::isPaymentProofEvent)
                     ? SAFE_PAYMENT_PROOF_HANDOFF_MESSAGE : StatefulDomainToolService.HUMAN_HANDOFF_ACK;
             ensureHandoffAck(conversation, correlationId, now, acknowledgement);
             ReceptionTurn blockedTurn = new ReceptionTurn(UUID.randomUUID().toString(), correlationId,
@@ -830,20 +853,12 @@ public final class ReceptionOrchestrator {
                     beforeChat, service, last.occurredAt()));
             persistInteractiveServiceFact(first.contactId(), service, selection);
         }
-        Optional<InboundConversationEvent> acceptance = events.stream()
-                .filter(event -> policy.isExplicitTermsAcceptance(event.conversationalText())).findFirst();
-        if (beforeChat.termsStatus() == TermsStatus.PRESENTED && acceptance.isPresent()
-                && termsAcceptance != null && beforeChat.activeTermsConsentId() != null) {
-            InboundConversationEvent accepted = acceptance.get();
-            ReceptionMessage acceptanceMessage = transcript.findByEventId(accepted.eventId()).orElseThrow();
-            ReceptionConversation acceptedConversation = termsAcceptance.recordAcceptance(beforeChat,
-                    accepted.eventId(), acceptanceMessage.id(), acceptanceMessage.text(),
-                    accepted.occurredAt(), policy);
-            beforeChat = termsAcceptance.persistsConversation()
-                    ? acceptedConversation : conversations.save(acceptedConversation);
-        }
+        // Contractual terms acceptance is a web-only, server-audited action.
+        // Inbound WhatsApp text and interactive replies are deliberately never
+        // interpreted as consent, even when a legacy TermsAcceptanceUseCase is
+        // still present for historical reconciliation data.
         Optional<InboundConversationEvent> proof = events.stream()
-                .filter(InboundConversationEvent::isPaymentProof).findFirst();
+                .filter(ReceptionOrchestrator::isPaymentProofEvent).findFirst();
         if (proof.isPresent() && initial.paymentStatus() == PaymentStatus.PREPARED) {
             ReceptionConversation proofBase = beforeChat.paymentStatus() == PaymentStatus.PREPARED
                     ? beforeChat : conversations.findByContactId(first.contactId()).orElse(beforeChat);
@@ -940,6 +955,18 @@ public final class ReceptionOrchestrator {
             case CONFIRMED -> new AgentOutput(SAFE_COMMERCIAL_RECOVERY_MESSAGE,
                     AgentNextAction.AWAIT_CUSTOMER);
         };
+    }
+
+    /**
+     * A channel image/document received while payment is prepared is treated
+     * as payment evidence and sent to the human queue. The system never lets
+     * Hermes interpret it as a confirmation, and an explicit payment_proof
+     * event remains supported for adapters that can classify it at the edge.
+     */
+    private static boolean isPaymentProofEvent(InboundConversationEvent event) {
+        return event.isPaymentProof()
+                || event.type() == ReceptionMessageType.IMAGE
+                || event.type() == ReceptionMessageType.DOCUMENT;
     }
 
     private HermesSessionsGateway.HermesChatResult chatWithDelayTracking(
@@ -1262,6 +1289,13 @@ public final class ReceptionOrchestrator {
             require(eventId, "eventId");
             require(correlationId, "correlationId");
             Objects.requireNonNull(status, "status");
+        }
+    }
+
+    public record HumanHandoffAcknowledgement(String correlationId, String message) {
+        public HumanHandoffAcknowledgement {
+            require(correlationId, "correlationId");
+            require(message, "message");
         }
     }
 

@@ -64,6 +64,7 @@ class PluginToolsTest(unittest.TestCase):
         self.assertIn("intenção clara", descriptions["prepare_terms"].lower())
         self.assertIn("não use para dúvidas", descriptions["prepare_terms"].lower())
         self.assertIn("aceitos", descriptions["prepare_payment"].lower())
+        self.assertIn("tela web", descriptions["prepare_payment"].lower())
         self.assertIn("1 serviço por ambiente", descriptions["prepare_payment"].lower())
         self.assertIn("simulação", descriptions["prepare_payment"].lower())
 

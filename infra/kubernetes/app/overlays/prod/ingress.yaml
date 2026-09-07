@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: urbana-connect
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - api.urbanadobrasil.com
+      secretName: urbana-connect-prod-tls
+  rules:
+    - host: api.urbanadobrasil.com
+      http:
+        paths:
+          - path: /api/webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: urbana-connect
+                port:
+                  number: 80
+          - path: /termos
+            pathType: Prefix
+            backend:
+              service:
+                name: urbana-connect
+                port:
+                  number: 80
+          - path: /api/terms
+            pathType: Prefix
+            backend:
+              service:
+                name: urbana-connect
+                port:
+                  number: 80
+          - path: /api/v1/health
+            pathType: Prefix
+            backend:
+              service:
+                name: urbana-connect
+                port:
+                  number: 80
+          - path: /api/v1/readiness
+            pathType: Prefix
+            backend:
+              service:
+                name: urbana-connect
+                port:
+                  number: 80

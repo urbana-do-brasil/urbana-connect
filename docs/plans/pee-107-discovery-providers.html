@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Discovery aprofundado de Asaas, PagBank e Mercado Pago para o checkout sandbox da PEE-23.">
+  <title>PEE-107 — Discovery de provedores de checkout</title>
+  <style>
+    :root { color-scheme: light; --ink:#172033; --muted:#64748b; --line:#d8e0ea; --accent:#0f766e; --accent-soft:#ecfdf5; --blue:#1d4ed8; --blue-soft:#eff6ff; --warn:#9a3412; --warn-soft:#fff7ed; --violet:#6d28d9; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:28px; font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--ink); background:#f8fafc; }
+    main { max-width:1200px; margin:auto; background:#fff; padding:34px 42px 42px; box-shadow:0 6px 30px #0f172a14; }
+    h1,h2,h3 { line-height:1.2; color:#0f172a; } h1 { margin:0 0 6px; font-size:2rem; } h2 { margin-top:36px; border-bottom:1px solid var(--line); padding-bottom:9px; } h3 { margin-top:24px; }
+    .meta { color:var(--muted); margin:0 0 22px; }
+    .decision { background:var(--accent-soft); border-left:5px solid var(--accent); padding:14px 17px; margin:20px 0; }
+    .warning { background:var(--warn-soft); border-left:5px solid #ea580c; padding:14px 17px; margin:20px 0; }
+    .note { background:var(--blue-soft); border-left:5px solid var(--blue); padding:12px 15px; margin:14px 0; }
+    .cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; margin:18px 0; }
+    .card { border:1px solid var(--line); border-top:4px solid var(--accent); border-radius:8px; padding:15px; }
+    .card:nth-child(2) { border-top-color:var(--blue); } .card:nth-child(3) { border-top-color:var(--violet); }
+    .card h3 { margin:0 0 7px; } .card p { margin:5px 0; }
+    .table-wrap { overflow-x:auto; margin:13px 0 22px; }
+    table { width:100%; min-width:720px; border-collapse:collapse; } th,td { text-align:left; vertical-align:top; border:1px solid var(--line); padding:9px 10px; } th { background:#f1f5f9; font-weight:700; }
+    .provider-table th:first-child { min-width:160px; } .provider-table td:first-child { font-weight:600; background:#f8fafc; }
+    .fee-table th:first-child { min-width:190px; } .money { white-space:nowrap; } .fit { font-weight:700; color:var(--accent); }
+    code,pre { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; } code { background:#f1f5f9; padding:1px 4px; border-radius:4px; font-size:.92em; } pre { background:#0f172a; color:#e2e8f0; padding:14px 16px; overflow-x:auto; border-radius:7px; font-size:.9em; }
+    li { margin:5px 0; } a { color:#075985; } .small { color:var(--muted); font-size:.92em; }
+    .status { display:inline-block; padding:3px 9px; border-radius:999px; background:#fef3c7; color:#92400e; font-weight:700; }
+    .source-list li { margin:7px 0; }
+    footer { margin-top:38px; padding-top:15px; border-top:1px solid var(--line); color:var(--muted); font-size:.9em; }
+    @media (max-width:780px) { body { padding:0; } main { padding:24px 18px 32px; } .cards { grid-template-columns:1fr; } h1 { font-size:1.6rem; } }
+    @media print { body { padding:0; background:#fff; } main { box-shadow:none; max-width:none; } a { color:inherit; text-decoration:none; } .table-wrap { overflow:visible; } table { min-width:0; font-size:10pt; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>PEE-107 — Discovery aprofundado de provedores de checkout</h1>
+  <p class="meta">Finalistas analisados: Asaas, PagBank e Mercado Pago · pesquisa inicial em 03/09/2026, revisão Asaas em 05/09/2026 · <span class="status">shortlist — provedor ainda não escolhido</span></p>
+
+  <div class="decision">
+    <strong>Conclusão executiva:</strong> os três provedores são tecnicamente viáveis para a fronteira da PEE-23: gerar um checkout hospedado em HML, obter uma URL HTTPS e enviá-la pelo WhatsApp. As diferenças decisivas estão nas tarifas/prazo de recebimento, nas opções que o checkout não permite ocultar, no esforço de homologação e na conta comercial que a Urba conseguir contratar. Este relatório recomenda uma decisão explícita do PO/negócio; não autoriza adapter, credenciais ou produção.
+  </div>
+
+  <h2>1. Cenário e limites da decisão</h2>
+  <p>A PEE-23 termina quando, após a seleção do serviço e o aceite auditável dos termos, o Hermes pergunta <code>PIX</code> ou <code>CARD</code>, prepara um checkout e entrega o link ao cliente. O cliente poderá pagar, mas a confirmação financeira, webhook, reconciliação, validação de comprovante, briefing e ativação de produção permanecem fora desta história.</p>
+  <ul>
+    <li>Serviços: <strong>Decor Interiores</strong>, Decor Pintura, Decor Fachada e Decor Reforma.</li>
+    <li>Um checkout por contratação, associado a serviço, valor vigente, conversa e uma referência externa opaca.</li>
+    <li>HML usa conta/credencial de teste sem cobrança real; PROD terá conta, base URL e segredos próprios, com o mesmo código.</li>
+    <li>O valor vem do catálogo efetivo (baseline do ambiente + override operacional Mongo), não da página pública de preços do provedor.</li>
+  </ul>
+
+  <h2>2. Contrato técnico que o adapter deverá cumprir</h2>
+  <p>O provider específico deve ficar atrás de uma porta única. O contrato abaixo é proposta de design para T041–T043, ainda não implementada:</p>
+  <pre>createCheckout({
+  serviceType,       // serviço canônico
+  amount,            // preço do catálogo, em unidade exigida pelo provider
+  method,            // PIX ou CARD
+  externalReference, // contrato/conversa opaca
+  idempotencyKey,    // uma tentativa lógica de criação
+  environment        // HML ou PROD
+}) -&gt; {
+  provider, checkoutId, checkoutUrl, status, expiresAt
+}</pre>
+  <p>O resultado deve ser persistido antes da entrega ao WhatsApp, com <code>provider</code>, <code>checkoutId</code>, URL, expiração e referência. Redirecionamento, retorno de página ou estado inicial nunca devem ser interpretados como pagamento confirmado.</p>
+
+  <h2>3. Comparação rápida</h2>
+  <div class="table-wrap">
+    <table class="provider-table">
+      <thead><tr><th>Critério</th><th>Asaas</th><th>PagBank</th><th>Mercado Pago</th></tr></thead>
+      <tbody>
+        <tr><td>Produto adequado</td><td><strong>Asaas Checkout</strong> hospedado; a API retorna uma única URL para o pagador e é recomendada para múltiplos meios.</td><td>Checkout/Link de Pagamento hospedado; a API retorna o checkout e o link <code>PAY</code>.</td><td>Checkout Pro via preferência; a API retorna <code>init_point</code> para redirecionar o comprador.</td></tr>
+        <tr><td>PIX e cartão</td><td><code>billingTypes</code> aceita <code>PIX</code>, <code>CREDIT_CARD</code> ou ambos no mesmo Checkout. Não precisamos duplicar o recurso por método, salvo decisão de produto.</td><td>Cartão, débito, PIX, boleto e carteiras Apple/Google; é possível configurar meios e parcelas, mas <strong>Pagar com PagBank permanece disponível</strong>.</td><td>A preferência define itens, valores, meios e URLs de retorno; pode excluir tipos/meios. A carteira oferece meios adicionais além de PIX/cartão.</td></tr>
+        <tr><td>Teste em HML</td><td>Sandbox independente, sem movimentar valores reais, com chave e URL próprias.</td><td>Sandbox sem valor monetário, cartões de teste e simulador de estados.</td><td>Contas vendedor/comprador de teste, cartões fictícios e cenários offline de PIX/boleto.</td></tr>
+        <tr><td>Caminho para PROD</td><td>Trocar base URL e chave; sandbox e produção não compartilham conta, dados ou configuração.</td><td>Depois do sandbox, há <strong>homologação obrigatória</strong> para liberar o acesso de produção.</td><td>Trocar credenciais/configuração de teste pelas de produção; configurar webhook de teste e produtivo separadamente.</td></tr>
+        <tr><td>Identidade e futuro assíncrono</td><td>Checkout possui ID, <code>externalReference</code>, estados (<code>ACTIVE</code>, <code>PAID</code>, <code>CANCELED</code>, <code>EXPIRED</code>) e eventos de webhook idempotentes.</td><td>Checkout possui <code>id</code> e URL; notificações informam checkout/pagamento e estados como <code>PAID</code>, <code>WAITING</code>, <code>DECLINED</code> e <code>EXPIRED</code>.</td><td>Preferência/pagamento possuem IDs e <code>external_reference</code>; Webhooks enviam eventos assinados para URL configurada.</td></tr>
+        <tr><td>Idempotência</td><td>Eventos devem ser persistidos e processados idempotentemente; confirmar a garantia de criação no spike do adapter.</td><td>Chave de idempotência documentada para evitar duplicidade quando há falha de comunicação.</td><td><code>X-Idempotency-Key</code> é obrigatório em APIs de pagamento/refund; a criação da preferência deve ter proteção idempotente também no nosso registro.</td></tr>
+        <tr><td>Leitura para a PEE-23</td><td class="fit">Alta: API enxuta e separação de ambientes clara.</td><td class="fit">Alta: checkout completo e fluxo de homologação explícito; carteira não ocultável é decisão de produto.</td><td class="fit">Alta: PO já conhece e o ecossistema de testes é bom; mais opções de carteira e regras de recebimento exigem decisão.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cards">
+    <div class="card"><h3>Asaas</h3><p><strong>Melhor argumento:</strong> simplicidade do link e sandbox independente.</p><p><strong>Principal pergunta:</strong> qual tarifa e prazo a conta PJ da Urba realmente receberá?</p></div>
+    <div class="card"><h3>PagBank</h3><p><strong>Melhor argumento:</strong> cobertura ampla e homologação de produção bem definida.</p><p><strong>Principal pergunta:</strong> aceitamos a carteira “Pagar com PagBank” sempre visível?</p></div>
+    <div class="card"><h3>Mercado Pago</h3><p><strong>Melhor argumento:</strong> familiaridade da PO e bom conjunto de contas/cartões de teste.</p><p><strong>Principal pergunta:</strong> a Urba aceita os meios adicionais e a política de recebimento da conta?</p></div>
+  </div>
+
+  <h2>4. Asaas</h2>
+  <h3>Como seria usado</h3>
+  <ol>
+    <li>Depois de <code>prepare_payment(PIX|CARD)</code>, o adapter chama <code>POST https://api-sandbox.asaas.com/v3/checkouts</code>.</li>
+    <li>Envia <code>billingTypes: ["PIX"]</code>, <code>["CREDIT_CARD"]</code> ou ambos, <code>chargeTypes: ["DETACHED"]</code>, item/valor do serviço, callback, <code>externalReference</code> e <code>minutesToExpire</code>.</li>
+    <li>O Checkout devolve uma página hospedada única. A expiração aceita 10–1.440 minutos, portanto o prazo parametrizado de 30 minutos do nosso desenho é suportado.</li>
+    <li>Persistimos ID, URL, referência e expiração; o Hermes envia a URL. A criação inicia a jornada, mas não confirma pagamento; qualquer confirmação fica para o fluxo financeiro futuro.</li>
+  </ol>
+  <h3>HML → PROD</h3>
+  <p>O Sandbox não movimenta valores reais e tem conta, dados, configurações e chave independentes da produção. O overlay HML apontaria para a base sandbox e o overlay PROD para <code>https://api.asaas.com/v3</code>, sempre com referências a segredos, nunca com valores no código. A própria documentação recomenda testar o Checkout, erros e webhooks no Sandbox antes da migração.</p>
+  <h3>Tarifas públicas encontradas</h3>
+  <div class="table-wrap"><table class="fee-table"><thead><tr><th>Meio/condição</th><th>Tarifa pública padrão</th><th>Promoção exibida na página</th><th>Simulação em R$ 1.000</th></tr></thead><tbody>
+    <tr><td>PIX</td><td>R$ 1,99 por transação recebida</td><td>R$ 0,99 por 3 meses</td><td>Taxa padrão R$ 1,99; líquido R$ 998,01</td></tr>
+    <tr><td>Cartão à vista</td><td>R$ 0,49 + 2,99%</td><td>R$ 0,49 + 1,99% por 3 meses</td><td>Padrão R$ 30,39; líquido R$ 969,61</td></tr>
+    <tr><td>Cartão 2–6 parcelas</td><td>R$ 0,49 + 3,49%</td><td>R$ 0,49 + 2,49% por 3 meses</td><td>Padrão R$ 35,39; líquido R$ 964,61</td></tr>
+    <tr><td>Cartão 7–12 parcelas</td><td>R$ 0,49 + 3,99%</td><td>R$ 0,49 + 2,99% por 3 meses</td><td>Padrão R$ 40,39; líquido R$ 959,61</td></tr>
+    <tr><td>Cartão 13–21 parcelas</td><td>R$ 0,49 + 4,29%</td><td>R$ 0,49 + 3,29% por 3 meses</td><td>Padrão R$ 43,39; líquido R$ 956,61</td></tr>
+    <tr><td>Boleto</td><td>R$ 1,99 por transação</td><td>R$ 0,99 por 3 meses</td><td>Padrão R$ 1,99; líquido R$ 998,01</td></tr>
+  </tbody></table></div>
+  <p class="small">A página também informa antecipação de cartão a 1,25% ao mês, sujeita à análise de crédito, e recebimento do crédito à vista em torno de D+32. A página comercial de link pode exibir uma oferta diferente da tabela geral; o contrato e a simulação dentro da conta prevalecem.</p>
+  <h3>Riscos/pendências</h3>
+  <ul><li>Confirmar se a tarifa da tabela geral é aplicável ao Link de Pagamento e à conta PJ da Urba, pois existem ofertas promocionais distintas.</li><li>Confirmar a operação de criação idempotente no adapter antes de permitir retry após timeout.</li><li>Definir explicitamente expiração do link e limite de parcelas; não depender de defaults comerciais.</li></ul>
+
+  <h2>5. PagBank</h2>
+  <h3>Como seria usado</h3>
+  <ol>
+    <li>O adapter chama <code>POST https://sandbox.api.pagseguro.com/checkouts</code> com <code>reference_id</code>, item/valor, meio permitido, data de expiração, URLs de notificação e retorno quando necessário.</li>
+    <li>A API devolve um <code>id</code> de checkout e o link cujo relacionamento é <code>links[].rel=PAY</code>; persistimos ambos antes de enviar ao WhatsApp.</li>
+    <li>Devemos informar <code>expiration_date</code> explicitamente: sem esse parâmetro o checkout pode continuar ativo sem prazo.</li>
+    <li>O checkout suporta PIX e cartão, porém o método “Pagar com PagBank” permanece disponível mesmo quando outros métodos são configurados.</li>
+  </ol>
+  <h3>HML → PROD</h3>
+  <p>O Sandbox não tem valor monetário e permite cartões de teste, cenários aprovados/negados e simulador de “em análise”. Depois da validação, o PagBank exige processo de homologação para liberar produção. Isso cria uma etapa operacional adicional, mas deixa o caminho de go-live explícito.</p>
+  <h3>Tarifas públicas encontradas</h3>
+  <div class="table-wrap"><table class="fee-table"><thead><tr><th>Meio/condição</th><th>Tarifa pública exibida</th><th>Simulação em R$ 1.000</th></tr></thead><tbody>
+    <tr><td>PIX, recebimento na hora</td><td>1,89%</td><td>R$ 18,90; líquido R$ 981,10</td></tr>
+    <tr><td>Débito, recebimento em 1 dia</td><td>2,39%</td><td>R$ 23,90; líquido R$ 976,10</td></tr>
+    <tr><td>Crédito à vista, D+14</td><td>4,99% + R$ 0,40</td><td>R$ 50,30; líquido R$ 949,70</td></tr>
+    <tr><td>Crédito à vista, D+30</td><td>3,99% + R$ 0,40</td><td>R$ 40,30; líquido R$ 959,70</td></tr>
+    <tr><td>Parcelamento sem acréscimo ao cliente</td><td>2,99% ao mês, arcado pelo vendedor</td><td>Calcular conforme número de parcelas e contrato</td></tr>
+  </tbody></table></div>
+  <p class="small">O próprio PagBank informa que são taxas iniciais e que tarifas variam por negociação comercial, elegibilidade e plano de recebimento. Portanto, os números acima não são proposta vinculante.</p>
+  <h3>Riscos/pendências</h3>
+  <ul><li>O PO precisa aprovar a presença permanente de “Pagar com PagBank” no checkout ou aceitar que a opção possa alterar a decisão do cliente.</li><li>A homologação deve entrar no cronograma antes de qualquer ativação produtiva.</li><li>Definir se o cliente paga juros de parcelamento ou se a Urba absorve o custo.</li></ul>
+
+  <h2>6. Mercado Pago</h2>
+  <h3>Como seria usado</h3>
+  <ol>
+    <li>O adapter cria uma preferência via <code>POST /checkout/preferences</code>, com item do serviço, valor, <code>external_reference</code>, meios permitidos/excluídos e URLs de retorno se forem necessárias.</li>
+    <li>A resposta fornece a preferência e o <code>init_point</code>; a aplicação persiste o ID/URL e o Hermes compartilha o link.</li>
+    <li>Para manter o contrato PIX/cartão explícito, criaríamos uma preferência por método ou excluiríamos os meios não aprovados pelo PO. A preferência não deve ser tratada como confirmação.</li>
+  </ol>
+  <h3>HML → PROD</h3>
+  <p>O Mercado Pago oferece conta de teste comprador criada para a aplicação e permite criar contas vendedor/comprador do mesmo país, além de cartões de teste. PIX e boleto offline podem permanecer “pendentes” no teste porque dependem do pagamento simulado em outro canal. Webhooks de teste e produção têm URLs configuradas separadamente e podem ser validados por assinatura secreta.</p>
+  <h3>Tarifas públicas encontradas</h3>
+  <div class="table-wrap"><table class="fee-table"><thead><tr><th>Meio/condição</th><th>Tarifa pública exibida</th><th>Simulação em R$ 1.000</th></tr></thead><tbody>
+    <tr><td>PIX, recebimento na hora</td><td>0,99%</td><td>R$ 9,90; líquido R$ 990,10</td></tr>
+    <tr><td>Cartão, recebimento na hora</td><td>4,98%</td><td>R$ 49,80; líquido R$ 950,20</td></tr>
+    <tr><td>Cartão, recebimento em 14 dias</td><td>4,48%</td><td>R$ 44,80; líquido R$ 955,20</td></tr>
+    <tr><td>Cartão, recebimento em 30 dias</td><td>3,99%</td><td>R$ 39,90; líquido R$ 960,10</td></tr>
+    <tr><td>Saldo/Linha de Crédito Mercado Pago</td><td>4,99%</td><td>R$ 49,90; líquido R$ 950,10</td></tr>
+    <tr><td>Boleto, até 3 dias</td><td>3,99%</td><td>R$ 39,90; líquido R$ 960,10</td></tr>
+  </tbody></table></div>
+  <p class="small">Sem acréscimo ao comprador, o vendedor assume tarifa adicional de parcelamento publicada pelo Mercado Pago (por exemplo, 2,53% em 2x e 17,28% em 12x). Alguns vendedores novos não têm recebimento imediato no início e podem receber em sete dias. A conta e o produto Link de pagamento prevalecem sobre esta fotografia pública.</p>
+  <h3>Riscos/pendências</h3>
+  <ul><li>Confirmar se a conta da Urba terá PIX e recebimento no prazo comercial desejado; a disponibilidade pode depender da conta.</li><li>Decidir se meios adicionais (saldo, linha de crédito, boleto e débito virtual) devem ficar visíveis ou ser excluídos.</li><li>Proteger a criação da preferência com registro idempotente local, já que a obrigatoriedade documentada de <code>X-Idempotency-Key</code> é para APIs de pagamento/refund.</li></ul>
+
+  <h2>7. Comparação financeira ilustrativa</h2>
+  <p>Para permitir uma leitura comum, abaixo está o líquido de uma venda de <strong>R$ 1.000,00</strong>, antes de impostos, chargeback, estorno, antecipação, parcelamento sem acréscimo, negociação comercial e eventuais tarifas de saque/transferência.</p>
+  <div class="table-wrap"><table class="provider-table"><thead><tr><th>Cenário</th><th>Asaas</th><th>PagBank</th><th>Mercado Pago</th></tr></thead><tbody>
+    <tr><td>PIX</td><td>R$ 1,99 → líquido R$ 998,01</td><td>1,89% → líquido R$ 981,10</td><td>0,99% → líquido R$ 990,10</td></tr>
+    <tr><td>Cartão à vista / recebimento mais curto publicado</td><td>R$ 0,49 + 2,99%; recebimento em torno de D+32 → líquido R$ 969,61</td><td>D+14: 4,99% + R$ 0,40 → líquido R$ 949,70</td><td>Na hora: 4,98% → líquido R$ 950,20</td></tr>
+    <tr><td>Cartão com prazo de cerca de 30 dias</td><td>Referência pública continua em torno de D+32; tarifa padrão → líquido R$ 969,61</td><td>D+30: 3,99% + R$ 0,40 → líquido R$ 959,70</td><td>D+30: 3,99% → líquido R$ 960,10</td></tr>
+  </tbody></table></div>
+  <div class="warning"><strong>Não comparar apenas o menor percentual:</strong> Asaas publica tarifa fixa + percentual e prazo de recebimento diferente; PagBank mistura percentual + tarifa fixa e exige homologação; Mercado Pago condiciona prazo imediato à conta/produto. A decisão deve usar a proposta real da conta PJ, o volume esperado e a necessidade de caixa.</div>
+
+  <h2>8. Decisões que o PO/negócio precisa registrar para fechar T040</h2>
+  <ol>
+    <li><strong>Provedor:</strong> Asaas, PagBank ou Mercado Pago.</li>
+    <li><strong>Meios:</strong> PIX e cartão são obrigatórios? Boleto/débito/carteira podem aparecer? Há limite de parcelas?</li>
+    <li><strong>Economia:</strong> teto de taxa aceitável por meio, prazo máximo de recebimento e quem absorve juros de parcelamento.</li>
+    <li><strong>Conta e responsabilidade:</strong> entidade jurídica, titular do KYC, dono da conta, faturamento, chargeback e acesso operacional.</li>
+    <li><strong>HML:</strong> conta sandbox/teste, contatos autorizados, URL HTTPS e procedimento para gerar evidências sem cobrança.</li>
+    <li><strong>PROD:</strong> plano de credenciamento, homologação (quando exigida), segredos, rotação e gate de ativação. Nenhum desses itens deve ser improvisado depois do merge.</li>
+  </ol>
+
+  <h2>9. Recomendação</h2>
+  <p>Minha recomendação técnica é manter os três como finalistas e iniciar a execução somente depois de T040. Se a prioridade for a menor complexidade aparente do primeiro adapter, o Asaas é o candidato mais simples de prototipar; se a prioridade for cobertura de métodos e um caminho formal de homologação, o PagBank é forte; se a prioridade for familiaridade da PO e um ecossistema de testes conhecido, o Mercado Pago é igualmente defensável. Essa classificação é uma inferência técnica a partir das documentações, não substitui a decisão comercial.</p>
+  <p>O próximo passo correto é obter a decisão do PO com base nas tarifas/condições da conta e registrar o escolhido, as limitações aceitas e o plano HML/PROD no Jira e em <code>research.md</code>. Só então T041–T043 podem criar testes de contrato, adapter e integração de <code>prepare_payment</code>.</p>
+
+  <h2>10. Fontes oficiais consultadas</h2>
+  <ul class="source-list">
+    <li><strong>Asaas:</strong> <a href="https://docs.asaas.com/reference/create-new-checkout">criação de Checkout</a> · <a href="https://docs.asaas.com/docs/asaas-checkout">guia de Checkout</a> · <a href="https://docs.asaas.com/reference/criar-um-link-de-pagamentos">Link de Pagamentos alternativo</a> · <a href="https://docs.asaas.com/docs/sandbox">Sandbox</a> · <a href="https://www.asaas.com/precos-e-taxas">preços e taxas</a> · <a href="https://docs.asaas.com/docs/sobre-os-webhooks">webhooks</a>.</li>
+    <li><strong>PagBank:</strong> <a href="https://developer.pagbank.com.br/docs/checkout">Checkout e Link de Pagamento</a> · <a href="https://developer.pagbank.com.br/reference/criar-checkout">criar checkout</a> · <a href="https://developer.pagbank.com.br/docs/testar-integracao">testar integração</a> · <a href="https://developer.pagbank.com.br/docs/solicitar-homologacao">homologação</a> · <a href="https://developer.pagbank.com.br/reference/webhooks-checkout">webhooks</a> · <a href="https://pagbank.com.br/para-seu-negocio/online/checkout">taxas públicas</a>.</li>
+    <li><strong>Mercado Pago:</strong> <a href="https://www.mercadopago.com.br/developers/pt/reference/online-payments/checkout-pro-preferences/overview">API de preferências</a> · <a href="https://www.mercadopago.com.br/developers/pt/docs/checkout-pro/integration-test">teste de integração</a> · <a href="https://www.mercadopago.com.br/developers/pt/docs/checkout-pro/integration-test/test-purchases">compras de teste</a> · <a href="https://www.mercadopago.com.br/developers/pt/docs/checkout-pro/payment-notifications">notificações/webhooks</a> · <a href="https://www.mercadopago.com.br/ferramentas-para-vender/link-de-pagamento">tarifas do Link de pagamento</a>.</li>
+  </ul>
+  <p class="small">As páginas comerciais podem mudar sem aviso e algumas mostram promoção ou simulação condicionada à conta. Os valores deste documento foram capturados em 03/09/2026; a confirmação técnica do endpoint Asaas Checkout foi revisada em 05/09/2026. Tudo deve ser reconfirmado na abertura da conta e antes do go-live.</p>
+
+  <footer>Artefato de discovery da PEE-107, relacionado ao fechamento da PEE-23. Nenhuma credencial, contrato, chamada de produção ou seleção automática de provedor foi realizada.</footer>
+</main>
+</body>
+</html>

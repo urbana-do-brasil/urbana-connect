@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: urbana-connect-hml
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/urbana-connect-hml?replicaSet=rs0&retryWrites=true&retryReads=true&w=majority}
+
+hermes:
+  poc:
+    # The HML webhook is owned by Hermes. There is no legacy fallback.
+    enabled: ${HERMES_POC_ENABLED:true}
+
+terms:
+  consent:
+    # Keep false until the four approved documents, secret and ingress are
+    # supplied. Enabling without them fails closed instead of showing a
+    # fixture or accepting a text message as consent.
+    enabled: ${TERMS_CONSENT_ENABLED:false}
+    required: ${TERMS_CONSENT_REQUIRED:true}
+    public-base-url: ${TERMS_PUBLIC_BASE_URL:https://api-hml.urbanadobrasil.com}
+    token-secret: ${TERMS_TOKEN_SECRET:}
+    ttl: ${TERMS_SESSION_TTL:30m}
+
+catalog:
+  operational:
+    # Turn on only after all four HML resources/prices are supplied. Mongo
+    # remains the runtime override once the baseline is enabled.
+    enabled: ${CATALOG_OPERATIONAL_ENABLED:false}
+    fixture-fallback: ${CATALOG_FIXTURE_FALLBACK:false}

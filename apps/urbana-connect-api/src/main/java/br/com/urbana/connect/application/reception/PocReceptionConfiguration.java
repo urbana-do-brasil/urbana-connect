@@ -4,6 +4,7 @@ import br.com.urbana.connect.application.reception.tools.DomainToolInvocationUse
 import br.com.urbana.connect.application.reception.tools.DomainToolService;
 import br.com.urbana.connect.application.reception.tools.StatefulDomainToolService;
 import br.com.urbana.connect.domain.conversation.port.out.WhatsAppMessageGateway;
+import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGateway;
 import br.com.urbana.connect.domain.reception.port.out.ActiveTurnLeaseGateway;
 import br.com.urbana.connect.domain.reception.port.out.AgentSessionLinkGateway;
 import br.com.urbana.connect.domain.reception.port.out.DomainToolInvocationGateway;
@@ -14,6 +15,13 @@ import br.com.urbana.connect.domain.reception.port.out.ReceptionConversationGate
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTranscriptGateway;
 import br.com.urbana.connect.domain.reception.port.out.ReceptionTurnGateway;
 import br.com.urbana.connect.domain.reception.port.out.TermsConsentAuditGateway;
+import br.com.urbana.connect.domain.reception.port.out.TermsConsentAuditEventGateway;
+import br.com.urbana.connect.domain.reception.port.out.TermsConsentSessionGateway;
+import br.com.urbana.connect.domain.reception.port.out.TermsContentGateway;
+import br.com.urbana.connect.domain.reception.port.out.DeliveryOutboxGateway;
+import br.com.urbana.connect.domain.reception.port.out.DeliveryChannelGateway;
+import br.com.urbana.connect.domain.reception.port.out.DeliveryDestinationGateway;
+import br.com.urbana.connect.domain.reception.port.out.DeliveryDestinationRegistryGateway;
 import br.com.urbana.connect.infrastructure.hermes.HttpHermesSessionsGateway;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoActiveTurnLeaseGateway;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoAgentSessionLinkGateway;
@@ -32,22 +40,38 @@ import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.Spring
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataReceptionTurnRepository;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataTermsConsentAuditRepository;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoTermsConsentAuditGateway;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataTermsConsentSessionRepository;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoTermsConsentSessionGateway;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataTermsConsentAuditEventRepository;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoTermsConsentAuditEventGateway;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataDeliveryOutboxRepository;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoDeliveryOutboxGateway;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataDeliveryDestinationRepository;
+import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.MongoDeliveryDestinationRegistryGateway;
+import br.com.urbana.connect.infrastructure.delivery.DeliveryChannelRouter;
+import br.com.urbana.connect.infrastructure.mail.SmtpDeliveryChannelGateway;
+import br.com.urbana.connect.infrastructure.whatsapp.WhatsAppDeliveryChannelGateway;
 import br.com.urbana.connect.infrastructure.persistence.mongodb.reception.SpringDataPocPendingEventRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.web.client.RestClient;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Map;
 
 /** Hermes reception wiring shared by the local simulator and the WhatsApp POC route. */
 @Configuration
 @EnableScheduling
+@EnableConfigurationProperties(DeliveryDestinationProperties.class)
 @ConditionalOnProperty(name = "hermes.poc.enabled", havingValue = "true")
 public class PocReceptionConfiguration {
 
@@ -74,9 +98,13 @@ public class PocReceptionConfiguration {
                                                        ReceptionConversationGateway conversations,
                                                        CustomerFactGateway facts,
                                                        ReceptionTranscriptGateway transcript,
-                                                       TermsAcceptanceUseCase termsAcceptance) {
+                                                       TermsAcceptanceUseCase termsAcceptance,
+                                                       ObjectProvider<TermsConsentService> webTermsConsent,
+                                                       @Value("${terms.consent.required:true}") boolean webTermsRequired) {
         StatefulDomainToolService tools = new StatefulDomainToolService(policy, conversations, facts, transcript);
         tools.setTermsAcceptanceUseCase(termsAcceptance);
+        webTermsConsent.ifAvailable(tools::setTermsConsentService);
+        tools.setWebTermsRequired(webTermsRequired);
         return tools;
     }
 
@@ -103,6 +131,142 @@ public class PocReceptionConfiguration {
     public TermsConsentAuditGateway termsConsentAuditGateway(
             SpringDataTermsConsentAuditRepository repository, MongoTemplate template) {
         return new MongoTermsConsentAuditGateway(repository, template);
+    }
+
+    /** Web-consent persistence is opt-in until the approved legal artifacts and secret are configured. */
+    @Bean
+    @ConditionalOnProperty(name = "terms.consent.enabled", havingValue = "true")
+    public TermsConsentSessionGateway termsConsentSessionGateway(
+            SpringDataTermsConsentSessionRepository repository, MongoTemplate template) {
+        return new MongoTermsConsentSessionGateway(repository, template);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "terms.consent.enabled", havingValue = "true")
+    public TermsConsentAuditEventGateway termsConsentAuditEventGateway(
+            SpringDataTermsConsentAuditEventRepository repository) {
+        return new MongoTermsConsentAuditEventGateway(repository);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "hermes.poc.enabled", havingValue = "true")
+    public DeliveryOutboxGateway deliveryOutboxGateway(SpringDataDeliveryOutboxRepository repository) {
+        return new MongoDeliveryOutboxGateway(repository);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "hermes.poc.enabled", havingValue = "true")
+    public DeliveryDestinationRegistryGateway deliveryDestinationRegistryGateway(
+            SpringDataDeliveryDestinationRepository repository) {
+        return new MongoDeliveryDestinationRegistryGateway(repository);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "hermes.poc.enabled", havingValue = "true")
+    public HermesFailureHandoffService hermesFailureHandoffService(DeliveryOutboxGateway outbox,
+                                                                    ReceptionConversationGateway conversations) {
+        return new HermesFailureHandoffService(outbox, conversations, Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "hermes.poc.enabled", havingValue = "true")
+    public HermesOutboundPublisher hermesOutboundPublisher(DeliveryOutboxGateway outbox) {
+        return new HermesOutboundPublisher(outbox, Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "delivery.outbox.enabled", havingValue = "true")
+    public DeliveryDestinationGateway deliveryDestinationGateway(
+            ReceptionConversationGateway conversations,
+            DeliveryDestinationRegistryGateway registry,
+            DeliveryDestinationProperties properties) {
+        ConfiguredDeliveryDestinationGateway gateway = new ConfiguredDeliveryDestinationGateway(
+                conversations, registry, properties);
+        gateway.requireOperationalConfiguration();
+        return gateway;
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "delivery.outbox.enabled", havingValue = "true")
+    public DeliveryChannelGateway deliveryChannelGateway(
+            WhatsAppMessageGateway whatsapp,
+            JavaMailSender mailSender,
+            @Value("${whatsapp.api.phone-number-id:}") String phoneNumberId,
+            @Value("${whatsapp.api.access-token:}") String accessToken,
+            @Value("${spring.mail.host:}") String mailHost,
+            @Value("${spring.mail.username:}") String mailFrom) {
+        requireDeliverySetting(phoneNumberId, "whatsapp.api.phone-number-id");
+        requireDeliverySetting(accessToken, "whatsapp.api.access-token");
+        requireDeliverySetting(mailHost, "spring.mail.host");
+        DeliveryChannelGateway whatsappChannel = new WhatsAppDeliveryChannelGateway(whatsapp);
+        DeliveryChannelGateway smtpChannel = new SmtpDeliveryChannelGateway(mailSender, mailFrom,
+                "Urba Connect - atendimento humano solicitado");
+        return new DeliveryChannelRouter(Map.of(
+                br.com.urbana.connect.domain.reception.model.DeliveryOutboxKind.WHATSAPP_TERMS_LINK, whatsappChannel,
+                br.com.urbana.connect.domain.reception.model.DeliveryOutboxKind.WHATSAPP_PAYMENT_OPTIONS, whatsappChannel,
+                br.com.urbana.connect.domain.reception.model.DeliveryOutboxKind.WHATSAPP_MENU, whatsappChannel,
+                br.com.urbana.connect.domain.reception.model.DeliveryOutboxKind.WHATSAPP_HERMES_REPLY, whatsappChannel,
+                br.com.urbana.connect.domain.reception.model.DeliveryOutboxKind.WHATSAPP_HUMAN_HANDOFF_ACK, whatsappChannel,
+                br.com.urbana.connect.domain.reception.model.DeliveryOutboxKind.EMAIL_HUMAN_HANDOFF, smtpChannel));
+    }
+
+    /**
+     * Delivery is enabled only after the channel/provider discovery supplies
+     * both a protected destination resolver and concrete channel adapters.
+     * Leaving the property false keeps HML fail-closed without inventing a
+     * recipient or a payment provider.
+     */
+    @Bean
+    @ConditionalOnProperty(name = "delivery.outbox.enabled", havingValue = "true")
+    public DeliveryOutboxWorker deliveryOutboxWorker(
+            DeliveryOutboxGateway outbox,
+            DeliveryDestinationGateway destinations,
+            DeliveryChannelGateway channel,
+            @Value("${delivery.outbox.retry-base-delay:10s}") String retryBaseDelay,
+            @Value("${delivery.outbox.recovery-lease:5m}") String recoveryLease,
+            @Value("${delivery.outbox.max-attempts:5}") int maxAttempts,
+            @Value("${delivery.outbox.batch-size:50}") int batchSize) {
+        return new DeliveryOutboxWorker(outbox, destinations, channel, Clock.systemUTC(),
+                DurationStyle.detectAndParse(retryBaseDelay), DurationStyle.detectAndParse(recoveryLease),
+                maxAttempts, batchSize);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "terms.consent.enabled", havingValue = "true")
+    public TermsContentGateway termsContentGateway(
+            @Value("${terms.documents.decor-interiores.version:}") String interioresVersion,
+            @Value("${terms.documents.decor-interiores.resource:}") String interioresResource,
+            @Value("${terms.documents.decor-interiores.content:}") String interioresContent,
+            @Value("${terms.documents.decor-pintura.version:}") String pinturaVersion,
+            @Value("${terms.documents.decor-pintura.resource:}") String pinturaResource,
+            @Value("${terms.documents.decor-pintura.content:}") String pinturaContent,
+            @Value("${terms.documents.decor-fachada.version:}") String fachadaVersion,
+            @Value("${terms.documents.decor-fachada.resource:}") String fachadaResource,
+            @Value("${terms.documents.decor-fachada.content:}") String fachadaContent,
+            @Value("${terms.documents.decor-reforma.version:}") String reformaVersion,
+            @Value("${terms.documents.decor-reforma.resource:}") String reformaResource,
+            @Value("${terms.documents.decor-reforma.content:}") String reformaContent) {
+        Map<String, TermsContentGateway.TermsContent> documents = new java.util.HashMap<>();
+        configuredTerms(documents, "DECOR_INTERIORES", interioresVersion, interioresResource, interioresContent);
+        configuredTerms(documents, "DECOR_PINTURA", pinturaVersion, pinturaResource, pinturaContent);
+        configuredTerms(documents, "DECOR_FACHADA", fachadaVersion, fachadaResource, fachadaContent);
+        configuredTerms(documents, "DECOR_REFORMA", reformaVersion, reformaResource, reformaContent);
+        return new ConfiguredTermsContentGateway(documents);
+    }
+
+    @Bean
+    @ConditionalOnProperty(name = "terms.consent.enabled", havingValue = "true")
+    public TermsConsentService termsConsentService(
+            TermsConsentSessionGateway sessions,
+            TermsConsentAuditEventGateway auditEvents,
+            DeliveryOutboxGateway outbox,
+            ReceptionConversationGateway conversations,
+            TermsContentGateway contentGateway,
+            @Value("${terms.consent.public-base-url:https://api-hml.urbanadobrasil.com}") String publicBaseUrl,
+            @Value("${terms.consent.token-secret:}") String tokenSecret,
+            @Value("${terms.consent.ttl:30m}") String ttl) {
+        return new TermsConsentService(sessions, auditEvents, outbox, conversations, contentGateway,
+                Clock.systemUTC(), publicBaseUrl, tokenSecret, DurationStyle.detectAndParse(ttl));
     }
 
     @Bean
@@ -145,8 +309,8 @@ public class PocReceptionConfiguration {
     }
 
     @Bean
-    public CommercialPolicyService commercialPolicyService() {
-        return new CommercialPolicyService();
+    public CommercialPolicyService commercialPolicyService(ServiceCatalogGateway serviceCatalogGateway) {
+        return new CommercialPolicyService(serviceCatalogGateway);
     }
 
     @Bean
@@ -217,18 +381,21 @@ public class PocReceptionConfiguration {
 
     @Bean
     public HermesWebhookMessageHandler hermesWebhookMessageHandler(
-            ReceptionOrchestrator orchestrator, WhatsAppMessageGateway whatsapp) {
-        return new HermesWebhookMessageHandler(orchestrator, whatsapp);
+            PocReceptionWorker worker,
+            DeliveryDestinationRegistryGateway destinationRegistry) {
+        return new HermesWebhookMessageHandler(worker, destinationRegistry);
     }
 
     @Bean(initMethod = "recover", destroyMethod = "close")
     public PocReceptionWorker pocReceptionWorker(ReceptionOrchestrator orchestrator,
                                                  PocPendingEventGateway pendingEvents,
             ReceptionTurnReconciliationService reconciliation,
+                                                 HermesOutboundPublisher outboundPublisher,
+                                                 HermesFailureHandoffService failureHandoff,
                                                 @Value("${hermes.poc.worker-parallelism:4}") int parallelism,
                                                  @Value("${hermes.poc.claim-ttl:240s}") String claimTtl) {
         return new PocReceptionWorker(orchestrator, pendingEvents, reconciliation, parallelism,
-                Clock.systemUTC(), DurationStyle.detectAndParse(claimTtl));
+                Clock.systemUTC(), DurationStyle.detectAndParse(claimTtl), outboundPublisher, failureHandoff);
     }
 
     @Bean
@@ -245,5 +412,20 @@ public class PocReceptionConfiguration {
     public PocReceptionBatchFlushScheduler pocReceptionBatchFlushScheduler(PocReceptionIngress ingress,
                                                                             PocReceptionWorker worker) {
         return new PocReceptionBatchFlushScheduler(ingress, worker, Clock.systemUTC());
+    }
+
+    private static void configuredTerms(Map<String, TermsContentGateway.TermsContent> target,
+                                        String serviceType, String version, String resource, String content) {
+        if (version == null || version.isBlank() || resource == null || resource.isBlank()
+                || content == null || content.isBlank()) {
+            return;
+        }
+        target.put(serviceType, new TermsContentGateway.TermsContent(version, resource, content));
+    }
+
+    private static void requireDeliverySetting(String value, String property) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(property + " is required when delivery.outbox.enabled=true");
+        }
     }
 }

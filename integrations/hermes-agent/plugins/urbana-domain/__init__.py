@@ -29,11 +29,12 @@ TOOL_DESCRIPTIONS = {
     ),
     "prepare_terms": (
         "Prepara os termos de um serviço já escolhido para uma intenção clara de contratação. "
-        "Use somente nesse momento; não use para dúvidas, explicações ou comparação de serviços."
+        "Use somente nesse momento; não use para dúvidas, explicações ou comparação de serviços. "
+        "O link é enviado pelo canal via outbox; não copie nem invente uma URL bearer na resposta."
     ),
     "prepare_payment": (
         "Prepara o pagamento de um serviço somente depois de os termos terem sido apresentados "
-        "e aceitos de forma textual clara e de a pessoa escolher uma forma válida. "
+        "e aceitos explicitamente na tela web auditável, e de a pessoa escolher uma forma válida. "
         "As formas aceitas são PIX ou CARD (cartão de crédito). Se a forma não tiver sido "
         "informada, não use a ferramenta: pergunte se a pessoa prefere PIX ou cartão de crédito. "
         "Nunca use `link` como método; o link é a instrução retornada após o preparo. "

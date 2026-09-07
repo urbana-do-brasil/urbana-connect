@@ -34,6 +34,14 @@ hermes:
     worker-parallelism: ${HERMES_POC_WORKER_PARALLELISM:4}
     claim-ttl: ${HERMES_POC_CLAIM_TTL:240s}
 
+terms:
+  consent:
+    # Keep disabled until HML has the approved artifacts and token secret.
+    enabled: ${TERMS_CONSENT_ENABLED:false}
+    required: ${TERMS_CONSENT_REQUIRED:true}
+    public-base-url: ${TERMS_PUBLIC_BASE_URL:https://api-hml.urbanadobrasil.com}
+    ttl: ${TERMS_SESSION_TTL:30m}
+
 logging:
   level:
     br.com.urbana.connect.infrastructure.hermes: INFO

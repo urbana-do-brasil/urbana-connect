@@ -16,6 +16,8 @@ secrets/
 │   ├── mongodb-secret-template.yaml
 │   ├── mongodb-uri-secret-template.yaml
 │   ├── grafana-admin-secret-template.yaml
+│   ├── smtp-secret-template.yaml
+│   └── terms-secret-template.yaml
 │   └── secret-template.yaml
 └── prod/                   # Diretório para armazenar os secrets reais (não versionado)
     └── .gitkeep
@@ -34,6 +36,7 @@ Em vez disso, são fornecidos templates para criar os arquivos reais:
 - `templates/mongodb-secret-template.yaml` → `prod/mongodb-secret.yaml` (Credenciais base do MongoDB)
 - `templates/mongodb-uri-secret-template.yaml` → `prod/mongodb-uri-secret.yaml` (URI consumida pela aplicação)
 - `templates/grafana-admin-secret-template.yaml` → `prod/grafana-admin-secret.yaml` (Usuário e senha admin do Grafana)
+- `templates/terms-secret-template.yaml` → secret `urbana-connect-terms` criado separadamente em HML e PROD (versões, recursos e conteúdo jurídico aprovados; nunca versionar o preenchido)
 
 ## Secrets de Runtime para Homolog
 
@@ -49,6 +52,7 @@ Opcionais neste estágio:
 
 - `prod/openai-secret.yaml`
 - `prod/grafana-admin-secret.yaml`
+- `urbana-connect-terms` até a aprovação dos quatro documentos; torna-se obrigatório ao habilitar `TERMS_CONSENT_ENABLED=true`
 
 ## Como usar os templates
 

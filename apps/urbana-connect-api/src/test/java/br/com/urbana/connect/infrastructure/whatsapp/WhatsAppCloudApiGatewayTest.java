@@ -9,6 +9,8 @@ import br.com.urbana.connect.domain.conversation.port.out.ConversationMessageGat
 import br.com.urbana.connect.domain.conversation.model.Conversation;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceCatalogItem;
 import br.com.urbana.connect.domain.servicecatalog.model.ServiceType;
+import br.com.urbana.connect.domain.reception.model.DeliveryDispatchPhase;
+import br.com.urbana.connect.domain.reception.port.out.DeliveryDispatchException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.http.HttpMethod;
@@ -24,6 +26,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -465,6 +468,38 @@ class WhatsAppCloudApiGatewayTest {
             true
         )));
 
+        server.verify();
+    }
+
+    @Test
+    void shouldExposeTheProviderMessageIdForDurableDelivery() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(builder.build(), "phone-number-id", "access-token");
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withSuccess("{\"messages\":[{\"id\":\"wamid-out-1\"}]}", MediaType.APPLICATION_JSON));
+
+        assertThat(gateway.sendTextMessageWithResult("+5583999999999", "payload"))
+            .isEqualTo("wamid-out-1");
+        server.verify();
+    }
+
+    @Test
+    void shouldClassifyAResponseWithoutProviderIdAsPostDispatchUnknown() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://graph.facebook.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        WhatsAppCloudApiGateway gateway = new WhatsAppCloudApiGateway(builder.build(), "phone-number-id", "access-token");
+
+        server.expect(requestTo("https://graph.facebook.com/v18.0/phone-number-id/messages"))
+            .andExpect(method(HttpMethod.POST))
+            .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> gateway.sendTextMessageWithResult("+5583999999999", "payload"))
+            .isInstanceOf(DeliveryDispatchException.class)
+            .extracting("phase")
+            .isEqualTo(DeliveryDispatchPhase.POST_DISPATCH_UNKNOWN);
         server.verify();
     }
 

@@ -3,11 +3,13 @@ package br.com.urbana.connect.infrastructure.mail;
 import br.com.urbana.connect.domain.conversation.model.HumanHandoffRequest;
 import br.com.urbana.connect.domain.conversation.port.out.HumanHandoffGateway;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(name = "hermes.poc.enabled", havingValue = "false", matchIfMissing = true)
 public class SmtpHumanHandoffGateway implements HumanHandoffGateway {
 
     private final JavaMailSender javaMailSender;

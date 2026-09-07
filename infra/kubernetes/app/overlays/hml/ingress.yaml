@@ -21,6 +21,20 @@ spec:
                 name: urbana-connect
                 port:
                   number: 80
+          - path: /termos
+            pathType: Prefix
+            backend:
+              service:
+                name: urbana-connect
+                port:
+                  number: 80
+          - path: /api/terms
+            pathType: Prefix
+            backend:
+              service:
+                name: urbana-connect
+                port:
+                  number: 80
           - path: /api/v1/health
             pathType: Prefix
             backend:

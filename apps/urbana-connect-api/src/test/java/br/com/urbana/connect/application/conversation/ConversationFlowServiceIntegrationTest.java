@@ -481,7 +481,7 @@ class ConversationFlowServiceIntegrationTest {
     }
 
     @Test
-    void shouldLogErrorAndReturnToServiceDiscoveryWhenServiceIsMissingForPayment(CapturedOutput output) {
+    void shouldUseConfiguredBaselineWhenMongoServiceIsMissingForPayment(CapturedOutput output) {
         Instant now = Instant.parse("2026-04-05T09:00:00Z");
         String phoneNumber = "+5583991111111";
 
@@ -497,11 +497,11 @@ class ConversationFlowServiceIntegrationTest {
                 now.plusSeconds(300)
             );
 
-            assertThat(updated.currentStep()).isEqualTo(ConversationStep.SERVICE_DISCOVERY);
-            verify(whatsAppMessageGateway).sendDirectTriageOptions(eq(phoneNumber), anyList());
-            verify(whatsAppMessageGateway, times(0)).sendClosingMessage(phoneNumber);
-            assertThat(output)
-                    .contains("Servico DECOR_INTERIORES nao encontrado para enviar link de pagamento para +5583***1111");
+            assertThat(updated.currentStep()).isEqualTo(ConversationStep.PAYMENT_LINK_SENT);
+            verify(whatsAppMessageGateway).sendPaymentLink(eq(phoneNumber),
+                    argThat(service -> service.type() == ServiceType.DECOR_INTERIORES));
+            verify(whatsAppMessageGateway).sendClosingMessage(phoneNumber);
+            assertThat(output).doesNotContain("Servico DECOR_INTERIORES nao encontrado");
         } finally {
             if (removedService != null) {
                 mongoTemplate.save(removedService);

@@ -30,6 +30,11 @@ public class MongoReceptionConversationGateway implements ReceptionConversationG
     }
 
     @Override
+    public Optional<ReceptionConversation> findById(String conversationId) {
+        return repository.findById(conversationId).map(this::toDomain);
+    }
+
+    @Override
     public ReceptionConversation save(ReceptionConversation conversation) {
         long expectedVersion = conversation.version() == 0 ? -1 : conversation.version() - 1;
         return saveExpected(conversation, expectedVersion);

@@ -25,6 +25,7 @@ import br.com.urbana.connect.domain.servicecatalog.port.out.ServiceCatalogGatewa
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -34,6 +35,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 
 @Service
+@ConditionalOnProperty(name = "hermes.poc.enabled", havingValue = "false", matchIfMissing = true)
 public class ConversationFlowService {
 
     private static final String NO_TEXT_FALLBACK = "sem texto";

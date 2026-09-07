@@ -153,6 +153,23 @@ class ReceptionConversationTest {
     }
 
     @Test
+    void replacingTermsConsentResetsPaymentAndPointsToTheNewestPresentation() {
+        ReceptionConversation accepted = ReceptionConversation.start("contact-1", now)
+                .selectService("DECOR_INTERIORES", now)
+                .presentTerms(now.plusSeconds(1))
+                .activateTermsConsent("consent-old", now.plusSeconds(1))
+                .acceptTerms(now.plusSeconds(2))
+                .preparePayment(false, "PIX", now.plusSeconds(3));
+
+        ReceptionConversation replacement = accepted.replaceTermsConsent("consent-new", now.plusSeconds(4));
+
+        assertThat(replacement.activeTermsConsentId()).isEqualTo("consent-new");
+        assertThat(replacement.termsStatus()).isEqualTo(TermsStatus.PRESENTED);
+        assertThat(replacement.paymentStatus()).isEqualTo(PaymentStatus.NOT_STARTED);
+        assertThat(replacement.commercialStage()).isEqualTo(CommercialStage.TERMS);
+    }
+
+    @Test
     void paymentEvidenceTransitionsAreIdempotentAndFailClosedOutOfOrder() {
         ReceptionConversation selected = ReceptionConversation.start("contact-1", now)
                 .selectService("DECOR_INTERIORES", now)

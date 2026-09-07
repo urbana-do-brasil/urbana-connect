@@ -124,6 +124,27 @@ public record ReceptionConversation(
                 environmentSourceMessageId, consentId);
     }
 
+    /**
+     * Starts a fresh terms presentation for the same service. This explicitly
+     * resets payment so a version/resource change can never inherit a prior
+     * acceptance or prepared checkout.
+     */
+    public ReceptionConversation replaceTermsConsent(String consentId, Instant now) {
+        require(consentId, "activeTermsConsentId");
+        Objects.requireNonNull(now, "now");
+        if (mode != ReceptionMode.AI) {
+            throw new IllegalStateException("human conversation cannot present terms");
+        }
+        if (selectedService == null) {
+            throw new IllegalStateException("service must be selected before terms");
+        }
+        return new ReceptionConversation(id, contactId, mode, CommercialStage.TERMS, selectedService,
+                TermsStatus.PRESENTED, PaymentStatus.NOT_STARTED, handoffReason, createdAt, now, version + 1,
+                resumeStatus, resumeId, resumeIdempotencyKey, resumeChecksum, resumeBoundarySequence,
+                resumeDecisionAction, resumeDecisionMessage, resumeFailureCode, contractingUnitId,
+                environmentLabel, environmentSourceMessageId, consentId);
+    }
+
     public ReceptionConversation presentTerms(Instant now) {
         if (selectedService == null) {
             throw new IllegalStateException("service must be selected before terms");
