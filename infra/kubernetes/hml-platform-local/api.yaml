@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: urbana-connect
+  labels:
+    app: urbana-connect
+    app.kubernetes.io/part-of: urbana-connect-hml-platform-local
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+  selector:
+    app: urbana-connect
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urbana-connect
+  labels:
+    app: urbana-connect
+    app.kubernetes.io/part-of: urbana-connect-hml-platform-local
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: urbana-connect
+  template:
+    metadata:
+      labels:
+        app: urbana-connect
+        app.kubernetes.io/part-of: urbana-connect-hml-platform-local
+        environment: hml-platform-local
+        non-production: "true"
+    spec:
+      serviceAccountName: hml-platform-local-runtime
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: urbana-connect
+          image: urbana-connect-hml-platform-local-api:local
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: hml-platform-local-config
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: hml-platform-local-secrets
+                  key: MONGODB_URI
+            - name: WHATSAPP_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hml-platform-local-secrets
+                  key: WHATSAPP_APP_SECRET
+            - name: WHATSAPP_VERIFY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hml-platform-local-secrets
+                  key: WHATSAPP_VERIFY_TOKEN
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /api/v1/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

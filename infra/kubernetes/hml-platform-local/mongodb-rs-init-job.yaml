@@ -1,0 +1,66 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-rs-init
+  labels:
+    app: mongodb-rs-init
+    app.kubernetes.io/part-of: urbana-connect-hml-platform-local
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: mongodb-rs-init
+        app.kubernetes.io/part-of: urbana-connect-hml-platform-local
+        environment: hml-platform-local
+        non-production: "true"
+    spec:
+      restartPolicy: Never
+      serviceAccountName: hml-platform-local-init
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mongodb-rs-init
+          image: docker.io/library/mongo:8.0@sha256:376f5173003b5408d7b8e6989667231c0bf0cefdce379d7c814910429d1a7a85
+          imagePullPolicy: Never
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until mongosh --quiet \
+                'mongodb://mongodb:27017/admin?directConnection=true&serverSelectionTimeoutMS=3000' \
+                --eval 'quit(db.adminCommand({ping: 1}).ok === 1 ? 0 : 1)'; do
+                sleep 2
+              done
+
+              until mongosh --quiet \
+                'mongodb://mongodb:27017/admin?directConnection=true&serverSelectionTimeoutMS=3000' \
+                --eval '
+                  const hello = db.adminCommand({hello: 1});
+                  if (hello.setName === "rs0" && hello.isWritablePrimary === true) { quit(0); }
+                  try {
+                    rs.initiate({ _id: "rs0", members: [{ _id: 0, host: "mongodb:27017" }] });
+                  } catch (error) {}
+                  quit(1);
+                '; do
+                sleep 2
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 32Mi
