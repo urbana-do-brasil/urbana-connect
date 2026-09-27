@@ -16,19 +16,22 @@ class InboundOnlyWebhookMessageHandlerTest {
     @Test
     void acceptsSyntheticInboundAndLogsOnlyNonSensitiveMetadata(CapturedOutput output) {
         var handler = new InboundOnlyWebhookMessageHandler();
+        var phoneNumber = "+15550000001";
+        var body = "synthetic-body-must-not-be-logged";
+        var providerMessageId = "wamid-provider-id-must-not-be-logged-in-full";
         var message = new InboundWhatsAppMessage(
-                "+15550000001",
-                "synthetic-body-must-not-be-logged",
+                phoneNumber,
+                body,
                 "",
                 "",
                 "text",
-                "wamid-unit-test");
+                providerMessageId);
         var receivedAt = Instant.parse("2026-09-27T12:00:00Z");
 
         handler.accept(message, receivedAt);
 
         assertThat(output.getOut())
-                .contains("Webhook inbound-only aceito: providerMessageId=wamid-unit-test messageType=text receivedAt=2026-09-27T12:00:00Z")
-                .doesNotContain("synthetic-body-must-not-be-logged", "+15550000001");
+                .contains("Webhook inbound-only aceito: messageType=text receivedAt=2026-09-27T12:00:00Z")
+                .doesNotContain(providerMessageId, phoneNumber, body);
     }
 }

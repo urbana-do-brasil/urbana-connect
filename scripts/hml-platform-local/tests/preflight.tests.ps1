@@ -25,6 +25,8 @@ $apiText = Get-Content -Raw -LiteralPath (Join-Path $infra 'api.yaml')
 $configMapText = Get-Content -Raw -LiteralPath (Join-Path $infra 'configmap.yaml')
 $commonText = Get-Content -Raw -LiteralPath (Join-Path $scripts 'common.ps1')
 $startText = Get-Content -Raw -LiteralPath (Join-Path $scripts 'start.ps1')
+$clusterScript = Get-Content -Raw -LiteralPath (Join-Path $scripts 'cluster.ps1')
+$preflightText = Get-Content -Raw -LiteralPath (Join-Path $scripts 'preflight.ps1')
 $stopText = Get-Content -Raw -LiteralPath (Join-Path $scripts 'stop.ps1')
 $statusText = Get-Content -Raw -LiteralPath (Join-Path $scripts 'status.ps1')
 $applicationText = Get-Content -Raw -LiteralPath (Join-Path $config.RepoRoot 'apps/urbana-connect-api/src/main/resources/application.yml')
@@ -53,6 +55,17 @@ Assert-True ($commonText -match "'image',\s*'import'" -and $commonText -match ''
 Assert-True ($commonText -notmatch '--from-literal') 'segredo nao pode ser passado como argumento de processo'
 Assert-True ($commonText -match 'RuntimeRoot\s*=\s*\$localDataRoot') 'evidencia runtime deve ficar fora do repositorio'
 Assert-True ($startText -match 'Ensure-HmlPlatformLocalApiImage' -and $startText -match 'Import-HmlPlatformLocalImages' -and $startText -match 'rollout.*restart') 'start nao reprovisiona imagens ou reinicia a API'
+$guardCall = $commonText.IndexOf('Assert-HmlPlatformLocalCliVersion -Name $Name -CommandPath $path')
+Assert-True ($guardCall -ge 0) 'Require-Command nao valida as versoes pinadas'
+$startPrerequisites = $startText.IndexOf("Require-Command 'kubectl'")
+$startBuild = $startText.IndexOf('Ensure-HmlPlatformLocalApiImage')
+Assert-True ($startPrerequisites -ge 0 -and $startBuild -gt $startPrerequisites) 'start deve validar as ferramentas antes de build/import/apply'
+$clusterPrerequisites = $clusterScript.IndexOf("Require-Command 'kubectl'")
+$clusterCreate = $clusterScript.IndexOf("'cluster', 'create'")
+Assert-True ($clusterPrerequisites -ge 0 -and $clusterCreate -gt $clusterPrerequisites) 'cluster create deve validar as ferramentas antes de criar o cluster'
+$preflightPrerequisites = $preflightText.IndexOf("Require-Command 'kubectl'")
+$preflightRender = $preflightText.IndexOf("Invoke-ExternalText -Command 'kubectl' -Arguments @('kustomize'")
+Assert-True ($preflightPrerequisites -ge 0 -and $preflightRender -gt $preflightPrerequisites) 'preflight runtime deve validar as ferramentas antes de usar kubectl'
 Assert-True ($stopText -notmatch '\$config\.InfraRoot') 'stop nao pode apagar o kustomization inteiro'
 Assert-True ($stopText -match 'deployment/urbana-connect' -and $stopText -match 'statefulset/mongodb' -and $stopText -match 'job/mongodb-rs-init') 'stop nao remove explicitamente apenas os workloads esperados'
 Assert-True ($stopText -match "get',\s*'namespace" -and $stopText -match "get',\s*'pvc") 'stop nao confirma namespace e PVC preservados'
@@ -64,4 +77,19 @@ Assert-True ('urbana-hml-platform-local'.Length -le 32) 'nome do cluster excede 
 Assert-True ($cluster -match 'hostIP: 127\.0\.0\.1') 'API k3d fora de loopback'
 Assert-True ($cluster -match 'updateDefaultKubeconfig: false') 'kubeconfig default pode ser alterado'
 Assert-True ($cluster -match 'switchCurrentContext: false') 'contexto default pode ser alterado'
+$toolVersions = Get-HmlPlatformLocalExpectedToolVersions
+Assert-HmlPlatformLocalCliVersionOutput -Name 'k3d' `
+    -Output "k3d version $($toolVersions.k3d)`nk3s version v1.35.5-k3s1 (default)" -Expected $toolVersions
+Assert-HmlPlatformLocalCliVersionOutput -Name 'kubectl' `
+    -Output "{`"clientVersion`":{`"gitVersion`":`"$($toolVersions.kubectl.gitVersion)`"},`"kustomizeVersion`":`"$($toolVersions.kubectl.kustomizeVersion)`"}" `
+    -Expected $toolVersions
+function Assert-VersionRejected([scriptblock]$Action, [string]$Message) {
+    $rejected = $false
+    try { & $Action } catch { $rejected = $true }
+    Assert-True $rejected $Message
+}
+Assert-VersionRejected { Assert-HmlPlatformLocalCliVersionOutput -Name 'k3d' -Output '' -Expected $toolVersions } 'k3d sem versao deve falhar fechado'
+Assert-VersionRejected { Assert-HmlPlatformLocalCliVersionOutput -Name 'k3d' -Output 'k3d version v0.0.0' -Expected $toolVersions } 'k3d fora da versao deve falhar fechado'
+Assert-VersionRejected { Assert-HmlPlatformLocalCliVersionOutput -Name 'kubectl' -Output '{}' -Expected $toolVersions } 'kubectl sem versao/Kustomize deve falhar fechado'
+Assert-VersionRejected { Assert-HmlPlatformLocalCliVersionOutput -Name 'kubectl' -Output '{"clientVersion":{"gitVersion":"v0.0.0"},"kustomizeVersion":"v0.0.0"}' -Expected $toolVersions } 'kubectl/Kustomize fora das versoes devem falhar fechado'
 Write-Output 'STATIC_HML_PLATFORM_LOCAL_TESTS_OK'

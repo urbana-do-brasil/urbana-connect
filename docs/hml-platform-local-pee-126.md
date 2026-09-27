@@ -12,6 +12,20 @@ Escopo: somente o cluster k3d dedicado `urbana-hml-platform-local`; não é HML 
 - Egress: a NetworkPolicy permite apenas DNS e MongoDB; o caminho inbound-only não instancia Hermes, AI, WhatsApp, SMTP ou outro adaptador de saída.
 - Segredos: o arquivo externo é lido por allowlist e materializado como Secret efêmero; valores não entram em stdout, evidência ou Git.
 
+## Ferramentas locais fixadas
+
+No preflight runtime, `preflight.ps1` valida as versões de k3d, kubectl e do Kustomize embutido antes de usar esses CLIs. As versões aprovadas ficam em `infra/kubernetes/hml-platform-local/tool-versions.yaml` (conteúdo JSON, que também é YAML válido); ausência, saída inválida ou divergência interrompe a operação. A checagem de versão usa apenas comandos de versão e, por si só, não acessa o cluster. `preflight.ps1 -SkipRuntime` continua sendo apenas uma verificação estática e não consulta ferramentas nem cluster.
+
+No PowerShell, coloque os CLIs já instalados apenas no PATH do processo/terminal atual antes de executar os scripts (isso não altera o PATH do usuário nem do sistema):
+
+```powershell
+$env:PATH = "$env:LOCALAPPDATA\hermes\profiles\sre-devops\bin;C:\Program Files\Docker\Docker\resources\bin;$env:PATH"
+```
+
+O caminho de k3d acima aponta para a cópia existente do perfil `sre-devops`; kubectl e Kustomize são fornecidos pela instalação local do Docker Desktop. Não é necessário instalar ou atualizar ferramentas.
+
+O handler desta entrega permanece um sink inbound-only: não chama Hermes/LLM nem adaptadores outbound e não persiste uma inbox durável ou oferece idempotência/reprocessamento. Os logs registram apenas tipo e instante; `providerMessageId`, telefone e corpo não são registrados. Inbox durável e idempotência pertencem às subtarefas correspondentes.
+
 ## Rollback
 
 1. Para retirar somente os workloads, executar `scripts/hml-platform-local/stop.ps1` e confirmar o status com `scripts/hml-platform-local/status.ps1`. O `stop.ps1` remove apenas `Deployment/urbana-connect`, `StatefulSet/mongodb` e `Job/mongodb-rs-init`; ele não executa `kubectl delete -k`, não remove o Namespace e não remove PVC.

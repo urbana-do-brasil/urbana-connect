@@ -6,6 +6,7 @@ $config = Get-HmlPlatformLocalConfig
 Require-Command 'docker'
 Require-Command 'k3d'
 Require-Command 'kubectl'
+$kubectlPath = Resolve-HmlPlatformLocalCommand -Name 'kubectl'
 Assert-LocalKubeContext
 Ensure-HmlPlatformLocalApiImage -Rebuild | Out-Null
 Import-HmlPlatformLocalImages | Out-Null
@@ -14,7 +15,7 @@ $secret = New-HmlPlatformLocalSecretYaml -Values (Read-LocalEnv)
 Invoke-Kubectl -Arguments @('apply', '-f', (Join-Path $config.InfraRoot 'namespace.yaml')) | Out-Null
 Invoke-Kubectl -Arguments @('apply', '-k', $config.InfraRoot) | Out-Null
 Invoke-Kubectl -Arguments @('-n', $config.Namespace, 'delete', 'secret/hml-platform-local-secrets', '--ignore-not-found=true') | Out-Null
-$secretResult = @($secret | & kubectl '--kubeconfig' $config.KubeconfigPath '--context' $config.ContextName '-n' $config.Namespace 'create' '-f' '-' 2>&1)
+$secretResult = @($secret | & $kubectlPath '--kubeconfig' $config.KubeconfigPath '--context' $config.ContextName '-n' $config.Namespace 'create' '-f' '-' 2>&1)
 $secretExitCode = $LASTEXITCODE
 if ($secretExitCode -ne 0) {
     Throw-HmlPlatformLocalError 'SECRET' 'criacao do secret dedicado falhou.'

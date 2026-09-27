@@ -35,6 +35,7 @@ $script:HmlPlatformLocal = [pscustomobject][ordered]@{
     ApiImage = 'docker.io/library/urbana-connect-hml-platform-local-api:local'
     ApiDockerfile = Join-Path $repoRoot 'apps\urbana-connect-api\Dockerfile'
     ApiBuildContext = Join-Path $repoRoot 'apps\urbana-connect-api'
+    ToolVersionsPath = Join-Path $repoRoot 'infra\kubernetes\hml-platform-local\tool-versions.yaml'
     MongoImage = 'docker.io/library/mongo:8.0@sha256:376f5173003b5408d7b8e6989667231c0bf0cefdce379d7c814910429d1a7a85'
     K3dServerContainer = "k3d-urbana-hml-platform-local-server-0"
     ApiPort = 8082
@@ -55,10 +56,76 @@ function Throw-HmlPlatformLocalError {
     throw "HML_PLATFORM_LOCAL_${Category}: $Message"
 }
 
+function Resolve-HmlPlatformLocalCommand {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    $command = Get-Command -Name $Name -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $command) {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' "comando '$Name' nao encontrado."
+    }
+    $path = [string]$command.Source
+    if ([string]::IsNullOrWhiteSpace($path)) { $path = [string]$command.Path }
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' "caminho do comando '$Name' nao foi resolvido."
+    }
+    return $path
+}
+
+function Get-HmlPlatformLocalExpectedToolVersions {
+    $config = Get-HmlPlatformLocalConfig
+    try {
+        $versions = Get-Content -Raw -LiteralPath $config.ToolVersionsPath | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' 'registro de versoes das ferramentas ausente ou invalido.'
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$versions.k3d) -or
+        [string]::IsNullOrWhiteSpace([string]$versions.kubectl.gitVersion) -or
+        [string]::IsNullOrWhiteSpace([string]$versions.kubectl.kustomizeVersion)) {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' 'registro de versoes deve fixar k3d, kubectl e Kustomize.'
+    }
+    return $versions
+}
+
+function Assert-HmlPlatformLocalCliVersionOutput {
+    param([Parameter(Mandatory = $true)][ValidateSet('k3d', 'kubectl')][string]$Name,
+          [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Output,
+          [Parameter(Mandatory = $true)]$Expected)
+    if ($Name -eq 'k3d') {
+        $match = [regex]::Match($Output, '(?m)^k3d version (?<version>v[0-9]+\.[0-9]+\.[0-9]+)\s*$')
+        if (-not $match.Success -or $match.Groups['version'].Value -cne [string]$Expected.k3d) {
+            Throw-HmlPlatformLocalError 'PREREQUISITE' "k3d ausente ou fora da versao fixada $($Expected.k3d)."
+        }
+        return
+    }
+
+    try {
+        $client = $Output | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' 'kubectl nao retornou JSON de versao valido.'
+    }
+    if ([string]$client.clientVersion.gitVersion -cne [string]$Expected.kubectl.gitVersion -or
+        [string]$client.kustomizeVersion -cne [string]$Expected.kubectl.kustomizeVersion) {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' "kubectl/Kustomize ausente ou fora das versoes fixadas ($($Expected.kubectl.gitVersion), $($Expected.kubectl.kustomizeVersion))."
+    }
+}
+
+function Assert-HmlPlatformLocalCliVersion {
+    param([Parameter(Mandatory = $true)][ValidateSet('k3d', 'kubectl')][string]$Name,
+          [Parameter(Mandatory = $true)][string]$CommandPath)
+    $expected = Get-HmlPlatformLocalExpectedToolVersions
+    if ($Name -eq 'k3d') {
+        $result = Invoke-ExternalText -Command $CommandPath -Arguments @('version')
+    } else {
+        $result = Invoke-ExternalText -Command $CommandPath -Arguments @('version', '--client', '-o', 'json')
+    }
+    Assert-HmlPlatformLocalCliVersionOutput -Name $Name -Output $result.Output -Expected $expected
+}
+
 function Require-Command {
     param([Parameter(Mandatory = $true)][string]$Name)
-    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        Throw-HmlPlatformLocalError 'PREREQUISITE' "comando '$Name' nao encontrado."
+    $path = Resolve-HmlPlatformLocalCommand -Name $Name
+    if ($Name -in @('k3d', 'kubectl')) {
+        Assert-HmlPlatformLocalCliVersion -Name $Name -CommandPath $path
     }
 }
 
@@ -66,6 +133,9 @@ function Invoke-ExternalText {
     param([Parameter(Mandatory = $true)][string]$Command,
           [Parameter(Mandatory = $true)][string[]]$Arguments,
           [switch]$AllowFailure)
+    if ($Command -in @('k3d', 'kubectl')) {
+        $Command = Resolve-HmlPlatformLocalCommand -Name $Command
+    }
     $old = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'

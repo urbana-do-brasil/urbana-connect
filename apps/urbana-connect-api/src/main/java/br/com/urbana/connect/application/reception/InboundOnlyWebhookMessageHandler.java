@@ -25,7 +25,7 @@ public final class InboundOnlyWebhookMessageHandler implements WebhookInbox {
     public void accept(InboundWhatsAppMessage message, Instant receivedAt) {
         Objects.requireNonNull(message, "message");
         Objects.requireNonNull(receivedAt, "receivedAt");
-        LOGGER.info("Webhook inbound-only aceito: providerMessageId={} messageType={} receivedAt={}",
-                message.providerMessageId(), message.messageType(), receivedAt);
+        LOGGER.info("Webhook inbound-only aceito: messageType={} receivedAt={}",
+                message.messageType(), receivedAt);
     }
 }
