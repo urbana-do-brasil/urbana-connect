@@ -44,7 +44,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: urbana-connect
-          image: urbana-connect-hml-platform-local-api:local
+          image: docker.io/library/urbana-connect-hml-platform-local-api:local
           imagePullPolicy: Never
           ports:
             - name: http

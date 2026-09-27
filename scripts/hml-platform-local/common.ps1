@@ -3,12 +3,12 @@ param()
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$runtimeRoot = Join-Path $repoRoot '.hml-platform-local'
 $localDataRoot = if ($env:LOCALAPPDATA) {
     Join-Path $env:LOCALAPPDATA 'UrbanaConnect\hml-platform-local'
 } else {
     Join-Path $env:TEMP 'UrbanaConnect\hml-platform-local'
 }
+$runtimeRoot = $localDataRoot
 $dedicatedEnvFile = if (-not [string]::IsNullOrWhiteSpace($env:HML_PLATFORM_LOCAL_ENV_FILE)) {
     [IO.Path]::GetFullPath($env:HML_PLATFORM_LOCAL_ENV_FILE)
 } else {
@@ -32,8 +32,11 @@ $script:HmlPlatformLocal = [pscustomobject][ordered]@{
     KubeconfigPath = Join-Path $localDataRoot 'kubeconfig.yaml'
     ClusterConfigPath = Join-Path $repoRoot 'infra\kubernetes\hml-platform-local\cluster-config.yaml'
     NodeImage = 'docker.io/rancher/k3s:v1.36.4-k3s1@sha256:edad48e12bf81c3a09ac1c05c0c0ffaaa22145980b989d6fae84543a76b83657'
-    ApiImage = 'urbana-connect-hml-platform-local-api:local'
+    ApiImage = 'docker.io/library/urbana-connect-hml-platform-local-api:local'
+    ApiDockerfile = Join-Path $repoRoot 'apps\urbana-connect-api\Dockerfile'
+    ApiBuildContext = Join-Path $repoRoot 'apps\urbana-connect-api'
     MongoImage = 'docker.io/library/mongo:8.0@sha256:376f5173003b5408d7b8e6989667231c0bf0cefdce379d7c814910429d1a7a85'
+    K3dServerContainer = "k3d-urbana-hml-platform-local-server-0"
     ApiPort = 8082
     KubeApiPort = 6551
     Roles = @('mongodb', 'mongodb-rs-init', 'urbana-connect')
@@ -95,23 +98,115 @@ function Get-HmlPlatformLocalImageEvidence {
     $digests = @($record.RepoDigests |
         ForEach-Object { [string]$_ } |
         Where-Object { $_ -match '@sha256:[0-9a-f]{64}$' })
-    if ($digests.Count -eq 0) {
-        Throw-HmlPlatformLocalError 'IMAGE' "imagem sem digest OCI materializado: $Reference"
+    $imageId = [string]$record.Id
+    if ($imageId -notmatch '^sha256:[0-9a-f]{64}$') {
+        Throw-HmlPlatformLocalError 'IMAGE' "imagem sem ID OCI materializado: $Reference"
     }
     $requestedDigest = $null
     if ($Reference -match '@(sha256:[0-9a-f]{64})$') {
         $requestedDigest = $Matches[1]
+        if ($digests.Count -eq 0) {
+            Throw-HmlPlatformLocalError 'IMAGE' "imagem sem RepoDigest para a referencia fixada: $Reference"
+        }
         if (-not ($digests | Where-Object { $_.EndsWith('@' + $requestedDigest) })) {
             Throw-HmlPlatformLocalError 'IMAGE' "digest solicitado ausente na imagem: $Reference"
         }
     }
     [pscustomobject]@{
         Reference = $Reference
-        Id = [string]$record.Id
+        Id = $imageId
         Digests = $digests
         Revision = [string]$record.Config.Labels.'org.opencontainers.image.revision'
         WorktreeDirty = [string]$record.Config.Labels.'br.com.urbana.connect.worktree-dirty'
     }
+}
+
+function Get-HmlPlatformLocalGitRevision {
+    $config = Get-HmlPlatformLocalConfig
+    $result = Invoke-ExternalText -Command 'git' -Arguments @('-C', $config.RepoRoot, 'rev-parse', 'HEAD')
+    return $result.Output.Trim()
+}
+
+function Get-HmlPlatformLocalWorktreeDirty {
+    $config = Get-HmlPlatformLocalConfig
+    $result = Invoke-ExternalText -Command 'git' -Arguments @(
+        '-C', $config.RepoRoot, 'status', '--porcelain', '--untracked-files=all')
+    if ([string]::IsNullOrWhiteSpace($result.Output)) { return 'false' }
+    return 'true'
+}
+
+function Build-HmlPlatformLocalApiImage {
+    $config = Get-HmlPlatformLocalConfig
+    $revision = Get-HmlPlatformLocalGitRevision
+    $dirty = Get-HmlPlatformLocalWorktreeDirty
+    Invoke-ExternalText -Command 'docker' -Arguments @(
+        'build', '--pull=false',
+        '--file', $config.ApiDockerfile,
+        '--tag', $config.ApiImage,
+        '--label', ('org.opencontainers.image.revision=' + $revision),
+        '--label', ('br.com.urbana.connect.worktree-dirty=' + $dirty),
+        $config.ApiBuildContext) | Out-Null
+    return Get-HmlPlatformLocalImageEvidence -Reference $config.ApiImage
+}
+
+function Ensure-HmlPlatformLocalApiImage {
+    param([switch]$Rebuild)
+    $config = Get-HmlPlatformLocalConfig
+    $revision = Get-HmlPlatformLocalGitRevision
+    $dirty = Get-HmlPlatformLocalWorktreeDirty
+    $inspect = Invoke-ExternalText -Command 'docker' -Arguments @('image', 'inspect', $config.ApiImage) -AllowFailure
+    $needsBuild = $Rebuild -or $inspect.ExitCode -ne 0
+    if (-not $needsBuild) {
+        $records = @($inspect.Output | ConvertFrom-Json)
+        if ($records.Count -ne 1) {
+            $needsBuild = $true
+        } else {
+            $labels = $records[0].Config.Labels
+            $needsBuild = ([string]$labels.'org.opencontainers.image.revision' -ne $revision) -or
+                ([string]$labels.'br.com.urbana.connect.worktree-dirty' -ne $dirty)
+        }
+    }
+    if ($needsBuild) {
+        return Build-HmlPlatformLocalApiImage
+    }
+    return Get-HmlPlatformLocalImageEvidence -Reference $config.ApiImage
+}
+
+function Get-HmlPlatformLocalNodeImages {
+    $config = Get-HmlPlatformLocalConfig
+    $result = Invoke-ExternalText -Command 'docker' -Arguments @(
+        'exec', $config.K3dServerContainer, '/bin/ctr', '-n', 'k8s.io', 'images', 'ls', '-q')
+    return @($result.Output -split "`r?`n" | ForEach-Object { $_.Trim() } |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
+function Import-HmlPlatformLocalImages {
+    $config = Get-HmlPlatformLocalConfig
+    $apiEvidence = Get-HmlPlatformLocalImageEvidence -Reference $config.ApiImage
+    $mongoEvidence = Get-HmlPlatformLocalImageEvidence -Reference $config.MongoImage
+    Invoke-ExternalText -Command 'k3d' -Arguments @(
+        'image', 'import', '--cluster', $config.ClusterName, $config.ApiImage, $config.MongoImage) | Out-Null
+    $nodeImages = Get-HmlPlatformLocalNodeImages
+    if ($config.ApiImage -notin $nodeImages) {
+        Throw-HmlPlatformLocalError 'IMAGE' "imagem API nao foi importada no node k3d: $($config.ApiImage)"
+    }
+    $mongoDigest = ($mongoEvidence.Digests | Where-Object { $_.EndsWith('@' + ($config.MongoImage -replace '^.*@', '')) } | Select-Object -First 1)
+    if ($mongoDigest -and -not ($nodeImages -contains $config.MongoImage)) {
+        Throw-HmlPlatformLocalError 'IMAGE' "imagem Mongo fixada nao foi importada no node k3d: $($config.MongoImage)"
+    }
+    return [pscustomobject]@{ Api = $apiEvidence; Mongo = $mongoEvidence; NodeImages = $nodeImages }
+}
+
+function Assert-HmlPlatformLocalImagesImported {
+    $config = Get-HmlPlatformLocalConfig
+    $nodeImages = Get-HmlPlatformLocalNodeImages
+    if ($config.ApiImage -notin $nodeImages) {
+        Throw-HmlPlatformLocalError 'IMAGE' "imagem API ausente no node k3d: $($config.ApiImage)"
+    }
+    if ($config.MongoImage -notin $nodeImages) {
+        Throw-HmlPlatformLocalError 'IMAGE' "imagem Mongo fixada ausente no node k3d: $($config.MongoImage)"
+    }
+    return $nodeImages
 }
 
 function Assert-TargetText {
@@ -187,16 +282,21 @@ function Read-LocalEnv {
 
 function New-HmlPlatformLocalSecretYaml {
     param([Parameter(Mandatory = $true)][System.Collections.IDictionary]$Values)
-    $config = Get-HmlPlatformLocalConfig
-    $result = Invoke-ExternalText -Command 'kubectl' -Arguments @(
-        '--kubeconfig', $config.KubeconfigPath, '--context', $config.ContextName,
-        '-n', $config.Namespace, 'create', 'secret', 'generic',
-        'hml-platform-local-secrets',
-        ('--from-literal=MONGODB_URI=' + [string]$Values.MONGODB_URI),
-        ('--from-literal=WHATSAPP_APP_SECRET=' + [string]$Values.WHATSAPP_APP_SECRET),
-        ('--from-literal=WHATSAPP_VERIFY_TOKEN=' + [string]$Values.WHATSAPP_VERIFY_TOKEN),
-        '--dry-run=client', '-o', 'yaml')
-    return $result.Output
+    $encode = {
+        param([string]$Value)
+        [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Value))
+    }
+    return @(
+        'apiVersion: v1'
+        'kind: Secret'
+        'metadata:'
+        '  name: hml-platform-local-secrets'
+        'type: Opaque'
+        'data:'
+        ('  MONGODB_URI: ' + (& $encode ([string]$Values.MONGODB_URI)))
+        ('  WHATSAPP_APP_SECRET: ' + (& $encode ([string]$Values.WHATSAPP_APP_SECRET)))
+        ('  WHATSAPP_VERIFY_TOKEN: ' + (& $encode ([string]$Values.WHATSAPP_VERIFY_TOKEN)))
+    ) -join [Environment]::NewLine
 }
 
 function Write-HmlPlatformLocalEvidence {

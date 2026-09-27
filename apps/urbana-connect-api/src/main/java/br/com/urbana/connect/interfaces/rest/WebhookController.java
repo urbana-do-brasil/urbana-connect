@@ -3,6 +3,7 @@ package br.com.urbana.connect.interfaces.rest;
 import br.com.urbana.connect.application.conversation.ConversationFlowService;
 import br.com.urbana.connect.application.conversation.InboundWhatsAppMessage;
 import br.com.urbana.connect.application.reception.HermesWebhookMessageHandler;
+import br.com.urbana.connect.application.reception.WebhookInbox;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -34,8 +35,22 @@ public class WebhookController {
     public WebhookController(
             @Value("${whatsapp.webhook.verify-token:}") String verifyToken,
             ConversationFlowService conversationFlowService,
-            ObjectProvider<HermesWebhookMessageHandler> hermesWebhookMessageHandler) {
+            ObjectProvider<HermesWebhookMessageHandler> hermesWebhookMessageHandler,
+            ObjectProvider<WebhookInbox> webhookInbox,
+            @Value("${hermes.poc.enabled:false}") boolean hermesProfileActive,
+            @Value("${webhook.inbox.worker.enabled:false}") boolean inboundOnlyEnabled) {
         this.verifyToken = verifyToken;
+        if (hermesProfileActive && inboundOnlyEnabled) {
+            throw new IllegalStateException("Hermes and inbound-only webhook profiles cannot be enabled together");
+        }
+        if (inboundOnlyEnabled) {
+            WebhookInbox inbox = webhookInbox.getIfAvailable();
+            if (inbox == null) {
+                throw new IllegalStateException("WebhookInbox is required when inbound-only mode is active");
+            }
+            this.messageHandler = inbox::accept;
+            return;
+        }
         HermesWebhookMessageHandler hermesHandler = hermesWebhookMessageHandler.getIfAvailable();
         this.messageHandler = hermesHandler == null
                 ? conversationFlowService::handleIncomingMessage

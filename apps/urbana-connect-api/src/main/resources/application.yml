@@ -43,6 +43,12 @@ whatsapp:
   webhook:
     verify-token: ${WHATSAPP_VERIFY_TOKEN:}
 
+# Dedicated local targets may acknowledge ingress without activating outbound processing.
+webhook:
+  inbox:
+    worker:
+      enabled: ${WEBHOOK_INBOX_WORKER_ENABLED:false}
+
 ai:
   gemini:
     api-key: ${GEMINI_API_KEY:}

@@ -30,6 +30,7 @@ $nodes = Invoke-Kubectl -Arguments @('get', 'nodes', '-o', 'json') | Select-Obje
 $ready = @($nodes.items | Where-Object { @($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -gt 0 })
 if ($ready.Count -ne 1) { Throw-HmlPlatformLocalError 'CLUSTER' 'target dedicado precisa ter exatamente um node Ready.' }
 $imageEvidence = [ordered]@{}
+$envValues = Read-LocalEnv
 foreach ($image in @($config.ApiImage, $config.MongoImage)) {
     $evidence = Get-HmlPlatformLocalImageEvidence -Reference $image
     $imageEvidence[$image] = [ordered]@{
@@ -39,11 +40,20 @@ foreach ($image in @($config.ApiImage, $config.MongoImage)) {
         worktreeDirty = $evidence.WorktreeDirty
     }
 }
+$revision = Get-HmlPlatformLocalGitRevision
+$dirty = Get-HmlPlatformLocalWorktreeDirty
+if ($imageEvidence[$config.ApiImage].revision -ne $revision -or
+    $imageEvidence[$config.ApiImage].worktreeDirty -ne $dirty) {
+    Throw-HmlPlatformLocalError 'IMAGE' 'imagem API nao corresponde ao revision/estado atual; reprovisione com cluster.ps1 -Create ou start.ps1.'
+}
+$nodeImages = Assert-HmlPlatformLocalImagesImported
 Write-HmlPlatformLocalEvidence -Operation 'preflight' -Data @{
     target = 'hml-platform-local'
     namespace = $config.Namespace
     outbound = 'disabled'
     endpoints = 'loopback-only'
     images = $imageEvidence
+    importedImageCount = @($nodeImages).Count
+    environmentKeys = @($envValues.Keys)
 }
 Write-Output 'HML_PLATFORM_LOCAL_PREFLIGHT_OK'

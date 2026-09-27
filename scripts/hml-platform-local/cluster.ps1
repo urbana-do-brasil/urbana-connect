@@ -38,11 +38,20 @@ function Save-DedicatedKubeconfig {
 }
 
 if ($Create) {
+    $apiImage = Ensure-HmlPlatformLocalApiImage -Rebuild
+    Get-HmlPlatformLocalImageEvidence -Reference $config.MongoImage | Out-Null
     if (-not (Test-ClusterPresent)) {
         Invoke-ExternalText -Command 'k3d' -Arguments @('cluster', 'create', '--config', $config.ClusterConfigPath) | Out-Null
     }
     Save-DedicatedKubeconfig
-    Write-HmlPlatformLocalEvidence -Operation 'cluster-create' -Data @{ target = 'hml-platform-local'; cluster = $config.ClusterName; context = $config.ContextName }
+    $images = Import-HmlPlatformLocalImages
+    Write-HmlPlatformLocalEvidence -Operation 'cluster-create' -Data @{
+        target = 'hml-platform-local'
+        cluster = $config.ClusterName
+        context = $config.ContextName
+        apiImageId = $apiImage.Id
+        importedImageCount = @($images.NodeImages).Count
+    }
     Write-Output "HML_PLATFORM_LOCAL_CLUSTER_READY: $($config.ClusterName)"
     exit 0
 }
@@ -54,6 +63,8 @@ if (-not (Test-ClusterPresent)) {
 if ($Start) {
     Invoke-ExternalText -Command 'k3d' -Arguments @('cluster', 'start', $config.ClusterName) | Out-Null
     Save-DedicatedKubeconfig
+    Ensure-HmlPlatformLocalApiImage -Rebuild | Out-Null
+    Import-HmlPlatformLocalImages | Out-Null
     Write-Output "HML_PLATFORM_LOCAL_CLUSTER_STARTED: $($config.ContextName)"
     exit 0
 }

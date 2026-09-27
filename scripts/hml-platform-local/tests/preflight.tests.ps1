@@ -24,9 +24,15 @@ $manifestText = ($manifestFiles | ForEach-Object { Get-Content -Raw -LiteralPath
 $apiText = Get-Content -Raw -LiteralPath (Join-Path $infra 'api.yaml')
 $configMapText = Get-Content -Raw -LiteralPath (Join-Path $infra 'configmap.yaml')
 $commonText = Get-Content -Raw -LiteralPath (Join-Path $scripts 'common.ps1')
+$startText = Get-Content -Raw -LiteralPath (Join-Path $scripts 'start.ps1')
+$stopText = Get-Content -Raw -LiteralPath (Join-Path $scripts 'stop.ps1')
+$statusText = Get-Content -Raw -LiteralPath (Join-Path $scripts 'status.ps1')
+$applicationText = Get-Content -Raw -LiteralPath (Join-Path $config.RepoRoot 'apps/urbana-connect-api/src/main/resources/application.yml')
 Assert-True ($manifestText -match 'environment:\s*hml-platform-local') 'identidade de environment ausente'
 Assert-True ($manifestText -notmatch 'environment:\s*local\s*$') 'label environment generica encontrada'
 Assert-True ($manifestText -match 'HERMES_POC_ENABLED:\s*"false"') 'Hermes nao esta deny-by-default'
+Assert-True ($configMapText -match 'WEBHOOK_INBOX_WORKER_ENABLED:\s*"true"') 'inbox inbound-only nao esta habilitado'
+Assert-True ($applicationText -match 'webhook:\s+inbox:\s+worker:' -and $applicationText -match 'WEBHOOK_INBOX_WORKER_ENABLED:false') 'flag WEBHOOK_INBOX_WORKER_ENABLED nao e consumida pela aplicacao'
 Assert-True ($manifestText -notmatch 'local-hml|openrouter|graph.facebook.com|NodePort|LoadBalancer|hostNetwork:\s*true|hostPort:') 'referencia fora do target encontrada'
 Assert-True ($manifestText -notmatch '(?m)^kind:\s*Secret\s*$') 'Secret literal versionada'
 Assert-True ($configMapText -notmatch '(?m)^\s*MONGODB_URI\s*:') 'MONGODB_URI nao pode ficar no ConfigMap'
@@ -35,13 +41,23 @@ foreach ($key in @('MONGODB_URI', 'WHATSAPP_APP_SECRET', 'WHATSAPP_VERIFY_TOKEN'
     Assert-True ($apiText -match $secretRef) "$key nao esta ligado ao Secret dedicado"
 }
 Assert-True ($commonText -match 'WHATSAPP_VERIFY_TOKEN') 'verify token ausente do wiring do env dedicado'
-Assert-True ($apiText -match 'image:\s*urbana-connect-hml-platform-local-api:local') 'imagem API local ausente'
+Assert-True ($apiText -match 'image:\s*docker.io/library/urbana-connect-hml-platform-local-api:local') 'imagem API local ausente'
 Assert-True ($apiText -match 'imagePullPolicy:\s*Never') 'imagem API nao esta explicitamente importada/local'
 Assert-True ($apiText -match '(?s)startupProbe:.*path:\s*/api/v1/health') 'startup probe ausente/incorreto'
 Assert-True ($apiText -match '(?s)readinessProbe:.*path:\s*/api/v1/readiness') 'readiness probe ausente/incorreto'
 Assert-True ($apiText -match '(?s)livenessProbe:.*path:\s*/api/v1/health') 'liveness probe ausente/incorreto'
 Assert-True ($manifestText -match '(?m)^kind:\s*NetworkPolicy\s*$') 'NetworkPolicy ausente'
 Assert-True ($manifestText -match 'type: ClusterIP') 'Service publico ausente'
+Assert-True ($commonText -match 'Build-HmlPlatformLocalApiImage') 'build deterministico da API ausente'
+Assert-True ($commonText -match "'image',\s*'import'" -and $commonText -match '''exec'',\s+\$config\.K3dServerContainer') 'import/readback da imagem no node ausente'
+Assert-True ($commonText -notmatch '--from-literal') 'segredo nao pode ser passado como argumento de processo'
+Assert-True ($commonText -match 'RuntimeRoot\s*=\s*\$localDataRoot') 'evidencia runtime deve ficar fora do repositorio'
+Assert-True ($startText -match 'Ensure-HmlPlatformLocalApiImage' -and $startText -match 'Import-HmlPlatformLocalImages' -and $startText -match 'rollout.*restart') 'start nao reprovisiona imagens ou reinicia a API'
+Assert-True ($stopText -notmatch '\$config\.InfraRoot') 'stop nao pode apagar o kustomization inteiro'
+Assert-True ($stopText -match 'deployment/urbana-connect' -and $stopText -match 'statefulset/mongodb' -and $stopText -match 'job/mongodb-rs-init') 'stop nao remove explicitamente apenas os workloads esperados'
+Assert-True ($stopText -match "get',\s*'namespace" -and $stopText -match "get',\s*'pvc") 'stop nao confirma namespace e PVC preservados'
+Assert-True ($statusText -match "Write-HmlPlatformLocalEvidence\s+-Operation\s+'status'" -and $statusText -match '\$imageEvidence' -and $statusText -match '\$state' -and $statusText -match '\$apiReadiness') 'status nao persiste readback de estado, readiness e imagens'
+Assert-True ($statusText -match 'Assert-HmlPlatformLocalImagesImported' -and $statusText -match 'environmentKeys') 'status nao persiste proveniencia/import e chaves sanitizadas'
 $cluster = Get-Content -Raw -LiteralPath (Join-Path $infra 'cluster-config.yaml')
 Assert-True ($cluster -match 'name: urbana-hml-platform-local') 'cluster dedicado ausente'
 Assert-True ('urbana-hml-platform-local'.Length -le 32) 'nome do cluster excede limite k3d'

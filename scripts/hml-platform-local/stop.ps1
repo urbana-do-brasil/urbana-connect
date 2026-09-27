@@ -15,5 +15,30 @@ if ($DeleteCluster) {
     exit 0
 }
 Assert-LocalKubeContext
-Invoke-Kubectl -Arguments @('delete', '-k', $config.InfraRoot, '--ignore-not-found=true') | Select-Object -ExpandProperty Output
+Invoke-Kubectl -Arguments @(
+    '-n', $config.Namespace, 'delete',
+    'deployment/urbana-connect',
+    'statefulset/mongodb',
+    'job/mongodb-rs-init',
+    '--ignore-not-found=true') | Select-Object -ExpandProperty Output
+$namespaceReadback = Invoke-Kubectl -Arguments @('get', 'namespace', $config.Namespace, '-o', 'json') -AllowFailure
+if ($namespaceReadback.ExitCode -ne 0) {
+    Throw-HmlPlatformLocalError 'STOP' 'namespace dedicado nao foi preservado.'
+}
+$pvcReadback = Invoke-Kubectl -Arguments @('-n', $config.Namespace, 'get', 'pvc', '-o', 'json') -AllowFailure
+if ($pvcReadback.ExitCode -ne 0) {
+    Throw-HmlPlatformLocalError 'STOP' 'leitura do PVC dedicado falhou; stop nao confirmou preservacao de dados.'
+}
+$pvcItems = @($pvcReadback.Output | ConvertFrom-Json).items
+if (@($pvcItems).Count -eq 0) {
+    Throw-HmlPlatformLocalError 'STOP' 'nenhum PVC dedicado foi encontrado apos stop.'
+}
+Write-HmlPlatformLocalEvidence -Operation 'stop' -Data @{
+    target = 'hml-platform-local'
+    state = 'stopped'
+    workloads = @('deployment/urbana-connect', 'statefulset/mongodb', 'job/mongodb-rs-init')
+    namespacePreserved = $true
+    pvcNames = @($pvcItems | ForEach-Object { [string]$_.metadata.name })
+    dataLossConfirmation = 'not-required-for-stop'
+}
 Write-Output 'HML_PLATFORM_LOCAL_RESOURCES_STOPPED'
