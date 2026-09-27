@@ -1,0 +1,7 @@
+{
+  "k3d": "v5.9.0",
+  "kubectl": {
+    "gitVersion": "v1.36.1",
+    "kustomizeVersion": "v5.8.1"
+  }
+}

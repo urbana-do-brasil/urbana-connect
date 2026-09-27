@@ -11,7 +11,8 @@ COPY settings.gradle .
 
 COPY src src
 
-RUN chmod +x ./gradlew \
+RUN sed -i 's/[[:cntrl:]]$//' ./gradlew \
+    && chmod +x ./gradlew \
     && ./gradlew --no-daemon clean bootJar
 
 # Estágio 2: runtime enxuto com JRE 21
