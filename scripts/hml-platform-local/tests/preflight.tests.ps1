@@ -76,7 +76,10 @@ Assert-True ($statusText -match "Write-HmlPlatformLocalEvidence\s+-Operation\s+'
 Assert-True ($statusText -match 'Get-HmlPlatformLocalImportedImageEvidence' -and $statusText -match 'importedImageDigests' -and $statusText -match 'environmentKeys') 'status nao persiste digest importado e chaves sanitizadas'
 Assert-True ($commonText -match 'Assert-HmlPlatformLocalPromotionSourceClean' -and $commonText -match 'Assert-HmlPlatformLocalPromotionEvidence') 'promocao deve exigir origem limpa e proveniencia coerente'
 Assert-True ($commonText -match 'New-HmlPlatformLocalPromotionManifest' -and $commonText -match 'Get-HmlPlatformLocalApiPromotionReference' -and $commonText -match 'Assert-HmlPlatformLocalAppliedPromotion') 'promocao deve renderizar e confirmar imagem imutavel vinculada a revisao'
-Assert-True ($startText.Contains("Invoke-Kubectl -Arguments @('apply', '-f', `$promotion.Path)") -and $startText -match 'Assert-HmlPlatformLocalAppliedPromotion' -and -not $startText.Contains("'-k', `$config.InfraRoot")) 'start deve aplicar e confirmar manifesto de promocao renderizado por digest'
+$promotionApplyCall = "Invoke-Kubectl -Stage 'promotion-apply' -Arguments @('apply', '-f', `$promotion.Path)"
+Assert-True ($startText.Contains($promotionApplyCall) -and $startText -match 'Assert-HmlPlatformLocalAppliedPromotion' -and -not $startText.Contains("'-k', `$config.InfraRoot")) 'start deve aplicar e confirmar manifesto de promocao renderizado por digest'
+$secretApplyPattern = [regex]::Escape('$secret | & $kubectlPath') + '.*' + [regex]::Escape("'apply' '-f' '-'")
+Assert-True ($startText -match $secretApplyPattern -and $startText -notmatch 'delete.*secret/hml-platform-local-secrets') 'atualizacao de Secret deve usar stdin sem delete/recreate'
 $startPromotionGuard = $startText.IndexOf('Assert-HmlPlatformLocalPromotionSourceClean')
 $startBuild = $startText.IndexOf('Ensure-HmlPlatformLocalApiImage')
 Assert-True ($startPromotionGuard -ge 0 -and $startPromotionGuard -lt $startBuild) 'start deve bloquear origem dirty antes do build/import'
@@ -172,4 +175,27 @@ Assert-VersionRejected { Assert-HmlPlatformLocalPromotionEvidence -SourceDirty '
 Assert-VersionRejected { Assert-HmlPlatformLocalPromotionEvidence -SourceDirty 'false' -ExpectedRevision $testRevision -ImageEvidence ([pscustomobject]@{ Revision = $testRevision; WorktreeDirty = 'false'; Digests = @() }) } 'imagem local sem identidade por digest deve ser rejeitada'
 Assert-HmlPlatformLocalImportedImageDigest -ExpectedDigest ('sha256:' + ('b' * 64)) -ActualDigest ('sha256:' + ('b' * 64))
 Assert-VersionRejected { Assert-HmlPlatformLocalImportedImageDigest -ExpectedDigest ('sha256:' + ('b' * 64)) -ActualDigest ('sha256:' + ('c' * 64)) } 'digest importado divergente deve ser rejeitado'
+$renderedPromotion = New-HmlPlatformLocalPromotionManifest -ImageEvidence $testImageEvidence `
+    -ImportedDigest ('sha256:' + ('b' * 64)) -ExpectedRevision $testRevision -SourceDirty 'false'
+$promotionText = Get-Content -Raw -LiteralPath $renderedPromotion.Path
+$promotionDocuments = [regex]::Split($promotionText, '(?m)^---\s*$')
+$jobDocument = @($promotionDocuments | Where-Object {
+    $_ -match '(?m)^kind:\s*Job\s*$' -and $_ -match '(?m)^\s*name:\s*mongodb-rs-init\s*$'
+}) | Select-Object -First 1
+$deploymentDocument = @($promotionDocuments | Where-Object {
+    $_ -match '(?m)^kind:\s*Deployment\s*$' -and $_ -match '(?m)^\s*name:\s*urbana-connect\s*$'
+}) | Select-Object -First 1
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$jobDocument)) 'promocao renderizada deve manter o Job de inicializacao'
+Assert-True (-not [string]::IsNullOrWhiteSpace([string]$deploymentDocument)) 'promocao renderizada deve manter o Deployment da API'
+$revisionAnnotationPattern = '(?m)^\s+br\.com\.urbana\.connect/source-revision:\s*' + [regex]::Escape($testRevision) + '\s*$'
+Assert-True (-not [regex]::IsMatch([string]$jobDocument, $revisionAnnotationPattern)) 'promocao nao pode alterar metadata/template imutavel do Job mongodb-rs-init'
+Assert-True ([regex]::Matches([string]$deploymentDocument, $revisionAnnotationPattern).Count -eq 2) 'promocao deve anotar somente metadata e Pod template do Deployment da API'
+$overlayKustomization = Get-Content -Raw -LiteralPath (Join-Path (Split-Path -Parent $renderedPromotion.Path) 'kustomization.yaml')
+Assert-True ($overlayKustomization -match '(?m)^patches:\s*$' -and $overlayKustomization -notmatch '(?m)^commonAnnotations:\s*$') 'overlay de promocao deve usar patch direcionado em vez de commonAnnotations global'
+$safeFailure = Get-HmlPlatformLocalSanitizedCommandFailure -CommandName 'kubectl' `
+    -Stage 'promotion-apply' -ExitCode 1 `
+    -Diagnostic 'The Job "mongodb-rs-init" is invalid: spec.template: field is immutable; WHATSAPP_VERIFY_TOKEN=NEVER-LOG-THIS'
+Assert-True ($safeFailure -match 'stage=promotion-apply' -and $safeFailure -match 'category=IMMUTABLE_FIELD' -and
+    $safeFailure -match 'resource=job/mongodb-rs-init' -and $safeFailure -match 'field=spec.template') 'falha de apply deve identificar etapa, categoria, recurso e campo de forma sanitizada'
+Assert-True ($safeFailure -notmatch 'NEVER-LOG-THIS|WHATSAPP_VERIFY_TOKEN') 'diagnostico sanitizado nao pode expor stderr/segredo'
 Write-Output 'STATIC_HML_PLATFORM_LOCAL_TESTS_OK'

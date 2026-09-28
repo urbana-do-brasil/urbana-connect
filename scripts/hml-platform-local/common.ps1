@@ -152,9 +152,29 @@ function Require-Command {
     }
 }
 
+function Get-HmlPlatformLocalSanitizedCommandFailure {
+    param([Parameter(Mandatory = $true)][string]$CommandName,
+          [Parameter(Mandatory = $true)][ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)*$')][string]$Stage,
+          [Parameter(Mandatory = $true)][int]$ExitCode,
+          [Parameter(Mandatory = $true)][AllowEmptyString()][string]$Diagnostic)
+    $safeCommand = [IO.Path]::GetFileNameWithoutExtension($CommandName).ToLowerInvariant()
+    if ($safeCommand -notin @('docker', 'k3d', 'kubectl', 'git')) { $safeCommand = 'external' }
+    $category = 'EXTERNAL_COMMAND_FAILURE'
+    $resource = 'none'
+    $field = 'none'
+    if ($safeCommand -eq 'kubectl' -and $Diagnostic -match '(?i)(field is immutable|immutable|cannot be changed)') {
+        $category = 'IMMUTABLE_FIELD'
+        if ($Diagnostic -match '(?i)mongodb-rs-init') { $resource = 'job/mongodb-rs-init' }
+        if ($Diagnostic -match '(?i)spec\.template') { $field = 'spec.template' }
+        elseif ($Diagnostic -match '(?i)spec\.selector') { $field = 'spec.selector' }
+    }
+    return "stage=$Stage command=$safeCommand category=$category exit=$ExitCode resource=$resource field=$field"
+}
+
 function Invoke-ExternalText {
     param([Parameter(Mandatory = $true)][string]$Command,
           [Parameter(Mandatory = $true)][string[]]$Arguments,
+          [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)*$')][string]$Stage = 'external-command',
           [switch]$AllowFailure)
     if ($Command -in @('k3d', 'kubectl')) {
         $Command = Resolve-HmlPlatformLocalCommand -Name $Command
@@ -167,17 +187,20 @@ function Invoke-ExternalText {
     } finally { $ErrorActionPreference = $old }
     $text = (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
     if ($exitCode -ne 0 -and -not $AllowFailure) {
-        Throw-HmlPlatformLocalError 'COMMAND' "'$Command' falhou (exit $exitCode)."
+        $safeFailure = Get-HmlPlatformLocalSanitizedCommandFailure -CommandName $Command `
+            -Stage $Stage -ExitCode $exitCode -Diagnostic $text
+        Throw-HmlPlatformLocalError 'COMMAND' $safeFailure
     }
     [pscustomobject]@{ ExitCode = $exitCode; Output = $text }
 }
 
 function Invoke-Kubectl {
     param([Parameter(Mandatory = $true)][string[]]$Arguments,
+          [ValidatePattern('^[a-z0-9]+(?:-[a-z0-9]+)*$')][string]$Stage = 'kubectl-operation',
           [switch]$AllowFailure)
     $config = Get-HmlPlatformLocalConfig
     $args = @('--kubeconfig', $config.KubeconfigPath, '--context', $config.ContextName) + $Arguments
-    Invoke-ExternalText -Command 'kubectl' -Arguments $args -AllowFailure:$AllowFailure
+    Invoke-ExternalText -Command 'kubectl' -Arguments $args -Stage $Stage -AllowFailure:$AllowFailure
 }
 
 function Get-HmlPlatformLocalImageEvidence {
@@ -348,7 +371,8 @@ function New-HmlPlatformLocalPromotionManifest {
     Assert-HmlPlatformLocalPromotionEvidence -SourceDirty $SourceDirty `
         -ExpectedRevision $ExpectedRevision -ImageEvidence $ImageEvidence
     $apiReference = Get-HmlPlatformLocalApiPromotionReference -ImageEvidence $ImageEvidence -ImportedDigest $ImportedDigest
-    $source = Invoke-ExternalText -Command 'kubectl' -Arguments @('kustomize', $config.InfraRoot)
+    $source = Invoke-ExternalText -Command 'kubectl' -Arguments @('kustomize', $config.InfraRoot) `
+        -Stage 'promotion-base-render'
     Assert-TargetText -Text $source.Output
     Assert-HmlPlatformLocalImageReferences -Text $source.Output -AllowLocalApiTemplate
 
@@ -361,9 +385,24 @@ function New-HmlPlatformLocalPromotionManifest {
     New-Item -ItemType Directory -Force -Path $promotionDirectory | Out-Null
     $basePath = Join-Path $promotionDirectory 'base.yaml'
     $kustomizationPath = Join-Path $promotionDirectory 'kustomization.yaml'
+    $deploymentPatchPath = Join-Path $promotionDirectory 'deployment-annotations.yaml'
     $manifestPath = Join-Path $promotionDirectory 'rendered.yaml'
     $utf8 = New-Object Text.UTF8Encoding($false)
     [IO.File]::WriteAllText($basePath, $source.Output, $utf8)
+    $deploymentPatch = @(
+        'apiVersion: apps/v1'
+        'kind: Deployment'
+        'metadata:'
+        '  name: urbana-connect'
+        '  annotations:'
+        '    br.com.urbana.connect/source-revision: ' + $ExpectedRevision
+        'spec:'
+        '  template:'
+        '    metadata:'
+        '      annotations:'
+        '        br.com.urbana.connect/source-revision: ' + $ExpectedRevision
+    ) -join [Environment]::NewLine
+    [IO.File]::WriteAllText($deploymentPatchPath, $deploymentPatch, $utf8)
     $kustomization = @(
         'apiVersion: kustomize.config.k8s.io/v1beta1'
         'kind: Kustomization'
@@ -373,11 +412,17 @@ function New-HmlPlatformLocalPromotionManifest {
         '  - name: ' + ([regex]::Replace([string]$config.ApiImage, ':[^/:@]+$', ''))
         '    newName: ' + ([regex]::Replace([string]$config.ApiImage, ':[^/:@]+$', ''))
         '    digest: ' + $ImportedDigest
-        'commonAnnotations:'
-        '  br.com.urbana.connect/source-revision: ' + $ExpectedRevision
+        'patches:'
+        '  - path: deployment-annotations.yaml'
+        '    target:'
+        '      group: apps'
+        '      version: v1'
+        '      kind: Deployment'
+        '      name: urbana-connect'
     ) -join [Environment]::NewLine
     [IO.File]::WriteAllText($kustomizationPath, $kustomization, $utf8)
-    $rendered = Invoke-ExternalText -Command 'kubectl' -Arguments @('kustomize', $promotionDirectory)
+    $rendered = Invoke-ExternalText -Command 'kubectl' -Arguments @('kustomize', $promotionDirectory) `
+        -Stage 'promotion-final-render'
     Assert-TargetText -Text $rendered.Output
     Assert-HmlPlatformLocalImageReferences -Text $rendered.Output `
         -ExpectedApiReference $apiReference -SourceRevision $ExpectedRevision

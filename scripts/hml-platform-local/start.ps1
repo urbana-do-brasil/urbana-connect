@@ -18,18 +18,17 @@ $promotion = New-HmlPlatformLocalPromotionManifest -ImageEvidence $apiImage `
     -ImportedDigest ([string]$images.ImportedDigests[$config.ApiImage].digest) `
     -ExpectedRevision $sourceRevision -SourceDirty $sourceDirty
 $secret = New-HmlPlatformLocalSecretYaml -Values (Read-LocalEnv)
-Invoke-Kubectl -Arguments @('apply', '-f', (Join-Path $config.InfraRoot 'namespace.yaml')) | Out-Null
-Invoke-Kubectl -Arguments @('apply', '-f', $promotion.Path) | Out-Null
-Invoke-Kubectl -Arguments @('-n', $config.Namespace, 'delete', 'secret/hml-platform-local-secrets', '--ignore-not-found=true') | Out-Null
-$secretResult = @($secret | & $kubectlPath '--kubeconfig' $config.KubeconfigPath '--context' $config.ContextName '-n' $config.Namespace 'create' '-f' '-' 2>&1)
+Invoke-Kubectl -Stage 'namespace-apply' -Arguments @('apply', '-f', (Join-Path $config.InfraRoot 'namespace.yaml')) | Out-Null
+Invoke-Kubectl -Stage 'promotion-apply' -Arguments @('apply', '-f', $promotion.Path) | Out-Null
+$secretResult = @($secret | & $kubectlPath '--kubeconfig' $config.KubeconfigPath '--context' $config.ContextName '-n' $config.Namespace 'apply' '-f' '-' 2>&1)
 $secretExitCode = $LASTEXITCODE
 if ($secretExitCode -ne 0) {
-    Throw-HmlPlatformLocalError 'SECRET' 'criacao do secret dedicado falhou.'
+    Throw-HmlPlatformLocalError 'SECRET' "stage=secret-apply category=SECRET_APPLY_FAILED exit=$secretExitCode"
 }
-Invoke-Kubectl -Arguments @('-n', $config.Namespace, 'rollout', 'restart', 'deployment/urbana-connect') | Out-Null
-Invoke-Kubectl -Arguments @('-n', $config.Namespace, 'rollout', 'status', 'statefulset/mongodb', '--timeout=180s') | Out-Null
-Invoke-Kubectl -Arguments @('-n', $config.Namespace, 'wait', '--for=condition=complete', 'job/mongodb-rs-init', '--timeout=300s') | Out-Null
-Invoke-Kubectl -Arguments @('-n', $config.Namespace, 'rollout', 'status', 'deployment/urbana-connect', '--timeout=240s') | Out-Null
+Invoke-Kubectl -Stage 'deployment-restart' -Arguments @('-n', $config.Namespace, 'rollout', 'restart', 'deployment/urbana-connect') | Out-Null
+Invoke-Kubectl -Stage 'mongodb-rollout' -Arguments @('-n', $config.Namespace, 'rollout', 'status', 'statefulset/mongodb', '--timeout=180s') | Out-Null
+Invoke-Kubectl -Stage 'init-job-wait' -Arguments @('-n', $config.Namespace, 'wait', '--for=condition=complete', 'job/mongodb-rs-init', '--timeout=300s') | Out-Null
+Invoke-Kubectl -Stage 'deployment-rollout' -Arguments @('-n', $config.Namespace, 'rollout', 'status', 'deployment/urbana-connect', '--timeout=240s') | Out-Null
 $appliedPromotion = Assert-HmlPlatformLocalAppliedPromotion -ExpectedApiReference $promotion.ApiReference `
     -ExpectedRevision $promotion.SourceRevision
 Write-HmlPlatformLocalEvidence -Operation 'start' -Data @{
