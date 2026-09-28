@@ -38,8 +38,10 @@ function Save-DedicatedKubeconfig {
 }
 
 if ($Create) {
+    Assert-HmlPlatformLocalPromotionSourceClean
+    $nodeImage = Ensure-HmlPlatformLocalPinnedImage -Reference $config.NodeImage
+    $mongoImage = Ensure-HmlPlatformLocalPinnedImage -Reference $config.MongoImage
     $apiImage = Ensure-HmlPlatformLocalApiImage -Rebuild
-    Get-HmlPlatformLocalImageEvidence -Reference $config.MongoImage | Out-Null
     if (-not (Test-ClusterPresent)) {
         Invoke-ExternalText -Command 'k3d' -Arguments @('cluster', 'create', '--config', $config.ClusterConfigPath) | Out-Null
     }
@@ -50,6 +52,13 @@ if ($Create) {
         cluster = $config.ClusterName
         context = $config.ContextName
         apiImageId = $apiImage.Id
+        apiImageDigests = @($apiImage.Digests)
+        nodeImageId = $nodeImage.Evidence.Id
+        nodeImageDigests = @($nodeImage.Evidence.Digests)
+        nodeImagePulled = $nodeImage.Pulled
+        mongoImageId = $mongoImage.Evidence.Id
+        mongoImageDigests = @($mongoImage.Evidence.Digests)
+        mongoImagePulled = $mongoImage.Pulled
         importedImageCount = @($images.NodeImages).Count
     }
     Write-Output "HML_PLATFORM_LOCAL_CLUSTER_READY: $($config.ClusterName)"
@@ -61,6 +70,7 @@ if (-not (Test-ClusterPresent)) {
 }
 
 if ($Start) {
+    Assert-HmlPlatformLocalPromotionSourceClean
     Invoke-ExternalText -Command 'k3d' -Arguments @('cluster', 'start', $config.ClusterName) | Out-Null
     Save-DedicatedKubeconfig
     Ensure-HmlPlatformLocalApiImage -Rebuild | Out-Null

@@ -129,7 +129,7 @@ foreach ($image in @($config.ApiImage, $config.MongoImage)) {
         worktreeDirty = $evidence.WorktreeDirty
     }
 }
-$nodeImages = Assert-HmlPlatformLocalImagesImported
+$importedImages = Get-HmlPlatformLocalImportedImageEvidence
 
 $inventory = Invoke-Kubectl -Arguments @('-n', $config.Namespace, 'get', 'pods,svc,pvc', '-o', 'wide')
 Write-Output $inventory.Output
@@ -171,7 +171,8 @@ Write-HmlPlatformLocalEvidence -Operation 'status' -Data @{
     services = $serviceSummary
     pvcs = $pvcSummary
     images = $imageEvidence
-    importedImageCount = @($nodeImages).Count
+    importedImageCount = @($importedImages.References).Count
+    importedImageDigests = $importedImages.Digests
     endpoints = 'loopback-only'
     outbound = 'disabled'
     environmentKeys = @($envValues.Keys)
