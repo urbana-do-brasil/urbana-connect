@@ -83,6 +83,21 @@ function Get-HmlPlatformLocalExpectedToolVersions {
         [string]::IsNullOrWhiteSpace([string]$versions.kubectl.kustomizeVersion)) {
         Throw-HmlPlatformLocalError 'PREREQUISITE' 'registro de versoes deve fixar k3d, kubectl e Kustomize.'
     }
+    if ([string]::IsNullOrWhiteSpace([string]$versions.k3s.version) -or
+        [string]::IsNullOrWhiteSpace([string]$versions.k3s.image)) {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' 'registro de versoes deve fixar K3s e sua imagem por digest.'
+    }
+    $k3sTag = ([string]$versions.k3s.version).Replace('+', '-')
+    $expectedK3sImagePattern = '^docker\.io/rancher/k3s:' + [regex]::Escape($k3sTag) + '@sha256:[0-9a-f]{64}$'
+    if ([string]$versions.k3s.image -notmatch $expectedK3sImagePattern -or
+        [string]$versions.k3s.image -cne [string]$config.NodeImage) {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' 'imagem K3s deve corresponder a versao registrada e ao digest configurado.'
+    }
+    $clusterConfig = Get-Content -Raw -LiteralPath $config.ClusterConfigPath
+    $clusterImage = [regex]::Match($clusterConfig, '(?m)^image:\s*(?<image>\S+)\s*$')
+    if (-not $clusterImage.Success -or $clusterImage.Groups['image'].Value -cne [string]$versions.k3s.image) {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' 'cluster-config deve usar exatamente a imagem K3s fixada.'
+    }
     return $versions
 }
 
@@ -106,6 +121,14 @@ function Assert-HmlPlatformLocalCliVersionOutput {
     if ([string]$client.clientVersion.gitVersion -cne [string]$Expected.kubectl.gitVersion -or
         [string]$client.kustomizeVersion -cne [string]$Expected.kubectl.kustomizeVersion) {
         Throw-HmlPlatformLocalError 'PREREQUISITE' "kubectl/Kustomize ausente ou fora das versoes fixadas ($($Expected.kubectl.gitVersion), $($Expected.kubectl.kustomizeVersion))."
+    }
+}
+
+function Assert-HmlPlatformLocalK3sVersionOutput {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Output,
+          [Parameter(Mandatory = $true)]$Expected)
+    if ($Output.Trim() -cne [string]$Expected.k3s.version) {
+        Throw-HmlPlatformLocalError 'PREREQUISITE' "K3s ausente ou fora da versao fixada $($Expected.k3s.version)."
     }
 }
 
@@ -182,6 +205,9 @@ function Get-HmlPlatformLocalImageEvidence {
             Throw-HmlPlatformLocalError 'IMAGE' "digest solicitado ausente na imagem: $Reference"
         }
     }
+    if ($Reference -ceq $config.ApiImage -and $digests.Count -eq 0) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'imagem API local sem digest OCI nao pode ser promovida.'
+    }
     [pscustomobject]@{
         Reference = $Reference
         Id = $imageId
@@ -189,6 +215,21 @@ function Get-HmlPlatformLocalImageEvidence {
         Revision = [string]$record.Config.Labels.'org.opencontainers.image.revision'
         WorktreeDirty = [string]$record.Config.Labels.'br.com.urbana.connect.worktree-dirty'
     }
+}
+
+function Ensure-HmlPlatformLocalPinnedImage {
+    param([Parameter(Mandatory = $true)][string]$Reference)
+    if ($Reference -notmatch '@sha256:[0-9a-f]{64}$') {
+        Throw-HmlPlatformLocalError 'IMAGE' 'pull explicito exige referencia fixada por digest.'
+    }
+    $inspect = Invoke-ExternalText -Command 'docker' -Arguments @('image', 'inspect', $Reference) -AllowFailure
+    $pulled = $false
+    if ($inspect.ExitCode -ne 0) {
+        Invoke-ExternalText -Command 'docker' -Arguments @('pull', $Reference) | Out-Null
+        $pulled = $true
+    }
+    $evidence = Get-HmlPlatformLocalImageEvidence -Reference $Reference
+    [pscustomobject]@{ Evidence = $evidence; Pulled = $pulled }
 }
 
 function Get-HmlPlatformLocalGitRevision {
@@ -203,6 +244,179 @@ function Get-HmlPlatformLocalWorktreeDirty {
         '-C', $config.RepoRoot, 'status', '--porcelain', '--untracked-files=all')
     if ([string]::IsNullOrWhiteSpace($result.Output)) { return 'false' }
     return 'true'
+}
+
+function Assert-HmlPlatformLocalPromotionSourceClean {
+    param([string]$Dirty)
+    if (-not $PSBoundParameters.ContainsKey('Dirty')) { $Dirty = Get-HmlPlatformLocalWorktreeDirty }
+    if ($Dirty -cne 'false' -and $Dirty -cne 'true') {
+        Throw-HmlPlatformLocalError 'SOURCE' 'estado dirty da origem nao foi determinado.'
+    }
+    if ($Dirty -cne 'false') {
+        Throw-HmlPlatformLocalError 'SOURCE' 'origem dirty; build/import no target local foram bloqueados.'
+    }
+}
+
+function Assert-HmlPlatformLocalPromotionEvidence {
+    param([Parameter(Mandatory = $true)][ValidateSet('false', 'true')][string]$SourceDirty,
+          [Parameter(Mandatory = $true)][string]$ExpectedRevision,
+          [Parameter(Mandatory = $true)]$ImageEvidence)
+    Assert-HmlPlatformLocalPromotionSourceClean -Dirty $SourceDirty
+    if ($ExpectedRevision -notmatch '^[0-9a-f]{40}$' -or
+        [string]$ImageEvidence.Revision -cne $ExpectedRevision -or
+        [string]$ImageEvidence.WorktreeDirty -cne 'false') {
+        Throw-HmlPlatformLocalError 'IMAGE' 'imagem API nao corresponde a uma revisao limpa e atual.'
+    }
+    $immutableDigests = @($ImageEvidence.Digests | Where-Object { [string]$_ -match '@sha256:[0-9a-f]{64}$' })
+    if ($immutableDigests.Count -eq 0) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'imagem API sem digest imutavel nao pode ser promovida.'
+    }
+}
+
+function Assert-HmlPlatformLocalImportedImageDigest {
+    param([Parameter(Mandatory = $true)][string]$ExpectedDigest,
+          [Parameter(Mandatory = $true)][string]$ActualDigest)
+    if ($ExpectedDigest -notmatch '^sha256:[0-9a-f]{64}$' -or $ActualDigest -cne $ExpectedDigest) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'digest importado no node nao corresponde a imagem local verificada.'
+    }
+}
+
+function Get-HmlPlatformLocalApiPromotionReference {
+    param([Parameter(Mandatory = $true)]$ImageEvidence,
+          [Parameter(Mandatory = $true)][string]$ImportedDigest)
+    $config = Get-HmlPlatformLocalConfig
+    if ($ImportedDigest -notmatch '^sha256:[0-9a-f]{64}$') {
+        Throw-HmlPlatformLocalError 'IMAGE' 'digest OCI da imagem API no containerd ausente ou invalido.'
+    }
+    $repository = [regex]::Replace([string]$config.ApiImage, ':[^/:@]+$', '')
+    $acceptedRepositories = @($repository)
+    if ($repository.StartsWith('docker.io/library/', [StringComparison]::OrdinalIgnoreCase)) {
+        $acceptedRepositories += $repository.Substring('docker.io/library/'.Length)
+    }
+    $repoDigestPatterns = @($acceptedRepositories | ForEach-Object {
+        '^' + [regex]::Escape([string]$_) + '@sha256:[0-9a-f]{64}$'
+    })
+    $repoDigests = @($ImageEvidence.Digests | ForEach-Object { [string]$_ } |
+        Where-Object {
+            $candidate = $_
+            @($repoDigestPatterns | Where-Object { $candidate -match $_ }).Count -gt 0
+        })
+    if ($repoDigests.Count -eq 0) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'imagem API sem RepoDigest do repositorio esperado; ID de configuracao nao substitui digest OCI.'
+    }
+    $matchingRepoDigest = @($repoDigests | Where-Object { $_.EndsWith('@' + $ImportedDigest) })
+    if ($matchingRepoDigest.Count -eq 0) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'digest OCI do containerd nao corresponde ao RepoDigest da imagem API local.'
+    }
+    return "$repository@$ImportedDigest"
+}
+
+function Ensure-HmlPlatformLocalNodeImageDigestAlias {
+    param([Parameter(Mandatory = $true)][string]$SourceReference,
+          [Parameter(Mandatory = $true)][string]$TargetReference,
+          [Parameter(Mandatory = $true)][string]$ExpectedDigest)
+    Assert-HmlPlatformLocalImportedImageDigest -ExpectedDigest $ExpectedDigest -ActualDigest $ExpectedDigest
+    if ($TargetReference -notmatch '@(sha256:[0-9a-f]{64})$' -or $Matches[1] -cne $ExpectedDigest) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'alias imutavel nao corresponde ao digest verificado no containerd.'
+    }
+    $nodeDigests = Get-HmlPlatformLocalNodeImageManifestDigests
+    if (-not $nodeDigests.ContainsKey($SourceReference)) {
+        Throw-HmlPlatformLocalError 'IMAGE' "referencia importada ausente no node k3d: $SourceReference"
+    }
+    Assert-HmlPlatformLocalImportedImageDigest -ExpectedDigest $ExpectedDigest -ActualDigest ([string]$nodeDigests[$SourceReference])
+    if ($nodeDigests.ContainsKey($TargetReference)) {
+        Assert-HmlPlatformLocalImportedImageDigest -ExpectedDigest $ExpectedDigest -ActualDigest ([string]$nodeDigests[$TargetReference])
+        return
+    }
+    $config = Get-HmlPlatformLocalConfig
+    Invoke-ExternalText -Command 'docker' -Arguments @(
+        'exec', $config.K3dServerContainer, '/bin/ctr', '-n', 'k8s.io', 'images', 'tag',
+        $SourceReference, $TargetReference) | Out-Null
+    $nodeDigests = Get-HmlPlatformLocalNodeImageManifestDigests
+    if (-not $nodeDigests.ContainsKey($TargetReference)) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'alias repo@digest nao apareceu no containerd apos a importacao.'
+    }
+    Assert-HmlPlatformLocalImportedImageDigest -ExpectedDigest $ExpectedDigest -ActualDigest ([string]$nodeDigests[$TargetReference])
+}
+
+function New-HmlPlatformLocalPromotionManifest {
+    param([Parameter(Mandatory = $true)]$ImageEvidence,
+          [Parameter(Mandatory = $true)][string]$ImportedDigest,
+          [Parameter(Mandatory = $true)][string]$ExpectedRevision,
+          [Parameter(Mandatory = $true)][ValidateSet('false', 'true')][string]$SourceDirty)
+    $config = Get-HmlPlatformLocalConfig
+    Assert-HmlPlatformLocalPromotionEvidence -SourceDirty $SourceDirty `
+        -ExpectedRevision $ExpectedRevision -ImageEvidence $ImageEvidence
+    $apiReference = Get-HmlPlatformLocalApiPromotionReference -ImageEvidence $ImageEvidence -ImportedDigest $ImportedDigest
+    $source = Invoke-ExternalText -Command 'kubectl' -Arguments @('kustomize', $config.InfraRoot)
+    Assert-TargetText -Text $source.Output
+    Assert-HmlPlatformLocalImageReferences -Text $source.Output -AllowLocalApiTemplate
+
+    $revisionPrefix = [IO.Path]::GetFullPath($config.RepoRoot) + [IO.Path]::DirectorySeparatorChar
+    $promotionRoot = [IO.Path]::GetFullPath((Join-Path $config.DataRoot 'promotion'))
+    if ($promotionRoot.StartsWith($revisionPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        Throw-HmlPlatformLocalError 'SOURCE' 'manifesto de promocao deve ser gerado fora do checkout.'
+    }
+    $promotionDirectory = Join-Path $promotionRoot ($ExpectedRevision + '-' + $ImportedDigest.Substring(7))
+    New-Item -ItemType Directory -Force -Path $promotionDirectory | Out-Null
+    $basePath = Join-Path $promotionDirectory 'base.yaml'
+    $kustomizationPath = Join-Path $promotionDirectory 'kustomization.yaml'
+    $manifestPath = Join-Path $promotionDirectory 'rendered.yaml'
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    [IO.File]::WriteAllText($basePath, $source.Output, $utf8)
+    $kustomization = @(
+        'apiVersion: kustomize.config.k8s.io/v1beta1'
+        'kind: Kustomization'
+        'resources:'
+        '  - base.yaml'
+        'images:'
+        '  - name: ' + ([regex]::Replace([string]$config.ApiImage, ':[^/:@]+$', ''))
+        '    newName: ' + ([regex]::Replace([string]$config.ApiImage, ':[^/:@]+$', ''))
+        '    digest: ' + $ImportedDigest
+        'commonAnnotations:'
+        '  br.com.urbana.connect/source-revision: ' + $ExpectedRevision
+    ) -join [Environment]::NewLine
+    [IO.File]::WriteAllText($kustomizationPath, $kustomization, $utf8)
+    $rendered = Invoke-ExternalText -Command 'kubectl' -Arguments @('kustomize', $promotionDirectory)
+    Assert-TargetText -Text $rendered.Output
+    Assert-HmlPlatformLocalImageReferences -Text $rendered.Output `
+        -ExpectedApiReference $apiReference -SourceRevision $ExpectedRevision
+    [IO.File]::WriteAllText($manifestPath, $rendered.Output, $utf8)
+    $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    [pscustomobject]@{
+        Path = $manifestPath
+        ApiReference = $apiReference
+        ApiDigest = $ImportedDigest
+        SourceRevision = $ExpectedRevision
+        ManifestSha256 = $manifestHash
+    }
+}
+
+function Assert-HmlPlatformLocalAppliedPromotion {
+    param([Parameter(Mandatory = $true)][string]$ExpectedApiReference,
+          [Parameter(Mandatory = $true)][string]$ExpectedRevision)
+    $config = Get-HmlPlatformLocalConfig
+    $result = Invoke-Kubectl -Arguments @('-n', $config.Namespace, 'get', 'deployment/urbana-connect', '-o', 'json')
+    try { $deployment = $result.Output | ConvertFrom-Json -ErrorAction Stop } catch {
+        Throw-HmlPlatformLocalError 'APPLY' 'deployment aplicado nao retornou JSON valido.'
+    }
+    $containers = @($deployment.spec.template.spec.containers | Where-Object { $_.name -ceq 'urbana-connect' })
+    if ($containers.Count -ne 1 -or [string]$containers[0].image -cne $ExpectedApiReference) {
+        Throw-HmlPlatformLocalError 'APPLY' 'deployment ativo nao usa a referencia API repo@digest promovida.'
+    }
+    if ([long]$deployment.status.observedGeneration -lt [long]$deployment.metadata.generation) {
+        Throw-HmlPlatformLocalError 'APPLY' 'deployment ativo ainda nao observou a geracao aplicada.'
+    }
+    $annotations = $deployment.spec.template.metadata.annotations
+    if ([string]$annotations.'br.com.urbana.connect/source-revision' -cne $ExpectedRevision) {
+        Throw-HmlPlatformLocalError 'APPLY' 'deployment ativo nao esta anotado com a revisao limpa da origem.'
+    }
+    [pscustomobject]@{
+        Generation = [long]$deployment.metadata.generation
+        ObservedGeneration = [long]$deployment.status.observedGeneration
+        ApiReference = [string]$containers[0].image
+        SourceRevision = [string]$annotations.'br.com.urbana.connect/source-revision'
+    }
 }
 
 function Build-HmlPlatformLocalApiImage {
@@ -250,33 +464,80 @@ function Get-HmlPlatformLocalNodeImages {
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 }
 
+function Get-HmlPlatformLocalNodeImageManifestDigests {
+    $config = Get-HmlPlatformLocalConfig
+    $result = Invoke-ExternalText -Command 'docker' -Arguments @(
+        'exec', $config.K3dServerContainer, '/bin/ctr', '-n', 'k8s.io', 'images', 'ls')
+    $digests = @{}
+    foreach ($line in ($result.Output -split "`r?`n")) {
+        $columns = [regex]::Split($line.Trim(), '\s+')
+        if ($columns.Count -ge 3 -and $columns[0] -ne 'REF' -and
+            $columns[2] -match '^sha256:[0-9a-f]{64}$') {
+            $digests[$columns[0]] = $columns[2]
+        }
+    }
+    return $digests
+}
+
+function Get-HmlPlatformLocalImportedImageEvidence {
+    $config = Get-HmlPlatformLocalConfig
+    $references = Get-HmlPlatformLocalNodeImages
+    $nodeDigests = Get-HmlPlatformLocalNodeImageManifestDigests
+    $imageEvidence = [ordered]@{}
+    foreach ($reference in @($config.ApiImage, $config.MongoImage)) {
+        if ($reference -notin $references) {
+            Throw-HmlPlatformLocalError 'IMAGE' "imagem esperada ausente no node k3d: $reference"
+        }
+        $localEvidence = Get-HmlPlatformLocalImageEvidence -Reference $reference
+        if (-not $nodeDigests.ContainsKey($reference)) {
+            Throw-HmlPlatformLocalError 'IMAGE' "digest OCI da referencia importada nao foi lido no node: $reference"
+        }
+        $nodeDigest = [string]$nodeDigests[$reference]
+        $allowedDigests = @($localEvidence.Digests | ForEach-Object { ([string]$_ -replace '^.*@', '') })
+        if ($reference -match '@(sha256:[0-9a-f]{64})$') {
+            $allowedDigests = @($Matches[1])
+        }
+        if ($nodeDigest -notin $allowedDigests) {
+            $expected = if ($allowedDigests.Count -gt 0) { [string]$allowedDigests[0] } else { '' }
+            Assert-HmlPlatformLocalImportedImageDigest -ExpectedDigest $expected -ActualDigest $nodeDigest
+        }
+        $imageEvidence[$reference] = @{ digest = $nodeDigest }
+    }
+    $apiDigest = [string]$imageEvidence[$config.ApiImage].digest
+    $apiLocalEvidence = Get-HmlPlatformLocalImageEvidence -Reference $config.ApiImage
+    $apiReference = Get-HmlPlatformLocalApiPromotionReference -ImageEvidence $apiLocalEvidence -ImportedDigest $apiDigest
+    if (-not $nodeDigests.ContainsKey($apiReference)) {
+        Throw-HmlPlatformLocalError 'IMAGE' "alias imutavel ausente no node k3d: $apiReference"
+    }
+    Assert-HmlPlatformLocalImportedImageDigest -ExpectedDigest $apiDigest -ActualDigest ([string]$nodeDigests[$apiReference])
+    $imageEvidence[$apiReference] = @{ digest = [string]$nodeDigests[$apiReference]; sourceReference = $config.ApiImage }
+    [pscustomobject]@{ References = $references; Digests = $imageEvidence; ApiReference = $apiReference }
+}
+
 function Import-HmlPlatformLocalImages {
     $config = Get-HmlPlatformLocalConfig
     $apiEvidence = Get-HmlPlatformLocalImageEvidence -Reference $config.ApiImage
-    $mongoEvidence = Get-HmlPlatformLocalImageEvidence -Reference $config.MongoImage
+    $revision = Get-HmlPlatformLocalGitRevision
+    $dirty = Get-HmlPlatformLocalWorktreeDirty
+    Assert-HmlPlatformLocalPromotionEvidence -SourceDirty $dirty -ExpectedRevision $revision -ImageEvidence $apiEvidence
+    $mongoImage = Ensure-HmlPlatformLocalPinnedImage -Reference $config.MongoImage
+    $mongoEvidence = $mongoImage.Evidence
     Invoke-ExternalText -Command 'k3d' -Arguments @(
         'image', 'import', '--cluster', $config.ClusterName, $config.ApiImage, $config.MongoImage) | Out-Null
-    $nodeImages = Get-HmlPlatformLocalNodeImages
-    if ($config.ApiImage -notin $nodeImages) {
-        Throw-HmlPlatformLocalError 'IMAGE' "imagem API nao foi importada no node k3d: $($config.ApiImage)"
+    $nodeDigests = Get-HmlPlatformLocalNodeImageManifestDigests
+    if (-not $nodeDigests.ContainsKey($config.ApiImage)) {
+        Throw-HmlPlatformLocalError 'IMAGE' "imagem API ausente no containerd apos import: $($config.ApiImage)"
     }
-    $mongoDigest = ($mongoEvidence.Digests | Where-Object { $_.EndsWith('@' + ($config.MongoImage -replace '^.*@', '')) } | Select-Object -First 1)
-    if ($mongoDigest -and -not ($nodeImages -contains $config.MongoImage)) {
-        Throw-HmlPlatformLocalError 'IMAGE' "imagem Mongo fixada nao foi importada no node k3d: $($config.MongoImage)"
-    }
-    return [pscustomobject]@{ Api = $apiEvidence; Mongo = $mongoEvidence; NodeImages = $nodeImages }
+    $apiReference = Get-HmlPlatformLocalApiPromotionReference -ImageEvidence $apiEvidence `
+        -ImportedDigest ([string]$nodeDigests[$config.ApiImage])
+    Ensure-HmlPlatformLocalNodeImageDigestAlias -SourceReference $config.ApiImage `
+        -TargetReference $apiReference -ExpectedDigest ([string]$nodeDigests[$config.ApiImage])
+    $imported = Get-HmlPlatformLocalImportedImageEvidence
+    return [pscustomobject]@{ Api = $apiEvidence; Mongo = $mongoEvidence; MongoPulled = $mongoImage.Pulled; NodeImages = $imported.References; ApiReference = $imported.ApiReference; ImportedDigests = $imported.Digests }
 }
 
 function Assert-HmlPlatformLocalImagesImported {
-    $config = Get-HmlPlatformLocalConfig
-    $nodeImages = Get-HmlPlatformLocalNodeImages
-    if ($config.ApiImage -notin $nodeImages) {
-        Throw-HmlPlatformLocalError 'IMAGE' "imagem API ausente no node k3d: $($config.ApiImage)"
-    }
-    if ($config.MongoImage -notin $nodeImages) {
-        Throw-HmlPlatformLocalError 'IMAGE' "imagem Mongo fixada ausente no node k3d: $($config.MongoImage)"
-    }
-    return $nodeImages
+    return (Get-HmlPlatformLocalImportedImageEvidence).References
 }
 
 function Assert-TargetText {
@@ -299,6 +560,60 @@ function Assert-TargetText {
     }
 }
 
+function Assert-HmlPlatformLocalImageReferences {
+    param([Parameter(Mandatory = $true)][string]$Text,
+          [string]$ExpectedApiReference,
+          [string]$SourceRevision,
+          [switch]$AllowLocalApiTemplate)
+    $config = Get-HmlPlatformLocalConfig
+    $apiRepository = [regex]::Replace([string]$config.ApiImage, ':[^/:@]+$', '')
+    $references = @([regex]::Matches($Text, '(?m)^[ \t]*image:[ \t]*(?<reference>\S+)[ \t]*[\x0d]?$') |
+        ForEach-Object { [string]$_.Groups['reference'].Value })
+    if ($references.Count -eq 0) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'nenhuma imagem foi declarada nos manifests do target.'
+    }
+    if ($ExpectedApiReference -and $ExpectedApiReference -notmatch ('^' + [regex]::Escape($apiRepository) + '@sha256:[0-9a-f]{64}$')) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'referencia API esperada deve ser repo@digest OCI, sem tag.'
+    }
+    if ($SourceRevision -and $SourceRevision -notmatch '^[0-9a-f]{40}$') {
+        Throw-HmlPlatformLocalError 'SOURCE' 'revisao da origem deve ser um commit Git completo.'
+    }
+    $apiReferenceCount = 0
+    $apiTemplateCount = 0
+    foreach ($reference in $references) {
+        if ($reference -match '(^|/)latest(@|$)|:latest(@|$)') {
+            Throw-HmlPlatformLocalError 'IMAGE' "referencia latest proibida: $reference"
+        }
+        $referenceParts = $reference -split '@', 2
+        $repository = [regex]::Replace([string]$referenceParts[0], ':[^/:]+$', '')
+        $hasDigest = $referenceParts.Count -eq 2 -and $referenceParts[1] -match '^sha256:[0-9a-f]{64}$'
+        if ($repository -ceq $apiRepository) {
+            if ($AllowLocalApiTemplate -and $reference -ceq $config.ApiImage) {
+                $apiTemplateCount++
+                continue
+            }
+            if (-not $hasDigest -or $reference -cnotmatch ('^' + [regex]::Escape($apiRepository) + '@sha256:[0-9a-f]{64}$')) {
+                Throw-HmlPlatformLocalError 'IMAGE' "imagem API deve usar referencia imutavel repo@sha256, nao tag local: $reference"
+            }
+            if ($ExpectedApiReference -and $reference -cne $ExpectedApiReference) {
+                Throw-HmlPlatformLocalError 'IMAGE' 'manifesto API nao corresponde ao digest OCI aprovado para esta promocao.'
+            }
+            $apiReferenceCount++
+        } elseif (-not $hasDigest) {
+            Throw-HmlPlatformLocalError 'IMAGE' "imagem sem identidade imutavel por digest: $reference"
+        }
+    }
+    if (($apiReferenceCount + $apiTemplateCount) -ne 1) {
+        Throw-HmlPlatformLocalError 'IMAGE' 'manifesto deve conter exatamente uma referencia da API (template ou repo@digest).'
+    }
+    if ($SourceRevision) {
+        $annotation = '(?m)^\s*br\.com\.urbana\.connect/source-revision:\s*' + [regex]::Escape($SourceRevision) + '\s*$'
+        if ($Text -notmatch $annotation) {
+            Throw-HmlPlatformLocalError 'SOURCE' 'manifesto de promocao nao esta ligado a revisao limpa esperada.'
+        }
+    }
+}
+
 function Assert-TargetManifests {
     $config = Get-HmlPlatformLocalConfig
     if (-not (Test-Path -LiteralPath $config.InfraRoot -PathType Container)) {
@@ -309,6 +624,7 @@ function Assert-TargetManifests {
     if ($files.Count -lt 7) { Throw-HmlPlatformLocalError 'TARGET' 'manifests dedicados incompletos.' }
     $text = ($files | ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName }) -join "`n"
     Assert-TargetText -Text $text
+    Assert-HmlPlatformLocalImageReferences -Text $text -AllowLocalApiTemplate
     return $text
 }
 
