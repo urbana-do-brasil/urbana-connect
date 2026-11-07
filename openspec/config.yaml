@@ -1,0 +1,37 @@
+schema: spec-driven
+
+context: |
+  Language: Português Brasileiro
+  All artifacts must be written in Português Brasileiro.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Urbana Connect é o agente de atendimento via WhatsApp com IA da Urbana do Brasil (Urba).
+  Stack: Java 21 LTS, Spring Boot 3.4.x, Gradle 8.x, MongoDB,
+  JUnit 5 + Spring Boot Test + Testcontainers.
+  Infra: k3s (Contabo VPS), Kustomize (base + overlays), GHCR,
+  Prometheus + Grafana + Loki + Promtail.
+
+  Arquitetura: Clean Architecture com as camadas domain, application,
+  infrastructure e interfaces em app/src/main/java/br/com/urbana/connect/.
+  Regras de negócio não devem nascer em controllers; dependências externas
+  devem ficar isoladas nas bordas; casos de uso orientados por comportamento.
+
+  Leia docs/engineering-principles.md antes de planejar e use
+  docs/specs/_template.md como referência de conteúdo (contexto, comportamentos
+  esperados, critérios de aceite, edge cases, observabilidade, fora de escopo).
+  As specs manuais existentes ficam em docs/specs/; os artefatos do OpenSpec
+  vivem em openspec/. Testes são requisito de entrega, com cobertura mínima de
+  linha de 60% medida pelo JaCoCo.
+
+rules:
+  proposal:
+    - State the intended outcome and what is out of scope.
+  tasks:
+    - Prefer small, verifiable deliveries with only genuine dependencies.
+    - Include checks appropriate to the behavior and layers being changed.
+
+operations:
+  apply:
+    guidance:
+      - Start with focused checks; run `cd app && ./gradlew test` before broader verification.
+      - Use disposable state for tests; do not use production data or secrets.
