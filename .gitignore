@@ -138,6 +138,8 @@ vendor/
 !terraform/environments/dev/terraform.tfvars
 !terraform/environments/staging/terraform.tfvars
 !terraform/environments/prod/terraform.tfvars
+# Lock das agent skills instaladas via skills.sh (reprodutibilidade/update)
+!skills-lock.json
 
 # Permitir o versionamento do Gradle Wrapper JAR
 !app/gradle/wrapper/gradle-wrapper.jar
